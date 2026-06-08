@@ -1,0 +1,147 @@
+const { DWClient } = require('dingtalk-stream-sdk-nodejs');
+const axios = require('axios');
+require('dotenv').config();
+
+// 配置信息
+const APP_KEY = process.env.APP_ID;
+const APP_SECRET = process.env.APP_SECRET;
+
+console.log('🚀 正在初始化 Stream SDK...');
+
+// 1. 初始化 Stream 客户端
+const client = new DWClient({
+    clientId: APP_KEY,
+    clientSecret: APP_SECRET,
+});
+
+// 全局变量：存储已处理的消息 ID (用于去重)
+const processedMessageIds = new Set();
+const MAX_CACHE_SIZE = 1000;
+
+// 2. 获取 Access Token
+async function getAccessToken() {
+    try {
+        const url = 'https://oapi.dingtalk.com/gettoken';
+        const response = await axios.get(url, {
+            params: {
+                appkey: APP_KEY,
+                appsecret: APP_SECRET
+            }
+        });
+        
+        if (response.data.errcode === 0) {
+            return response.data.access_token;
+        } else {
+            console.error('❌ 获取 Token 失败:', response.data);
+            return null;
+        }
+    } catch (err) {
+        console.error('❌ 获取 Token 异常:', err.message);
+        return null;
+    }
+}
+
+// 3. 发送群消息
+async function replyToGroup(conversationId, text) {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+        console.error('❌ 无法获取 Token，取消发送');
+        return;
+    }
+
+    try {
+        const apiUrl = 'https://api.dingtalk.com/v1.0/robot/groupMessages/send';
+        
+        const payload = {
+            robotCode: APP_KEY,
+            openConversationId: conversationId,
+            msgKey: 'sampleText',
+            msgParam: JSON.stringify({
+                content: text
+            })
+        };
+
+        console.log(`📤 正在发送请求到: ${apiUrl}`);
+        
+        const response = await axios.post(apiUrl, payload, {
+            headers: {
+                'x-acs-dingtalk-access-token': accessToken,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.status === 200) {
+            console.log(`✅ [API] 消息发送成功！`);
+        } else {
+            console.error(`❌ [API] 发送失败:`, response.data);
+        }
+
+    } catch (err) {
+        console.error('❌ [API] 请求异常:', err.response ? err.response.data : err.message);
+    }
+}
+
+// 4. 注册监听器
+client.registerCallbackListener('/v1.0/im/bot/messages/get', async (message) => {
+    // 解析数据
+    const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+    
+    // 获取消息唯一 ID (从 headers 中获取，如果有的话；否则使用 data 中的 eventId)
+    // 注意：SDK 传递的 message 对象结构可能不同，我们优先尝试从 data 中提取唯一标识
+    // 在日志中我们看到 data 里有 eventId，但那是事件 ID。
+    // 真正的消息 ID 通常在 message.headers.messageId
+    const messageId = message.headers?.messageId || data.eventId || `${data.senderId}_${data.createTime}`;
+    
+    const senderNick = data.senderNick;
+    const senderId = data.senderId;
+    const textContent = data.text?.content;
+    const conversationId = data.conversationId;
+    const msgType = data.msgtype;
+
+    // --- 去重逻辑 ---
+    if (processedMessageIds.has(messageId)) {
+        console.log(`⏭️  [SKIP] 忽略重复消息 (ID: ${messageId})`);
+        return;
+    }
+    
+    // 记录已处理的消息 ID
+    processedMessageIds.add(messageId);
+    if (processedMessageIds.size > MAX_CACHE_SIZE) {
+        // 简单的清理策略：清除一半
+        const keys = Array.from(processedMessageIds);
+        keys.slice(0, keys.length / 2).forEach(k => processedMessageIds.delete(k));
+    }
+
+    // --- 调试日志：查看是谁发的 ---
+    console.log('\n----------------------------------------');
+    console.log('🔍 [DEBUG] 收到消息详情:');
+    console.log(`   - Message ID:  "${messageId}"`);
+    console.log(`   - Sender Nick: "${senderNick}"`);
+    console.log(`   - Sender ID:   "${senderId}"`);
+    console.log(`   - Msg Type:    ${msgType}`);
+    console.log(`   - Content:     ${textContent}`);
+    console.log('----------------------------------------');
+
+    // --- 防自循环逻辑 ---
+    const BOT_NICK_NAMES = ['森宇任务助手', '森宇任务项目管理系统'];
+    
+    if (BOT_NICK_NAMES.includes(senderNick)) {
+        console.log('⏭️  [SKIP] 忽略机器人自己发送的消息，防止死循环。');
+        return;
+    }
+
+    // --- 业务逻辑 ---
+    if (textContent && msgType === 'text') {
+        const replyText = `你好，${senderNick}！我是森宇任务助手。我收到了：“${textContent}”。`;
+        
+        console.log(`🔄 正在准备回复...`);
+        await replyToGroup(conversationId, replyText);
+    }
+});
+
+// 5. 启动
+client.connect().then(() => {
+    console.log('✅ Stream SDK 连接已建立，正在监听消息...');
+}).catch((err) => {
+    console.error('❌ 连接失败:', err);
+});

@@ -1,0 +1,29 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@barry.jiang/dingtalk-aiapp-infra": "^1.0.0",
+    "@chen0825/aiapp-ability": ">=0.1.18",
+    "@supabase/supabase-js": "^2.106.0",
+    "axios": "^1.16.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.19.0",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.7",
+    "@types/cors": "^2.8.0",
+    "@types/express": "^4.17.0",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.19.41",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
