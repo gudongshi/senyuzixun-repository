@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
@@ -24,6 +26,9 @@ const DINGTALK_APP_SECRET = process.env.APP_SECRET || '';
 
 // AI表格配置（多维表格ID）
 const DINGTALK_AI_TABLE_ID = process.env.DINGTALK_AI_TABLE_ID || '';
+
+// JWT 密钥（生产环境请务必使用复杂的随机字符串）
+const JWT_SECRET = process.env.JWT_SECRET || 'senyu-dashboard-secret-key-change-in-production';
 
 // 缓存 access_token
 let dingtalkAccessToken: string | null = null;
@@ -101,6 +106,25 @@ async function getUserNameByUserId(userId: string): Promise<string> {
 }
 
 app.use(cors());
+app.use(cookieParser());
+
+// —— JWT 验证中间件 ——
+function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  // 优先从 cookie 中读取 token，其次从 Authorization header
+  const token =
+    req.cookies?.token ||
+    req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    return res.status(401).json({ success: false, error: '未登录，请先访问 /api/dingtalk/login' });
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; name: string };
+    (req as any).user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ success: false, error: '登录已过期，请重新登录' });
+  }
+}
 
 // 调试 + JSON 解析合并
 app.use((req, res, next) => {
@@ -355,6 +379,105 @@ app.post('/api/milestones', async (req, res) => {
     console.error('❌ 处理里程碑异常:', err);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
+});
+
+// ================================================================
+//  钉钉免登接口
+// ================================================================
+
+//  GET /api/dingtalk/login?code=xxx
+//  钉钉 H5 微应用内，前端拿到 code 后调用此接口完成登录
+app.get('/api/dingtalk/login', async (req, res) => {
+  try {
+    const { code } = req.query;
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ success: false, error: '缺少 code 参数' });
+    }
+
+    // Step 1 — 用临时授权码换取用户级 accessToken
+    console.log('🔑 正在换取 userAccessToken, code:', code.slice(0, 20) + '…');
+    const tokenResp = await axios.post(
+      'https://api.dingtalk.com/v1.0/oauth2/userAccessToken',
+      {
+        clientId: DINGTALK_APP_KEY,
+        clientSecret: DINGTALK_APP_SECRET,
+        code,
+        grantType: 'authorization_code',
+      },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+
+    const { accessToken } = tokenResp.data;
+    if (!accessToken) {
+      console.error('❌ 换取 userAccessToken 失败:', tokenResp.data);
+      return res.status(401).json({ success: false, error: '钉钉认证失败，请检查 AppKey/Secret 配置' });
+    }
+
+    // Step 2 — 用用户级 token 获取当前登录人信息
+    console.log('👤 正在获取用户信息…');
+    const userResp = await axios.get('https://api.dingtalk.com/v1.0/contact/users/me', {
+      headers: { 'x-acs-dingtalk-access-token': accessToken },
+    });
+
+    const user = userResp.data;
+    const userId: string = user.userId || user.openId || '';
+    const userName: string = user.nick || user.name || userId || '未知用户';
+
+    console.log(`✅ 钉钉登录成功: ${userName} (${userId})`);
+
+    // Step 3 — 生成自定义 session token（JWT）
+    const sessionToken = jwt.sign(
+      { userId, name: userName, loginTime: Date.now() },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // —— 始终设置 httpOnly cookie，同时返回 token 供前端 JS 读取 ——
+    res.cookie('token', sessionToken, {
+      httpOnly: true,
+      secure: false,          // 内网部署用 false，HTTPS 生产环境改为 true
+      maxAge: 7 * 24 * 3600 * 1000,
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    // 如果请求明确要求重定向（钉钉客户端内常见做法）
+    if (req.query.redirect === '1') {
+      return res.redirect('/');
+    }
+
+    // 默认：返回 JSON + token（前端可存到 localStorage / 内存）
+    res.json({
+      success: true,
+      token: sessionToken,
+      user: { userId, name: userName },
+    });
+  } catch (err: any) {
+    const detail = err.response?.data || err.message;
+    console.error('❌ 钉钉登录异常:', JSON.stringify(detail).slice(0, 300));
+    res.status(500).json({ success: false, error: '登录服务异常，请稍后重试' });
+  }
+});
+
+//  GET /api/dingtalk/me
+//  返回当前登录用户信息（需要携带 token）
+app.get('/api/dingtalk/me', authMiddleware, (req, res) => {
+  const user = (req as any).user;
+  res.json({
+    success: true,
+    user: {
+      userId: user.userId,
+      name: user.name,
+      loginTime: user.loginTime,
+    },
+  });
+});
+
+//  POST /api/dingtalk/logout
+//  清除登录 cookie
+app.post('/api/dingtalk/logout', (_req, res) => {
+  res.clearCookie('token', { path: '/' });
+  res.json({ success: true, message: '已登出' });
 });
 
 app.listen(PORT, () => {
