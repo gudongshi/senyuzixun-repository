@@ -91,8 +91,10 @@ async function getUserNameByUserId(userId: string): Promise<string> {
         userNameCache.set(userId, userName);
         if (userNameCache.size > 1000) {
           const firstKey = userNameCache.keys().next().value;
-          userNameCache.delete(firstKey);
-        }
+          if (firstKey) {
+              userNameCache.delete(firstKey);
+          }
+      }
         console.log(`✅ 用户 ID ${userId} -> 姓名: ${userName}`);
         return userName;
       }
@@ -424,6 +426,26 @@ app.get('/api/dingtalk/login', async (req, res) => {
     const userName: string = user.nick || user.name || userId || '未知用户';
 
     console.log(`✅ 钉钉登录成功: ${userName} (${userId})`);
+
+
+    // ======================== 白名单校验 ========================
+const ALLOWED_USERS = [
+  "RWATGRZfsEJGwSILSZyXvwiEiE",   // 赵莘
+  "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
+  "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
+];
+
+if (!ALLOWED_USERS.includes(userId)) {
+  console.warn(`⛔ 拒绝访问: ${userName} (${userId}) 不在白名单中`);
+  return res.status(403).json({
+      success: false,
+      error: '您暂无访问权限，请联系管理员'
+  });
+}
+console.log(`✅ 白名单校验通过: ${userName} (${userId})`);
+// ======================== 白名单校验结束 ========================
+
+
 
     // Step 3 — 生成自定义 session token（JWT）
     const sessionToken = jwt.sign(
