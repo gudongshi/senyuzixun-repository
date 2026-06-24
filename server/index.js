@@ -1,4 +1,7 @@
 require('dotenv').config();
+
+const ws = require('ws');
+
 const express = require('express');
 const axios = require('axios');
 const cookieParser = require('cookie-parser');
@@ -16,12 +19,14 @@ app.use(cors({ origin: true, credentials: true }));
 
 // ======================== Supabase 配置 ========================
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;   // ← 注意变量名
 if (!supabaseUrl || !supabaseKey) {
   console.error('❌ 缺少 Supabase 配置');
   process.exit(1);
 }
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey, {
+    realtime: { transport: ws }
+  });
 console.log('✅ Supabase 配置已加载');
 
 // ======================== 钉钉配置 ========================
