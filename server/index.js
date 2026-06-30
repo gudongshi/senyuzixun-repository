@@ -1,6 +1,16 @@
-require('dotenv').config();
-
-const ws = require('ws');
+// ============================================================
+// 强制加载 .env 并打印调试信息
+// ============================================================
+const dotenv = require('dotenv');
+const path = require('path');
+const result = dotenv.config({ path: path.join(__dirname, '.env') });
+if (result.error) {
+  console.error('❌ 加载 .env 失败:', result.error);
+} else {
+  console.log('✅ .env 加载成功，变量数量:', Object.keys(result.parsed || {}).length);
+}
+console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
+console.log('SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY);
 
 const express = require('express');
 const axios = require('axios');
@@ -8,25 +18,26 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
+const ws = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ======================== 中间件 ========================
+// 中间件
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({ origin: true, credentials: true }));
 
 // ======================== Supabase 配置 ========================
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;   // ← 注意变量名
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 if (!supabaseUrl || !supabaseKey) {
   console.error('❌ 缺少 Supabase 配置');
   process.exit(1);
 }
 const supabase = createClient(supabaseUrl, supabaseKey, {
-    realtime: { transport: ws }
-  });
+  realtime: { transport: ws }
+});
 console.log('✅ Supabase 配置已加载');
 
 // ======================== 钉钉配置 ========================
@@ -121,7 +132,7 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ======================== 工具函数（字段清理、日期解析） ========================
+// ======================== 工具函数 ========================
 function cleanField(value) {
   if (!value) return '';
   if (typeof value === 'string' && value.startsWith('[')) {
@@ -169,7 +180,6 @@ app.get('/api/dingtalk/login', async (req, res) => {
       return res.status(400).json({ success: false, error: '缺少 code 参数' });
     }
 
-    // 1. 用 code 换取 accessToken
     const tokenResp = await axios.post(
       'https://api.dingtalk.com/v1.0/oauth2/userAccessToken',
       {
@@ -187,7 +197,6 @@ app.get('/api/dingtalk/login', async (req, res) => {
       return res.status(401).json({ success: false, error: '钉钉认证失败' });
     }
 
-    // 2. 获取用户信息
     const userResp = await axios.get('https://api.dingtalk.com/v1.0/contact/users/me', {
       headers: { 'x-acs-dingtalk-access-token': accessToken },
     });
@@ -196,7 +205,7 @@ app.get('/api/dingtalk/login', async (req, res) => {
     const userId = user.userId || user.openId || '';
     const userName = user.nick || user.name || userId || '未知用户';
 
-    // ======================== 白名单校验 ========================
+    // 白名单校验
     const ALLOWED_USERS = [
       "RWATGRZfsEJGwSILSZyXvwiEiE",   // 赵莘
       "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
@@ -211,7 +220,6 @@ app.get('/api/dingtalk/login', async (req, res) => {
     }
     console.log(`✅ 白名单校验通过: ${userName} (${userId})`);
 
-    // 3. 生成 JWT
     const sessionToken = jwt.sign(
       { userId, name: userName, loginTime: Date.now() },
       JWT_SECRET,
@@ -220,7 +228,7 @@ app.get('/api/dingtalk/login', async (req, res) => {
 
     res.cookie('token', sessionToken, {
       httpOnly: true,
-      secure: false,   // 若启用 HTTPS 则改为 true
+      secure: false,
       maxAge: 7 * 24 * 3600 * 1000,
       sameSite: 'lax',
       path: '/',
@@ -250,7 +258,7 @@ app.post('/api/dingtalk/logout', (req, res) => {
   res.json({ success: true, message: '已登出' });
 });
 
-// ======================== 钉钉 AI 表格 Webhook（集团任务同步） ========================
+// ======================== 钉钉 AI 表格 Webhook ========================
 app.post('/api/ai-table-webhook', async (req, res) => {
   try {
     console.log('\n----------------------------------------');
@@ -259,7 +267,6 @@ app.post('/api/ai-table-webhook', async (req, res) => {
 
     const data = req.body;
 
-    // 提取字段
     const taskName = cleanField(data['任务名称'] || data.taskName);
     if (!taskName) {
       console.warn('⚠️ 未找到任务名称字段，跳过更新');
@@ -295,7 +302,6 @@ app.post('/api/ai-table-webhook', async (req, res) => {
       }
     }
 
-    // 构建记录
     const record = {
       '任务名称': taskName,
       title: taskName,
@@ -315,7 +321,6 @@ app.post('/api/ai-table-webhook', async (req, res) => {
 
     console.log(`🔄 处理任务 "${taskName}":`, record);
 
-    // 查询或插入
     const { data: existing, error: selectError } = await supabase
       .from('tasks')
       .select('id')
@@ -352,34 +357,65 @@ app.post('/api/ai-table-webhook', async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    // 里程碑明细
+    // ======================== 里程碑处理（含计划进度） ========================
     const milestones = data['里程碑明细'];
     if (milestones && Array.isArray(milestones) && taskId) {
       await supabase.from('task_milestones').delete().eq('task_id', taskId);
+
       const toInsert = milestones.map(m => {
         const name = m.TextField_1ET9FKVXORGG0 || m['里程碑名称'] || m['里程碑'] || '';
+        if (!name) return null;
+
         let planned = m.DDDateField_1ALJFR1YYQWW0 || m['计划完成日期'] || '';
+        if (planned && typeof planned === 'number') {
+          planned = new Date(planned).toISOString().split('T')[0];
+        }
+
         let actual = m.DDDateField_115E25X500740 || m['实际完成日期'] || '';
-        if (planned && typeof planned === 'number') planned = new Date(planned).toISOString().split('T')[0];
-        if (actual && typeof actual === 'number') actual = new Date(actual).toISOString().split('T')[0];
+        if (actual && typeof actual === 'number') {
+          actual = new Date(actual).toISOString().split('T')[0];
+        }
+
+        // === 提取计划进度（支持多种字段名） ===
+        let progress = 
+          m['计划里程碑完成时，整体任务完成度%'] ||   // 新字段
+          m['计划进度(%)'] ||
+          m['计划进度'] ||
+          m['planned_progress'] ||
+          0;
+        if (typeof progress === 'string') {
+          progress = parseFloat(progress.replace('%', '').trim());
+        }
+        if (isNaN(progress)) progress = 0;
+        progress = Math.min(100, Math.max(0, progress));
+
+        console.log(`📌 里程碑 "${name}" 计划进度: ${progress}%`);
+
         return {
           task_id: taskId,
           milestone_name: name,
           planned_date: planned || null,
           actual_date: actual || null,
+          planned_progress: progress,
         };
-      }).filter(m => m.milestone_name);
+      }).filter(m => m !== null && m.milestone_name);
+
       if (toInsert.length > 0) {
-        const { error: insError } = await supabase.from('task_milestones').insert(toInsert);
-        if (insError) console.error('❌ 插入里程碑失败:', insError);
-        else console.log(`✅ 插入 ${toInsert.length} 条里程碑`);
+        const { error: insError } = await supabase
+          .from('task_milestones')
+          .insert(toInsert);
+        if (insError) {
+          console.error('❌ 插入里程碑失败:', insError);
+        } else {
+          console.log(`✅ 插入 ${toInsert.length} 条里程碑（含计划进度）`);
+        }
       }
     }
 
     console.log('✅ Supabase 操作成功');
     res.status(200).json({ success: true, message: 'Synced' });
   } catch (err) {
-    console.error('❌ 处理异常:', err);
+    console.error('❌ 处理异常:', err.stack || err);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
