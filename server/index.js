@@ -23,12 +23,15 @@ const ws = require('ws');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 中间件
-app.use(express.json());
+// ============================================================
+// 中间件（先不加载 express.json()，Webhook 路由自定义解析）
+// ============================================================
 app.use(cookieParser());
 app.use(cors({ origin: true, credentials: true }));
 
-// ======================== Supabase 配置 ========================
+// ============================================================
+// Supabase 配置
+// ============================================================
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 if (!supabaseUrl || !supabaseKey) {
@@ -40,7 +43,9 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 console.log('✅ Supabase 配置已加载');
 
-// ======================== 钉钉配置 ========================
+// ============================================================
+// 钉钉配置
+// ============================================================
 const DINGTALK_APP_KEY = process.env.DINGTALK_APP_KEY;
 const DINGTALK_APP_SECRET = process.env.DINGTALK_APP_SECRET;
 if (!DINGTALK_APP_KEY || !DINGTALK_APP_SECRET) {
@@ -49,7 +54,9 @@ if (!DINGTALK_APP_KEY || !DINGTALK_APP_SECRET) {
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'senyu-dashboard-jwt-secret-2024';
 
-// ======================== 钉钉 Token 缓存 ========================
+// ============================================================
+// 钉钉 Token 缓存
+// ============================================================
 let dingtalkAccessToken = null;
 let tokenExpireTime = 0;
 
@@ -77,7 +84,9 @@ async function getDingTalkAccessToken() {
   }
 }
 
-// ======================== 用户姓名缓存 ========================
+// ============================================================
+// 用户姓名缓存
+// ============================================================
 const userNameCache = new Map();
 
 async function getUserNameByUserId(userId) {
@@ -117,7 +126,9 @@ async function getUserNameByUserId(userId) {
   }
 }
 
-// ======================== JWT 验证中间件 ========================
+// ============================================================
+// JWT 验证中间件
+// ============================================================
 function authMiddleware(req, res, next) {
   const token = req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
   if (!token) {
@@ -132,7 +143,9 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ======================== 工具函数 ========================
+// ============================================================
+// 工具函数
+// ============================================================
 function cleanField(value) {
   if (!value) return '';
   if (typeof value === 'string' && value.startsWith('[')) {
@@ -172,7 +185,9 @@ function parseDate(value) {
   return null;
 }
 
-// ======================== 钉钉 OAuth 登录 ========================
+// ============================================================
+// 钉钉 OAuth 登录
+// ============================================================
 app.get('/api/dingtalk/login', async (req, res) => {
   try {
     const { code } = req.query;
@@ -258,51 +273,55 @@ app.post('/api/dingtalk/logout', (req, res) => {
   res.json({ success: true, message: '已登出' });
 });
 
-// ======================== 钉钉 AI 表格 Webhook（增强版） ========================
-app.post('/api/ai-table-webhook', async (req, res) => {
-  try {
-    // --- 捕获原始请求体（用于调试） ---
-    let rawBody = '';
-    req.on('data', chunk => rawBody += chunk);
-    await new Promise(resolve => req.on('end', resolve));
-
-    console.log('\n----------------------------------------');
-    console.log('📩 收到 AI 表格 Webhook 推送');
-    console.log('📦 原始请求体（字符串）:', rawBody);
+// ============================================================
+// 钉钉 AI 表格 Webhook（自定义中间件解析）
+// ============================================================
+app.post('/api/ai-table-webhook', (req, res, next) => {
+  let rawBody = '';
+  req.on('data', chunk => rawBody += chunk);
+  req.on('end', () => {
+    console.log('📦 原始请求体（中间件）:', rawBody);
     console.log('📦 原始请求体长度:', rawBody.length);
-
-    // --- 尝试解析 JSON（多种容错方式） ---
-    let data;
     try {
-      // 1. 直接解析
-      data = JSON.parse(rawBody);
-    } catch (e1) {
-      console.warn('⚠️ 直接解析失败，尝试清理换行符...');
+      req.body = JSON.parse(rawBody);
+      console.log('✅ 中间件 JSON 解析成功');
+      next();
+    } catch (e) {
+      console.error('❌ 中间件 JSON 解析失败:', e.message);
+      // 容错解析：移除换行符、多余空格
       try {
-        // 2. 移除所有换行符和多余空格
         const cleaned = rawBody.replace(/[\n\r\t]/g, '').replace(/\s+/g, ' ');
-        data = JSON.parse(cleaned);
-      } catch (e2) {
-        console.warn('⚠️ 清理后仍失败，尝试提取 JSON 片段...');
-        // 3. 尝试从混合内容中提取 JSON
-        const match = rawBody.match(/\{[\s\S]*\}/);
+        const match = cleaned.match(/\{[\s\S]*\}/);
         if (match) {
-          data = JSON.parse(match[0]);
+          req.body = JSON.parse(match[0]);
+          console.log('✅ 容错解析成功');
+          next();
         } else {
-          throw new Error('无法提取 JSON 片段');
+          throw new Error('无法提取 JSON');
         }
+      } catch (e2) {
+        console.error('❌ 容错解析也失败:', e2.message);
+        res.status(400).json({ success: false, error: 'Invalid JSON' });
       }
     }
+  });
+}, async (req, res) => {
+  // === 实际的 Webhook 处理逻辑 ===
+  try {
+    console.log('\n----------------------------------------');
+    console.log('📩 收到 AI 表格 Webhook 推送');
+    console.log('📦 解析后的请求体:', JSON.stringify(req.body, null, 2));
 
-    console.log('📦 解析后的请求体:', JSON.stringify(data, null, 2));
+    const data = req.body;
 
-    // --- 原有字段提取逻辑 ---
+    // --- 提取任务名称 ---
     const taskName = cleanField(data['任务名称'] || data.taskName);
     if (!taskName) {
       console.warn('⚠️ 未找到任务名称字段，跳过更新');
       return res.status(200).json({ success: true, message: 'Ignored' });
     }
 
+    // --- 提取其他字段 ---
     const taskCategory = cleanField(data['任务分类']);
     const project = cleanField(data['所属项目']);
     const status = cleanField(data['状态']) || '未开始';
@@ -323,6 +342,7 @@ app.post('/api/ai-table-webhook', async (req, res) => {
       if (!isNaN(parsed)) progressValue = parsed;
     }
 
+    // --- 转换责任人 ID 为姓名 ---
     if (responsible && /^\d+$/.test(responsible)) {
       console.log(`🔄 正在转换责任人 ID: ${responsible} -> 姓名...`);
       const userName = await getUserNameByUserId(responsible);
@@ -332,6 +352,7 @@ app.post('/api/ai-table-webhook', async (req, res) => {
       }
     }
 
+    // --- 构建记录 ---
     const record = {
       '任务名称': taskName,
       title: taskName,
@@ -407,9 +428,9 @@ app.post('/api/ai-table-webhook', async (req, res) => {
           actual = new Date(actual).toISOString().split('T')[0];
         }
 
-        // === 提取计划进度（支持多种字段名） ===
+        // 提取计划进度（支持多种字段名）
         let progress = 
-          m['计划里程碑完成时，整体任务完成度%'] ||   // 新字段
+          m['计划里程碑完成时，整体任务完成度%'] ||
           m['计划进度(%)'] ||
           m['计划进度'] ||
           m['planned_progress'] ||
@@ -451,12 +472,18 @@ app.post('/api/ai-table-webhook', async (req, res) => {
   }
 });
 
-// ======================== 健康检查 ========================
+// ============================================================
+// 其他路由（使用 express.json()）
+// ============================================================
+app.use(express.json());
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// ======================== 启动服务器 ========================
+// ============================================================
+// 启动服务器
+// ============================================================
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
   console.log(`✅ 钉钉 AppKey: ${DINGTALK_APP_KEY.slice(0, 8)}...`);
