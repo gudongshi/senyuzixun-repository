@@ -24,7 +24,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ============================================================
-// 中间件（先不加载 express.json()，Webhook 路由自定义解析）
+// 中间件（先不加载 express.json()）
 // ============================================================
 app.use(cookieParser());
 app.use(cors({ origin: true, credentials: true }));
@@ -274,7 +274,7 @@ app.post('/api/dingtalk/logout', (req, res) => {
 });
 
 // ============================================================
-// 钉钉 AI 表格 Webhook（自定义中间件解析）
+// 钉钉 AI 表格 Webhook（自定义中间件 + 手动提取关键字段）
 // ============================================================
 app.post('/api/ai-table-webhook', (req, res, next) => {
   let rawBody = '';
@@ -282,31 +282,52 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
   req.on('end', () => {
     console.log('📦 原始请求体（中间件）:', rawBody);
     console.log('📦 原始请求体长度:', rawBody.length);
+
+    let parsed = null;
+    // 尝试标准 JSON 解析
     try {
-      req.body = JSON.parse(rawBody);
+      parsed = JSON.parse(rawBody);
       console.log('✅ 中间件 JSON 解析成功');
-      next();
     } catch (e) {
       console.error('❌ 中间件 JSON 解析失败:', e.message);
-      // 容错解析：移除换行符、多余空格
+      // 手动提取关键字段
       try {
-        const cleaned = rawBody.replace(/[\n\r\t]/g, '').replace(/\s+/g, ' ');
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (match) {
-          req.body = JSON.parse(match[0]);
-          console.log('✅ 容错解析成功');
-          next();
-        } else {
-          throw new Error('无法提取 JSON');
+        // 提取任务名称
+        const taskNameMatch = rawBody.match(/"任务名称":\s*"([^"]*)"/);
+        const taskName = taskNameMatch ? taskNameMatch[1] : '';
+        // 提取里程碑明细
+        const milestoneMatch = rawBody.match(/"里程碑明细":\s*(\[[\s\S]*?\])/);
+        let milestones = [];
+        if (milestoneMatch) {
+          try {
+            milestones = JSON.parse(milestoneMatch[1]);
+          } catch (e2) {
+            console.warn('⚠️ 里程碑明细 JSON 解析失败，尝试清空');
+          }
         }
+        parsed = {
+          '任务名称': taskName,
+          '里程碑明细': milestones
+        };
+        console.log('✅ 手动提取成功，任务名称:', taskName, '里程碑数量:', milestones.length);
       } catch (e2) {
-        console.error('❌ 容错解析也失败:', e2.message);
-        res.status(400).json({ success: false, error: 'Invalid JSON' });
+        console.error('❌ 手动提取也失败:', e2.message);
+        return res.status(400).json({ success: false, error: 'Invalid JSON' });
       }
     }
+
+    if (!parsed) {
+      return res.status(400).json({ success: false, error: 'Invalid JSON' });
+    }
+
+    // 如果解析成功，但只有任务名称和里程碑，其他字段为空，我们也继续处理
+    req.body = parsed;
+    next();
   });
 }, async (req, res) => {
-  // === 实际的 Webhook 处理逻辑 ===
+  // ============================================================
+  // 实际的 Webhook 处理逻辑
+  // ============================================================
   try {
     console.log('\n----------------------------------------');
     console.log('📩 收到 AI 表格 Webhook 推送');
@@ -321,18 +342,21 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       return res.status(200).json({ success: true, message: 'Ignored' });
     }
 
-    // --- 提取其他字段 ---
-    const taskCategory = cleanField(data['任务分类']);
-    const project = cleanField(data['所属项目']);
+    // --- 其他字段（可能不存在，但我们仍然尝试从原始数据中补充） ---
+    // 注意：由于手动提取可能遗漏其他字段，我们可以从 rawBody 中尝试提取，但这里为了简化，直接使用默认值
+    // 或者从 data 中读取，如果不存在则设为默认
+    const taskCategory = cleanField(data['任务分类']) || '';
+    const project = cleanField(data['所属项目']) || '';
     const status = cleanField(data['状态']) || '未开始';
-    let responsible = cleanField(data['责任人']);
-    const riskLevel = cleanField(data['风险等级']);
-    const remark = cleanField(data['备注']);
+    let responsible = cleanField(data['责任人']) || '';
+    const riskLevel = cleanField(data['风险等级']) || '';
+    const remark = cleanField(data['备注']) || '';
 
-    const actualStart = parseDate(data['实际开始时间']);
-    const actualEnd = parseDate(data['实际结束时间']);
-    const planStart = parseDate(data['计划开始时间']);
-    const planEnd = parseDate(data['计划结束时间']);
+    // 日期字段可能不存在，使用默认 null
+    const actualStart = data['实际开始时间'] ? parseDate(data['实际开始时间']) : null;
+    const actualEnd = data['实际结束时间'] ? parseDate(data['实际结束时间']) : null;
+    const planStart = data['计划开始时间'] ? parseDate(data['计划开始时间']) : null;
+    const planEnd = data['计划结束时间'] ? parseDate(data['计划结束时间']) : null;
 
     let progressValue = null;
     const progressRaw = data['当前进度(%)'] || data.progress;
