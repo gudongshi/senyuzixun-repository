@@ -258,15 +258,45 @@ app.post('/api/dingtalk/logout', (req, res) => {
   res.json({ success: true, message: '已登出' });
 });
 
-// ======================== 钉钉 AI 表格 Webhook ========================
+// ======================== 钉钉 AI 表格 Webhook（增强版） ========================
 app.post('/api/ai-table-webhook', async (req, res) => {
   try {
+    // --- 捕获原始请求体（用于调试） ---
+    let rawBody = '';
+    req.on('data', chunk => rawBody += chunk);
+    await new Promise(resolve => req.on('end', resolve));
+
     console.log('\n----------------------------------------');
     console.log('📩 收到 AI 表格 Webhook 推送');
-    console.log('📦 请求体:', JSON.stringify(req.body, null, 2));
+    console.log('📦 原始请求体（字符串）:', rawBody);
+    console.log('📦 原始请求体长度:', rawBody.length);
 
-    const data = req.body;
+    // --- 尝试解析 JSON（多种容错方式） ---
+    let data;
+    try {
+      // 1. 直接解析
+      data = JSON.parse(rawBody);
+    } catch (e1) {
+      console.warn('⚠️ 直接解析失败，尝试清理换行符...');
+      try {
+        // 2. 移除所有换行符和多余空格
+        const cleaned = rawBody.replace(/[\n\r\t]/g, '').replace(/\s+/g, ' ');
+        data = JSON.parse(cleaned);
+      } catch (e2) {
+        console.warn('⚠️ 清理后仍失败，尝试提取 JSON 片段...');
+        // 3. 尝试从混合内容中提取 JSON
+        const match = rawBody.match(/\{[\s\S]*\}/);
+        if (match) {
+          data = JSON.parse(match[0]);
+        } else {
+          throw new Error('无法提取 JSON 片段');
+        }
+      }
+    }
 
+    console.log('📦 解析后的请求体:', JSON.stringify(data, null, 2));
+
+    // --- 原有字段提取逻辑 ---
     const taskName = cleanField(data['任务名称'] || data.taskName);
     if (!taskName) {
       console.warn('⚠️ 未找到任务名称字段，跳过更新');
@@ -321,6 +351,7 @@ app.post('/api/ai-table-webhook', async (req, res) => {
 
     console.log(`🔄 处理任务 "${taskName}":`, record);
 
+    // --- 查询或插入任务 ---
     const { data: existing, error: selectError } = await supabase
       .from('tasks')
       .select('id')
@@ -357,7 +388,7 @@ app.post('/api/ai-table-webhook', async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    // ======================== 里程碑处理（含计划进度） ========================
+    // --- 里程碑处理（含计划进度） ---
     const milestones = data['里程碑明细'];
     if (milestones && Array.isArray(milestones) && taskId) {
       await supabase.from('task_milestones').delete().eq('task_id', taskId);
