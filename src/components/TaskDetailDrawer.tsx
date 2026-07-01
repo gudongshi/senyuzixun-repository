@@ -289,9 +289,6 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
         <span style={{ color: milestone.actual_date ? '#34d399' : '#fbbf24' }}>
           实际: {milestone.actual_date || '未完成'}
         </span>
-        {milestone.planned_progress !== undefined && milestone.planned_progress !== null && (
-          <span style={{ color: '#60a5fa' }}>进度: {milestone.planned_progress}%</span>
-        )}
       </div>
     </div>
   </div>
