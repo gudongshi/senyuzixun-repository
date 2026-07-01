@@ -295,16 +295,17 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       // --- 手动提取所有字段（改进版） ---
 try {
   const extract = (key) => {
-    // 对于数组字段，匹配完整数组字符串
+    // 对于数组字段，直接提取完整的数组字符串（如 ["内部研发"]）
     if (['任务分类', '所属项目', '责任人'].includes(key)) {
-      const regex = new RegExp(`"${key}":\\s*"\\[([^\\]]*)\\]"`);
+      // 匹配 "任务分类": "["内部研发"]" 或 "任务分类": "[\"内部研发\"]"
+      const regex = new RegExp(`"${key}":\\s*"(\\[.*?\\])"`);
       const match = rawBody.match(regex);
       if (match) {
-        return `[${match[1]}]`; // 恢复成标准数组字符串
+        return match[1]; // 返回 ["内部研发"]
       }
       return '';
     }
-    // 普通字段
+    // 普通字段（非数组）
     const regex = new RegExp(`"${key}":\\s*"([^"]*)"`);
     const match = rawBody.match(regex);
     return match ? match[1] : '';
