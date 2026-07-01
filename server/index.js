@@ -167,18 +167,15 @@ function cleanField(value) {
   return String(value);
 }
 
+// 统一使用 UTC 解析日期
 function parseDate(value) {
   if (!value) return null;
   if (typeof value === 'number') {
-    // 打印原始值用于调试
-    console.log('🕒 parseDate 收到数字时间戳:', value);
     const date = new Date(value);
     const year = date.getUTCFullYear();
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const day = String(date.getUTCDate()).padStart(2, '0');
-    const result = `${year}-${month}-${day}`;
-    console.log('🕒 转换为:', result);
-    return result;
+    return `${year}-${month}-${day}`;
   }
   if (typeof value === 'string' && /^\d+$/.test(value)) {
     const timestamp = parseInt(value);
@@ -187,9 +184,7 @@ function parseDate(value) {
       const year = date.getUTCFullYear();
       const month = String(date.getUTCMonth() + 1).padStart(2, '0');
       const day = String(date.getUTCDate()).padStart(2, '0');
-      const result = `${year}-${month}-${day}`;
-      console.log('🕒 字符串时间戳转换为:', result);
-      return result;
+      return `${year}-${month}-${day}`;
     }
   }
   const str = String(value).trim();
@@ -304,59 +299,58 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
     } catch (e) {
       console.error('❌ 中间件 JSON 解析失败:', e.message);
       // 2. 手动提取所有字段
-      // --- 手动提取所有字段（改进版） ---
-try {
-  const extract = (key) => {
-    // 针对数组字段，提取完整的数组字符串（如 ["内部研发"]）
-    if (['任务分类', '所属项目', '责任人'].includes(key)) {
-      const regex = new RegExp(`"${key}":\\s*"(\\[.*?\\])"`);
-      const match = rawBody.match(regex);
-      if (match) {
-        return match[1];
-      }
-      return '';
-    }
-    // 针对当前进度(%) 字段，因为字段名含特殊字符，使用更精确的正则
-    if (key === '当前进度(%)') {
-      const match = rawBody.match(/"当前进度\(%\)":\s*"(\d+)"?/);
-      if (match) {
-        return match[1];
-      }
-      return '';
-    }
-    // 普通字段（非数组，非进度）
-    const regex = new RegExp(`"${key}":\\s*"([^"]*)"`);
-    const match = rawBody.match(regex);
-    return match ? match[1] : '';
-  };
-  const extractArray = (key) => {
-    const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
-    const match = rawBody.match(regex);
-    if (match) {
-      try { return JSON.parse(match[1]); } catch (e) { return []; }
-    }
-    return [];
-  };
+      try {
+        const extract = (key) => {
+          // 针对数组字段，提取完整的数组字符串（如 ["内部研发"]）
+          if (['任务分类', '所属项目', '责任人'].includes(key)) {
+            const regex = new RegExp(`"${key}":\\s*"(\\[.*?\\])"`);
+            const match = rawBody.match(regex);
+            if (match) {
+              return match[1];
+            }
+            return '';
+          }
+          // 针对当前进度(%) 字段，因为字段名含特殊字符，使用更精确的正则
+          if (key === '当前进度(%)') {
+            const match = rawBody.match(/"当前进度\(%\)":\s*"(\d+)"?/);
+            if (match) {
+              return match[1];
+            }
+            return '';
+          }
+          // 普通字段（非数组，非进度）
+          const regex = new RegExp(`"${key}":\\s*"([^"]*)"`);
+          const match = rawBody.match(regex);
+          return match ? match[1] : '';
+        };
+        const extractArray = (key) => {
+          const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
+          const match = rawBody.match(regex);
+          if (match) {
+            try { return JSON.parse(match[1]); } catch (e) { return []; }
+          }
+          return [];
+        };
 
-  data = {
-    '任务名称': extract('任务名称'),
-    '任务分类': extract('任务分类'),
-    '所属项目': extract('所属项目'),
-    '计划开始时间': extract('计划开始时间'),
-    '计划结束时间': extract('计划结束时间'),
-    '当前进度(%)': extract('当前进度(%)'),
-    '状态': extract('状态'),
-    '责任人': extract('责任人'),
-    '风险等级': extract('风险等级'),
-    '备注': extract('备注'),
-    '里程碑明细': extractArray('里程碑明细'),
-  };
-  console.log('✅ 手动提取所有字段成功');
-  console.log('📦 提取的数据:', JSON.stringify(data, null, 2));
-} catch (e2) {
-  console.error('❌ 手动提取失败:', e2.message);
-  return res.status(400).json({ success: false, error: 'Invalid JSON' });
-}
+        data = {
+          '任务名称': extract('任务名称'),
+          '任务分类': extract('任务分类'),
+          '所属项目': extract('所属项目'),
+          '计划开始时间': extract('计划开始时间'),
+          '计划结束时间': extract('计划结束时间'),
+          '当前进度(%)': extract('当前进度(%)'),
+          '状态': extract('状态'),
+          '责任人': extract('责任人'),
+          '风险等级': extract('风险等级'),
+          '备注': extract('备注'),
+          '里程碑明细': extractArray('里程碑明细'),
+        };
+        console.log('✅ 手动提取所有字段成功');
+        console.log('📦 提取的数据:', JSON.stringify(data, null, 2));
+      } catch (e2) {
+        console.error('❌ 手动提取失败:', e2.message);
+        return res.status(400).json({ success: false, error: 'Invalid JSON' });
+      }
     }
 
     if (!data) {
@@ -474,66 +468,73 @@ try {
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    // --- 里程碑处理（含计划进度） ---
-    // --- 里程碑处理（含计划进度和实际日期） ---
-const milestones = data['里程碑明细'];
-if (milestones && Array.isArray(milestones) && taskId) {
-  await supabase.from('task_milestones').delete().eq('task_id', taskId);
+    // --- 里程碑处理（含计划进度和实际日期，统一 UTC 转换） ---
+    const milestones = data['里程碑明细'];
+    if (milestones && Array.isArray(milestones) && taskId) {
+      await supabase.from('task_milestones').delete().eq('task_id', taskId);
 
-  const toInsert = milestones.map(m => {
-    const name = m.TextField_1ET9FKVXORGG0 || m['里程碑名称'] || m['里程碑'] || '';
-    if (!name) return null;
+      const toInsert = milestones.map(m => {
+        const name = m.TextField_1ET9FKVXORGG0 || m['里程碑名称'] || m['里程碑'] || '';
+        if (!name) return null;
 
-    // 计划日期
-    let planned = m.DDDateField_1ALJFR1YYQWW0 || m['计划完成日期'] || '';
-    if (planned && typeof planned === 'number') {
-      planned = new Date(planned).toISOString().split('T')[0];
+        // 计划日期（UTC 转换）
+        let planned = m.DDDateField_1ALJFR1YYQWW0 || m['计划完成日期'] || '';
+        if (planned && typeof planned === 'number') {
+          const date = new Date(planned);
+          const year = date.getUTCFullYear();
+          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(date.getUTCDate()).padStart(2, '0');
+          planned = `${year}-${month}-${day}`;
+        }
+
+        // 实际日期（UTC 转换）
+        let actual = m.DDDateField_115E25X500740 || m['实际完成日期'] || '';
+        console.log(`🔍 里程碑 "${name}" 实际日期原始值: ${m.DDDateField_115E25X500740}, 字段名: ${m['实际完成日期']}`);
+        if (actual && typeof actual === 'number') {
+          const date = new Date(actual);
+          const year = date.getUTCFullYear();
+          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(date.getUTCDate()).padStart(2, '0');
+          actual = `${year}-${month}-${day}`;
+          console.log(`✅ 里程碑 "${name}" 实际日期转换: ${actual}`);
+        }
+
+        // 计划进度
+        let progress = 
+          m.NumberField_1ZGO1PPMJ76O0 ||
+          m['计划里程碑完成时，整体任务完成度%'] ||
+          m['计划进度(%)'] ||
+          m['计划进度'] ||
+          m['planned_progress'] ||
+          0;
+        if (typeof progress === 'string') {
+          progress = parseFloat(progress.replace('%', '').trim());
+        }
+        if (isNaN(progress)) progress = 0;
+        progress = Math.min(100, Math.max(0, progress));
+
+        console.log(`📌 里程碑 "${name}" 计划进度: ${progress}%, 计划日期: ${planned}, 实际日期: ${actual}`);
+
+        return {
+          task_id: taskId,
+          milestone_name: name,
+          planned_date: planned || null,
+          actual_date: actual || null,
+          planned_progress: progress,
+        };
+      }).filter(m => m !== null && m.milestone_name);
+
+      if (toInsert.length > 0) {
+        const { error: insError } = await supabase
+          .from('task_milestones')
+          .insert(toInsert);
+        if (insError) {
+          console.error('❌ 插入里程碑失败:', insError);
+        } else {
+          console.log(`✅ 插入 ${toInsert.length} 条里程碑（含计划进度和实际日期）`);
+        }
+      }
     }
-
-    // 实际日期
-    let actual = m.DDDateField_115E25X500740 || m['实际完成日期'] || '';
-    console.log(`🔍 里程碑 "${name}" 实际日期原始值: ${m.DDDateField_115E25X500740}, 字段名: ${m['实际完成日期']}`);
-    if (actual && typeof actual === 'number') {
-      actual = new Date(actual).toISOString().split('T')[0];
-      console.log(`✅ 里程碑 "${name}" 实际日期转换: ${actual}`);
-    }
-
-    // 计划进度
-    let progress = 
-      m.NumberField_1ZGO1PPMJ76O0 ||
-      m['计划里程碑完成时，整体任务完成度%'] ||
-      m['计划进度(%)'] ||
-      m['计划进度'] ||
-      m['planned_progress'] ||
-      0;
-    if (typeof progress === 'string') {
-      progress = parseFloat(progress.replace('%', '').trim());
-    }
-    if (isNaN(progress)) progress = 0;
-    progress = Math.min(100, Math.max(0, progress));
-
-    console.log(`📌 里程碑 "${name}" 计划进度: ${progress}%, 计划日期: ${planned}, 实际日期: ${actual}`);
-
-    return {
-      task_id: taskId,
-      milestone_name: name,
-      planned_date: planned || null,
-      actual_date: actual || null,
-      planned_progress: progress,
-    };
-  }).filter(m => m !== null && m.milestone_name);
-
-  if (toInsert.length > 0) {
-    const { error: insError } = await supabase
-      .from('task_milestones')
-      .insert(toInsert);
-    if (insError) {
-      console.error('❌ 插入里程碑失败:', insError);
-    } else {
-      console.log(`✅ 插入 ${toInsert.length} 条里程碑（含计划进度和实际日期）`);
-    }
-  }
-}
 
     console.log('✅ Supabase 操作成功');
     res.status(200).json({ success: true, message: 'Synced' });
