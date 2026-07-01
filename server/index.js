@@ -170,12 +170,15 @@ function cleanField(value) {
 function parseDate(value) {
   if (!value) return null;
   if (typeof value === 'number') {
-    // 使用 UTC 时间，避免时区偏移
+    // 打印原始值用于调试
+    console.log('🕒 parseDate 收到数字时间戳:', value);
     const date = new Date(value);
     const year = date.getUTCFullYear();
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const day = String(date.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    const result = `${year}-${month}-${day}`;
+    console.log('🕒 转换为:', result);
+    return result;
   }
   if (typeof value === 'string' && /^\d+$/.test(value)) {
     const timestamp = parseInt(value);
@@ -184,7 +187,9 @@ function parseDate(value) {
       const year = date.getUTCFullYear();
       const month = String(date.getUTCMonth() + 1).padStart(2, '0');
       const day = String(date.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+      const result = `${year}-${month}-${day}`;
+      console.log('🕒 字符串时间戳转换为:', result);
+      return result;
     }
   }
   const str = String(value).trim();
