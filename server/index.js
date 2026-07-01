@@ -295,17 +295,24 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       // --- 手动提取所有字段（改进版） ---
 try {
   const extract = (key) => {
-    // 对于数组字段，直接提取完整的数组字符串（如 ["内部研发"]）
+    // 针对数组字段，提取完整的数组字符串（如 ["内部研发"]）
     if (['任务分类', '所属项目', '责任人'].includes(key)) {
-      // 匹配 "任务分类": "["内部研发"]" 或 "任务分类": "[\"内部研发\"]"
       const regex = new RegExp(`"${key}":\\s*"(\\[.*?\\])"`);
       const match = rawBody.match(regex);
       if (match) {
-        return match[1]; // 返回 ["内部研发"]
+        return match[1];
       }
       return '';
     }
-    // 普通字段（非数组）
+    // 针对当前进度(%) 字段，因为字段名含特殊字符，使用更精确的正则
+    if (key === '当前进度(%)') {
+      const match = rawBody.match(/"当前进度\(%\)":\s*"(\d+)"?/);
+      if (match) {
+        return match[1];
+      }
+      return '';
+    }
+    // 普通字段（非数组，非进度）
     const regex = new RegExp(`"${key}":\\s*"([^"]*)"`);
     const match = rawBody.match(regex);
     return match ? match[1] : '';
