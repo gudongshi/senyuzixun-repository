@@ -292,40 +292,51 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
     } catch (e) {
       console.error('❌ 中间件 JSON 解析失败:', e.message);
       // 2. 手动提取所有字段
-      try {
-        const extract = (key) => {
-          const regex = new RegExp(`"${key}":\\s*"([^"]*)"`);
-          const match = rawBody.match(regex);
-          return match ? match[1] : '';
-        };
-        const extractArray = (key) => {
-          const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
-          const match = rawBody.match(regex);
-          if (match) {
-            try { return JSON.parse(match[1]); } catch (e) { return []; }
-          }
-          return [];
-        };
-
-        data = {
-          '任务名称': extract('任务名称'),
-          '任务分类': extract('任务分类'),
-          '所属项目': extract('所属项目'),
-          '计划开始时间': extract('计划开始时间'),
-          '计划结束时间': extract('计划结束时间'),
-          '当前进度(%)': extract('当前进度(%)'),
-          '状态': extract('状态'),
-          '责任人': extract('责任人'),
-          '风险等级': extract('风险等级'),
-          '备注': extract('备注'),
-          '里程碑明细': extractArray('里程碑明细'),
-        };
-        console.log('✅ 手动提取所有字段成功');
-        console.log('📦 提取的数据:', JSON.stringify(data, null, 2));
-      } catch (e2) {
-        console.error('❌ 手动提取失败:', e2.message);
-        return res.status(400).json({ success: false, error: 'Invalid JSON' });
+      // --- 手动提取所有字段（改进版） ---
+try {
+  const extract = (key) => {
+    // 对于数组字段，匹配完整数组字符串
+    if (['任务分类', '所属项目', '责任人'].includes(key)) {
+      const regex = new RegExp(`"${key}":\\s*"\\[([^\\]]*)\\]"`);
+      const match = rawBody.match(regex);
+      if (match) {
+        return `[${match[1]}]`; // 恢复成标准数组字符串
       }
+      return '';
+    }
+    // 普通字段
+    const regex = new RegExp(`"${key}":\\s*"([^"]*)"`);
+    const match = rawBody.match(regex);
+    return match ? match[1] : '';
+  };
+  const extractArray = (key) => {
+    const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
+    const match = rawBody.match(regex);
+    if (match) {
+      try { return JSON.parse(match[1]); } catch (e) { return []; }
+    }
+    return [];
+  };
+
+  data = {
+    '任务名称': extract('任务名称'),
+    '任务分类': extract('任务分类'),
+    '所属项目': extract('所属项目'),
+    '计划开始时间': extract('计划开始时间'),
+    '计划结束时间': extract('计划结束时间'),
+    '当前进度(%)': extract('当前进度(%)'),
+    '状态': extract('状态'),
+    '责任人': extract('责任人'),
+    '风险等级': extract('风险等级'),
+    '备注': extract('备注'),
+    '里程碑明细': extractArray('里程碑明细'),
+  };
+  console.log('✅ 手动提取所有字段成功');
+  console.log('📦 提取的数据:', JSON.stringify(data, null, 2));
+} catch (e2) {
+  console.error('❌ 手动提取失败:', e2.message);
+  return res.status(400).json({ success: false, error: 'Invalid JSON' });
+}
     }
 
     if (!data) {

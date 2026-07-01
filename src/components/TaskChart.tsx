@@ -6,6 +6,7 @@ interface Milestone {
   milestone_name: string;
   planned_date: string;
   actual_date: string | null;
+  planned_progress?: number;
 }
 
 interface TaskChartProps {
@@ -15,11 +16,10 @@ interface TaskChartProps {
   actualStart?: string | null;
   actualEnd?: string | null;
   milestones: Milestone[];
+  currentProgress?: number;
+  progressHistory?: { date: string; progress: number }[];
   height?: number;
   showTitle?: boolean;
-  ganttTitle?: string;
-  milestoneTitle?: string;
-  showGantt?: boolean;
 }
 
 export default function TaskChart({
@@ -29,196 +29,233 @@ export default function TaskChart({
   actualStart,
   actualEnd,
   milestones,
+  currentProgress = 0,
+  progressHistory = [],
   height = 200,
   showTitle = true,
-  ganttTitle = '任务时间轴',
-  milestoneTitle = '里程碑对比',
-  showGantt = false,
 }: TaskChartProps) {
-  const ganttChartRef = useRef<HTMLDivElement>(null);
   const lineChartRef = useRef<HTMLDivElement>(null);
-  const milestoneChartRef = useRef<HTMLDivElement>(null);
   const hasTimeData = (planStart && planEnd) || actualStart;
-  const hasMilestoneData = milestones.length > 0;
 
-  // 甘特图（可选）
   useEffect(() => {
-    if (!showGantt || !ganttChartRef.current || !hasTimeData) return;
+    if (!lineChartRef.current || !hasTimeData) return;
 
-    const chart = echarts.init(ganttChartRef.current);
-    const data = [];
+    const container = lineChartRef.current;
+    const chart = echarts.init(container);
 
-    if (planStart && planEnd) {
-      data.push({
-        name: '计划时间',
-        value: [planStart, planEnd],
-        itemStyle: { color: '#3b82f6' },
-      });
+    // 1. 生成 X 轴日期（每周五）
+    const getWeekFridays = (start: string, end: string): string[] => {
+      const dates: string[] = [];
+      const current = new Date(start);
+      const last = new Date(end);
+      while (current.getDay() !== 5) {
+        current.setDate(current.getDate() + 1);
+      }
+      while (current <= last) {
+        dates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 7);
+      }
+      return dates;
+    };
+
+    const allStart = planStart || actualStart || new Date().toISOString().split('T')[0];
+    const allEnd = planEnd || actualEnd || new Date().toISOString().split('T')[0];
+    const fridays = getWeekFridays(allStart, allEnd);
+    if (fridays.length === 0) fridays.push(allStart);
+
+    // 2. 构建计划进度数据（由里程碑计划进度点 + 端点插值）
+    const sortedMilestones = [...milestones]
+      .filter(m => m.planned_date && m.planned_progress !== undefined && m.planned_progress !== null)
+      .sort((a, b) => new Date(a.planned_date).getTime() - new Date(b.planned_date).getTime());
+
+    const planPoints: { date: string; progress: number }[] = [];
+
+    // 起点：任务计划开始日期，进度 0%
+    if (planStart) {
+      planPoints.push({ date: planStart, progress: 0 });
     }
 
-    if (actualStart && actualEnd) {
-      data.push({
-        name: '实际时间',
-        value: [actualStart, actualEnd],
-        itemStyle: { color: '#10b981' },
+    // 里程碑节点
+    sortedMilestones.forEach(m => {
+      planPoints.push({
+        date: m.planned_date,
+        progress: Math.min(100, Math.max(0, m.planned_progress || 0)),
       });
-    } else if (actualStart && !actualEnd) {
+    });
+
+    // 终点：任务计划结束日期，进度 100%
+    if (planEnd) {
+      planPoints.push({ date: planEnd, progress: 100 });
+    }
+
+    planPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // 对每个周五，插值计算计划进度
+    const planData = fridays.map(friday => {
+      let before = null, after = null;
+      for (const p of planPoints) {
+        const d = new Date(p.date).getTime();
+        const f = new Date(friday).getTime();
+        if (d <= f) before = p;
+        if (d >= f && after === null) after = p;
+      }
+      if (before && after) {
+        if (before.date === after.date) return before.progress;
+        const t = (new Date(friday).getTime() - new Date(before.date).getTime()) / 
+                  (new Date(after.date).getTime() - new Date(before.date).getTime());
+        return Math.round(before.progress + (after.progress - before.progress) * t);
+      }
+      return before ? before.progress : after ? after.progress : null;
+    });
+
+    // 3. 构建实际进度数据（来自周报历史 + 当前进度）
+    const actualPoints: { date: string; progress: number }[] = [
+      ...progressHistory.map(p => ({ date: p.date, progress: Math.min(100, Math.max(0, p.progress)) })),
+    ];
+    if (currentProgress !== undefined && currentProgress !== null) {
       const today = new Date().toISOString().split('T')[0];
-      data.push({
-        name: '实际时间（进行中）',
-        value: [actualStart, today],
-        itemStyle: { color: '#f59e0b' },
-      });
+      if (!actualPoints.some(p => p.date === today)) {
+        actualPoints.push({ date: today, progress: Math.min(100, Math.max(0, currentProgress)) });
+      }
     }
+    actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+    const actualData = fridays.map(friday => {
+      let latest = null;
+      for (const p of actualPoints) {
+        if (new Date(p.date).getTime() <= new Date(friday).getTime()) {
+          latest = p;
+        } else break;
+      }
+      return latest ? latest.progress : null;
+    });
+
+    // 4. 里程碑标记（在计划线上的关键节点）
+    const markData = sortedMilestones
+      .map(m => {
+        const idx = fridays.indexOf(m.planned_date);
+        if (idx === -1) return null;
+        return {
+          name: m.milestone_name,
+          coord: [idx, Math.min(100, Math.max(0, m.planned_progress || 0))],
+          value: m.planned_progress || 0,
+        };
+      })
+      .filter(item => item !== null);
+
+    // 5. ECharts 配置
     const option = {
+      animation: false,
       title: showTitle ? {
-        text: ganttTitle,
+        text: '任务进度趋势',
         left: 'center',
         textStyle: { color: '#00f2ff', fontSize: 14 },
       } : undefined,
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'shadow' },
         formatter: (params: any) => {
-          const item = params[0];
-          const start = item.value[1];
-          const end = item.value[2];
-          return `${item.name}<br/>开始: ${start}<br/>结束: ${end}`;
+          let res = `<div style="font-size:13px;font-weight:bold;">${params[0].axisValue}</div>`;
+          params.forEach((p: any) => {
+            if (p.value !== null && p.value !== undefined) {
+              res += `<div style="color:${p.color};margin-top:2px;">${p.marker} ${p.seriesName}: ${p.value}%</div>`;
+            }
+          });
+          return res;
         },
       },
-      grid: {
-        left: '10%',
-        right: '5%',
-        top: showTitle ? '15%' : '5%',
-        bottom: '5%',
-        containLabel: true,
-      },
-      xAxis: {
-        type: 'time' as const,
-        name: '日期',
-        axisLabel: { rotate: 30, formatter: '{yyyy}-{MM}-{dd}', color: '#94a3b8' },
-        axisLine: { lineStyle: { color: '#475569' } },
-      },
-      yAxis: {
-        type: 'category' as const,
-        data: ['计划时间', '实际时间'],
-        axisLabel: { color: '#e2e8f0' },
-        axisLine: { lineStyle: { color: '#475569' } },
-      },
-      series: [{
-        type: 'custom',
-        renderItem: (params: any, api: any) => {
-          const categoryIndex = api.value(0);
-          const start = api.value(1);
-          const end = api.value(2);
-          const coordStart = api.coord([start, categoryIndex]);
-          const coordEnd = api.coord([end, categoryIndex]);
-          const width = coordEnd[0] - coordStart[0];
-          return {
-            type: 'rect',
-            shape: { x: coordStart[0], y: coordStart[1] - 12, width: width, height: 24 },
-            style: api.style(),
-            styleEmphasis: { shadowBlur: 10, shadowColor: '#00f2ff' },
-          };
-        },
-        data: data,
-        itemStyle: { borderRadius: 4 },
-      }],
-    };
-
-    chart.setOption(option);
-    const handleResize = () => chart.resize();
-    window.addEventListener('resize', handleResize);
-    return () => { chart.dispose(); window.removeEventListener('resize', handleResize); };
-  }, [planStart, planEnd, actualStart, actualEnd, showTitle, ganttTitle, hasTimeData, showGantt]);
-
-  // 折线图：计划时间 vs 实际时间
-  useEffect(() => {
-    if (!lineChartRef.current || !hasTimeData) return;
-
-    const chart = echarts.init(lineChartRef.current);
-    
-    const generateDatePoints = (startDate: string, endDate: string) => {
-      const points = [];
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        points.push(d.toISOString().split('T')[0]);
-      }
-      return points;
-    };
-
-    let planPoints: string[] = [];
-    let planValues: number[] = [];
-    if (planStart && planEnd) {
-      planPoints = generateDatePoints(planStart, planEnd);
-      planValues = planPoints.map((_, idx) => idx + 1);
-    }
-
-    let actualPoints: string[] = [];
-    let actualValues: number[] = [];
-    if (actualStart) {
-      const endDate = actualEnd || new Date().toISOString().split('T')[0];
-      actualPoints = generateDatePoints(actualStart, endDate);
-      actualValues = actualPoints.map((_, idx) => idx + 1);
-    }
-
-    const option = {
-      title: showTitle ? {
-        text: '计划时间 vs 实际时间趋势',
-        left: 'center',
-        textStyle: { color: '#00f2ff', fontSize: 14 },
-      } : undefined,
-      tooltip: { trigger: 'axis' as const, axisPointer: { type: 'shadow' } },
-      legend: { 
-        data: ['计划进度', '实际进度'], 
+      legend: {
+        data: ['计划进度', '实际进度'],
         textStyle: { color: '#e2e8f0' },
         top: 0,
         right: 10,
       },
-      grid: { left: '10%', right: '5%', top: showTitle ? '18%' : '8%', bottom: '5%', containLabel: true },
+      grid: {
+        left: '10%',
+        right: '5%',
+        top: showTitle ? '18%' : '8%',
+        bottom: '8%',
+        containLabel: true,
+      },
       xAxis: {
-        type: 'category' as const,
-        data: [...new Set([...planPoints, ...actualPoints])],
-        name: '日期',
-        axisLabel: { rotate: 30, color: '#94a3b8' },
+        type: 'category',
+        data: fridays,
+        name: '日期（每周五）',
+        axisLabel: {
+          rotate: 30,
+          color: '#94a3b8',
+          interval: 0,
+          formatter: (value: string) => {
+            const d = new Date(value);
+            return `${d.getMonth()+1}/${d.getDate()}`;
+          },
+        },
         axisLine: { lineStyle: { color: '#475569' } },
       },
       yAxis: {
-        type: 'value' as const,
-        name: '累计天数',
-        axisLabel: { color: '#94a3b8' },
+        type: 'value',
+        name: '完成进度 (%)',
+        min: 0,
+        max: 100,
+        axisLabel: { color: '#94a3b8', formatter: '{value}%' },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
       },
       series: [
         {
           name: '计划进度',
           type: 'line',
-          data: planPoints.map(date => ({
-            value: planValues[planPoints.indexOf(date)],
-            name: date,
-          })),
+          data: planData,
           smooth: false,
           lineStyle: { color: '#3b82f6', width: 2 },
           itemStyle: { color: '#3b82f6' },
           symbol: 'circle',
-          symbolSize: 6,
-          connectNulls: false,
+          symbolSize: 4,
+          connectNulls: true,
+          label: {
+            show: true,
+            position: 'top',
+            formatter: (params: any) => {
+              if (params.value === null) return '';
+              return params.value + '%';
+            },
+            color: '#93c5fd',
+            fontSize: 10,
+          },
+          markPoint: {
+            data: markData,
+            symbol: 'diamond',
+            symbolSize: 16,
+            itemStyle: { color: '#3b82f6', borderColor: '#fff', borderWidth: 2 },
+            label: {
+              show: true,
+              formatter: (params: any) => {
+                return params.name + '\n' + params.value + '%';
+              },
+              color: '#93c5fd',
+              fontSize: 10,
+              position: 'top',
+            },
+          },
         },
         {
           name: '实际进度',
           type: 'line',
-          data: actualPoints.map(date => ({
-            value: actualValues[actualPoints.indexOf(date)],
-            name: date,
-          })),
+          data: actualData,
           smooth: false,
           lineStyle: { color: '#10b981', width: 2 },
           itemStyle: { color: '#10b981' },
           symbol: 'diamond',
-          symbolSize: 8,
-          connectNulls: false,
+          symbolSize: 6,
+          connectNulls: true,
+          label: {
+            show: true,
+            position: 'bottom',
+            formatter: (params: any) => {
+              if (params.value === null) return '';
+              return params.value + '%';
+            },
+            color: '#6ee7b7',
+            fontSize: 10,
+          },
         },
       ],
     };
@@ -227,178 +264,15 @@ export default function TaskChart({
     const handleResize = () => chart.resize();
     window.addEventListener('resize', handleResize);
     return () => { chart.dispose(); window.removeEventListener('resize', handleResize); };
-  }, [planStart, planEnd, actualStart, actualEnd, showTitle, hasTimeData]);
+  }, [planStart, planEnd, actualStart, actualEnd, milestones, currentProgress, progressHistory, hasTimeData, showTitle]);
 
-  // 里程碑对比图（修复数据顺序：x 轴为类别，y 轴为时间戳）
-  useEffect(() => {
-    if (!milestoneChartRef.current) return;
-
-    const existingChart = echarts.getInstanceByDom(milestoneChartRef.current);
-    if (existingChart) existingChart.dispose();
-
-    if (milestones.length === 0) {
-      milestoneChartRef.current.innerHTML = '<div class="text-center text-slate-400 py-8">暂无里程碑数据</div>';
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      const container = milestoneChartRef.current;
-      if (!container) return;
-      if (container.clientHeight === 0) {
-        requestAnimationFrame(() => {
-          if (!container) return;
-          initMilestoneChart(container);
-        });
-      } else {
-        initMilestoneChart(container);
-      }
-    }, 50);
-
-    function initMilestoneChart(container: HTMLDivElement) {
-      const oldChart = echarts.getInstanceByDom(container);
-      if (oldChart) oldChart.dispose();
-      
-      const chart = echarts.init(container);
-      
-      const sortedMilestones = [...milestones].sort((a, b) => 
-        new Date(a.planned_date).getTime() - new Date(b.planned_date).getTime()
-      );
-      
-      const milestoneNames = sortedMilestones.map(m => m.milestone_name);
-      const plannedTimestamps = sortedMilestones.map(m => new Date(m.planned_date).getTime());
-      const actualTimestamps = sortedMilestones.map(m => m.actual_date ? new Date(m.actual_date).getTime() : null);
-
-      // 调试日志（可在控制台查看）
-      console.log('里程碑数据（时间戳）:', {
-        names: milestoneNames,
-        planned: plannedTimestamps,
-        actual: actualTimestamps,
-      });
-
-      const option = {
-        title: showTitle ? {
-          text: milestoneTitle,
-          left: 'center',
-          textStyle: { color: '#00f2ff', fontSize: 14 },
-        } : undefined,
-        tooltip: {
-          trigger: 'axis' as const,
-          formatter: (params: any) => {
-            if (!params || params.length === 0) return '';
-            const item = params[0];
-            const date = new Date(item.value[1]).toLocaleDateString('zh-CN');
-            return `${item.name}<br/>日期: ${date}`;
-          },
-        },
-        legend: { 
-          data: ['计划完成日期', '实际完成日期'], 
-          textStyle: { color: '#e2e8f0' },
-          top: 0,
-          right: 10,
-        },
-        grid: { 
-          left: '12%', 
-          right: '8%', 
-          top: showTitle ? '18%' : '10%', 
-          bottom: '8%', 
-          containLabel: true 
-        },
-        xAxis: {
-          type: 'category' as const,
-          data: milestoneNames,
-          name: '里程碑',
-          axisLabel: { 
-            rotate: 25, 
-            color: '#94a3b8',
-            fontSize: 11,
-            interval: 0,
-          },
-          axisLine: { lineStyle: { color: '#475569' } },
-        },
-        yAxis: {
-          type: 'time' as const,
-          name: '日期',
-          axisLabel: { 
-            formatter: (value: number) => {
-              return new Date(value).toLocaleDateString('zh-CN');
-            },
-            color: '#94a3b8',
-          },
-          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-        },
-        series: [
-          {
-            name: '计划完成日期',
-            type: 'scatter',
-            data: plannedTimestamps.map((timestamp, idx) => [milestoneNames[idx], timestamp]),
-            symbol: 'circle',
-            symbolSize: 12,
-            itemStyle: { color: '#3b82f6', borderColor: '#fff', borderWidth: 2 },
-            label: {
-              show: true,
-              position: 'right',
-              offset: [10, 0],
-              formatter: (params: any) => {
-                const date = new Date(plannedTimestamps[params.dataIndex]).toLocaleDateString('zh-CN');
-                return date;
-              },
-              color: '#93c5fd',
-              fontSize: 10,
-            },
-          },
-          {
-            name: '实际完成日期',
-            type: 'scatter',
-            data: actualTimestamps.map((timestamp, idx) => [milestoneNames[idx], timestamp]),
-            symbol: 'diamond',
-            symbolSize: 14,
-            itemStyle: { color: '#10b981', borderColor: '#fff', borderWidth: 2 },
-            label: {
-              show: true,
-              position: 'left',
-              offset: [-10, 0],
-              formatter: (params: any) => {
-                const ts = actualTimestamps[params.dataIndex];
-                if (!ts || isNaN(ts)) return '未完成';
-                return new Date(ts).toLocaleDateString('zh-CN');
-              },
-              color: '#6ee7b7',
-              fontSize: 10,
-            },
-          },
-        ],
-      };
-
-      chart.setOption(option);
-    }
-
-    return () => clearTimeout(timer);
-  }, [milestones, showTitle, milestoneTitle]);
-
-  if (!hasTimeData && !hasMilestoneData) {
+  if (!hasTimeData) {
     return <div className="bg-slate-700/30 rounded-xl p-6 text-center text-slate-400">暂无时间数据</div>;
   }
 
   return (
-    <div className="space-y-8">
-      {showGantt && hasTimeData && (
-        <div className="border-b border-blue-800/30 pb-4 mb-2">
-          <div ref={ganttChartRef} style={{ width: '100%', height: `${height}px` }} />
-        </div>
-      )}
-      {hasTimeData && (
-        <div className="border-b border-blue-800/30 pb-4 mb-2">
-          <div ref={lineChartRef} style={{ width: '100%', height: `${height}px` }} />
-        </div>
-      )}
-      <div className="pt-4" style={{ position: 'relative', minHeight: '300px' }}>
-        <div ref={milestoneChartRef} style={{ width: '100%', height: `${Math.max(280, milestones.length * 55)}px` }} />
-        {milestones.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-slate-400 pointer-events-none">
-            暂无里程碑数据
-          </div>
-        )}
-      </div>
+    <div className="space-y-4">
+      <div ref={lineChartRef} style={{ width: '100%', height: `${Math.max(height, 300)}px`, minHeight: '300px' }} />
     </div>
   );
 }
