@@ -454,11 +454,12 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
 
         // 提取计划进度（支持多种字段名）
         let progress = 
-          m['计划里程碑完成时，整体任务完成度%'] ||
-          m['计划进度(%)'] ||
-          m['计划进度'] ||
-          m['planned_progress'] ||
-          0;
+          m.NumberField_1ZGO1PPMJ76O0 ||   // 钉钉字段名
+          m['计划里程碑完成时，整体任务完成度%'] || // 钉钉字段名
+  m['计划进度(%)'] ||
+  m['计划进度'] ||
+  m['planned_progress'] ||
+  0;
         if (typeof progress === 'string') {
           progress = parseFloat(progress.replace('%', '').trim());
         }
