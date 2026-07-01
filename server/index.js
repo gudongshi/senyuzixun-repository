@@ -463,60 +463,65 @@ try {
     }
 
     // --- 里程碑处理（含计划进度） ---
-    const milestones = data['里程碑明细'];
-    if (milestones && Array.isArray(milestones) && taskId) {
-      await supabase.from('task_milestones').delete().eq('task_id', taskId);
+    // --- 里程碑处理（含计划进度和实际日期） ---
+const milestones = data['里程碑明细'];
+if (milestones && Array.isArray(milestones) && taskId) {
+  await supabase.from('task_milestones').delete().eq('task_id', taskId);
 
-      const toInsert = milestones.map(m => {
-        const name = m.TextField_1ET9FKVXORGG0 || m['里程碑名称'] || m['里程碑'] || '';
-        if (!name) return null;
+  const toInsert = milestones.map(m => {
+    const name = m.TextField_1ET9FKVXORGG0 || m['里程碑名称'] || m['里程碑'] || '';
+    if (!name) return null;
 
-        let planned = m.DDDateField_1ALJFR1YYQWW0 || m['计划完成日期'] || '';
-        if (planned && typeof planned === 'number') {
-          planned = new Date(planned).toISOString().split('T')[0];
-        }
-
-        let actual = m.DDDateField_115E25X500740 || m['实际完成日期'] || '';
-        if (actual && typeof actual === 'number') {
-          actual = new Date(actual).toISOString().split('T')[0];
-        }
-
-        // 提取计划进度（优先使用钉钉实际字段名）
-        let progress = 
-          m.NumberField_1ZGO1PPMJ76O0 ||
-          m['计划里程碑完成时，整体任务完成度%'] ||
-          m['计划进度(%)'] ||
-          m['计划进度'] ||
-          m['planned_progress'] ||
-          0;
-        if (typeof progress === 'string') {
-          progress = parseFloat(progress.replace('%', '').trim());
-        }
-        if (isNaN(progress)) progress = 0;
-        progress = Math.min(100, Math.max(0, progress));
-
-        console.log(`📌 里程碑 "${name}" 计划进度: ${progress}%`);
-
-        return {
-          task_id: taskId,
-          milestone_name: name,
-          planned_date: planned || null,
-          actual_date: actual || null,
-          planned_progress: progress,
-        };
-      }).filter(m => m !== null && m.milestone_name);
-
-      if (toInsert.length > 0) {
-        const { error: insError } = await supabase
-          .from('task_milestones')
-          .insert(toInsert);
-        if (insError) {
-          console.error('❌ 插入里程碑失败:', insError);
-        } else {
-          console.log(`✅ 插入 ${toInsert.length} 条里程碑（含计划进度）`);
-        }
-      }
+    // 计划日期
+    let planned = m.DDDateField_1ALJFR1YYQWW0 || m['计划完成日期'] || '';
+    if (planned && typeof planned === 'number') {
+      planned = new Date(planned).toISOString().split('T')[0];
     }
+
+    // 实际日期
+    let actual = m.DDDateField_115E25X500740 || m['实际完成日期'] || '';
+    console.log(`🔍 里程碑 "${name}" 实际日期原始值: ${m.DDDateField_115E25X500740}, 字段名: ${m['实际完成日期']}`);
+    if (actual && typeof actual === 'number') {
+      actual = new Date(actual).toISOString().split('T')[0];
+      console.log(`✅ 里程碑 "${name}" 实际日期转换: ${actual}`);
+    }
+
+    // 计划进度
+    let progress = 
+      m.NumberField_1ZGO1PPMJ76O0 ||
+      m['计划里程碑完成时，整体任务完成度%'] ||
+      m['计划进度(%)'] ||
+      m['计划进度'] ||
+      m['planned_progress'] ||
+      0;
+    if (typeof progress === 'string') {
+      progress = parseFloat(progress.replace('%', '').trim());
+    }
+    if (isNaN(progress)) progress = 0;
+    progress = Math.min(100, Math.max(0, progress));
+
+    console.log(`📌 里程碑 "${name}" 计划进度: ${progress}%, 计划日期: ${planned}, 实际日期: ${actual}`);
+
+    return {
+      task_id: taskId,
+      milestone_name: name,
+      planned_date: planned || null,
+      actual_date: actual || null,
+      planned_progress: progress,
+    };
+  }).filter(m => m !== null && m.milestone_name);
+
+  if (toInsert.length > 0) {
+    const { error: insError } = await supabase
+      .from('task_milestones')
+      .insert(toInsert);
+    if (insError) {
+      console.error('❌ 插入里程碑失败:', insError);
+    } else {
+      console.log(`✅ 插入 ${toInsert.length} 条里程碑（含计划进度和实际日期）`);
+    }
+  }
+}
 
     console.log('✅ Supabase 操作成功');
     res.status(200).json({ success: true, message: 'Synced' });
