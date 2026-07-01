@@ -109,26 +109,30 @@ export default function TaskChart({
     });
 
     // 3. 构建实际进度数据（来自周报历史 + 当前进度）
-    const actualPoints: { date: string; progress: number }[] = [
-      ...progressHistory.map(p => ({ date: p.date, progress: Math.min(100, Math.max(0, p.progress)) })),
-    ];
-    if (currentProgress !== undefined && currentProgress !== null) {
-      const today = new Date().toISOString().split('T')[0];
-      if (!actualPoints.some(p => p.date === today)) {
-        actualPoints.push({ date: today, progress: Math.min(100, Math.max(0, currentProgress)) });
-      }
-    }
-    actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // 3. 构建实际进度数据（周报历史 + 里程碑实际完成日期 + 当前进度）
+const actualPoints: { date: string; progress: number }[] = [
+  ...progressHistory.map(p => ({ date: p.date, progress: Math.min(100, Math.max(0, p.progress)) })),
+];
 
-    const actualData = fridays.map(friday => {
-      let latest = null;
-      for (const p of actualPoints) {
-        if (new Date(p.date).getTime() <= new Date(friday).getTime()) {
-          latest = p;
-        } else break;
-      }
-      return latest ? latest.progress : null;
+// 加入里程碑实际完成日期（作为实际进度点）
+milestones.forEach(m => {
+  if (m.actual_date) {
+    const progress = m.planned_progress ?? 0; // 使用里程碑计划进度作为实际进度
+    actualPoints.push({
+      date: m.actual_date,
+      progress: Math.min(100, Math.max(0, progress)),
     });
+  }
+});
+
+// 加入当前进度
+if (currentProgress !== undefined && currentProgress !== null) {
+  const today = new Date().toISOString().split('T')[0];
+  if (!actualPoints.some(p => p.date === today)) {
+    actualPoints.push({ date: today, progress: Math.min(100, Math.max(0, currentProgress)) });
+  }
+}
+actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // 4. 里程碑标记（在计划线上的关键节点）
     const markData = sortedMilestones

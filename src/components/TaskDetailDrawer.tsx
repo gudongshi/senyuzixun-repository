@@ -272,7 +272,7 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
                 milestones={milestones}
                 height={280}
                 showTitle={false}
-                showGantt={true}
+                showGantt={false}
               />
             </div>
           )}
@@ -280,23 +280,22 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
           {/* 里程碑 */}
           <div style={{ background: 'rgba(51, 65, 85, 0.5)', borderRadius: '12px', padding: '16px' }}>
             <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>🎯 里程碑</div>
-            {milestonesLoading ? (
-              <div style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>加载中...</div>
-            ) : milestones.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>暂无里程碑数据</div>
-            ) : (
-              milestones.map((milestone: any) => (
-                <div key={milestone.id} style={{ borderBottom: '1px solid #334155', paddingBottom: '12px', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#67e8f9' }}>{milestone.milestone_name}</span>
-                    <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-                      <span style={{ color: '#94a3b8' }}>计划: {milestone.planned_date || '未设置'}</span>
-                      <span style={{ color: milestone.actual_date ? '#34d399' : '#fbbf24' }}>实际: {milestone.actual_date || '未完成'}</span>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+            {milestones.map((milestone: any) => (
+  <div key={milestone.id} style={{ borderBottom: '1px solid #334155', paddingBottom: '12px', marginBottom: '12px' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span style={{ color: '#67e8f9' }}>{milestone.milestone_name}</span>
+      <div style={{ display: 'flex', gap: '12px', fontSize: '12px', alignItems: 'center' }}>
+        <span style={{ color: '#94a3b8' }}>计划: {milestone.planned_date || '未设置'}</span>
+        <span style={{ color: milestone.actual_date ? '#34d399' : '#fbbf24' }}>
+          实际: {milestone.actual_date || '未完成'}
+        </span>
+        {milestone.planned_progress !== undefined && milestone.planned_progress !== null && (
+          <span style={{ color: '#60a5fa' }}>进度: {milestone.planned_progress}%</span>
+        )}
+      </div>
+    </div>
+  </div>
+))}
           </div>
 
           {/* 创建时间 */}
