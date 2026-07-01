@@ -167,23 +167,23 @@ function cleanField(value) {
   return String(value);
 }
 
-// 统一使用 UTC 解析日期
+// 使用本地时区解析日期
 function parseDate(value) {
   if (!value) return null;
   if (typeof value === 'number') {
     const date = new Date(value);
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
   if (typeof value === 'string' && /^\d+$/.test(value)) {
     const timestamp = parseInt(value);
     if (timestamp > 1e12) {
       const date = new Date(timestamp);
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(date.getUTCDate()).padStart(2, '0');
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
   }
@@ -468,7 +468,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    // --- 里程碑处理（含计划进度和实际日期，统一 UTC 转换） ---
+    // --- 里程碑处理（含计划进度和实际日期，使用本地时区） ---
     const milestones = data['里程碑明细'];
     if (milestones && Array.isArray(milestones) && taskId) {
       await supabase.from('task_milestones').delete().eq('task_id', taskId);
@@ -477,24 +477,24 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
         const name = m.TextField_1ET9FKVXORGG0 || m['里程碑名称'] || m['里程碑'] || '';
         if (!name) return null;
 
-        // 计划日期（UTC 转换）
+        // 计划日期（本地时区）
         let planned = m.DDDateField_1ALJFR1YYQWW0 || m['计划完成日期'] || '';
         if (planned && typeof planned === 'number') {
           const date = new Date(planned);
-          const year = date.getUTCFullYear();
-          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-          const day = String(date.getUTCDate()).padStart(2, '0');
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
           planned = `${year}-${month}-${day}`;
         }
 
-        // 实际日期（UTC 转换）
+        // 实际日期（本地时区）
         let actual = m.DDDateField_115E25X500740 || m['实际完成日期'] || '';
         console.log(`🔍 里程碑 "${name}" 实际日期原始值: ${m.DDDateField_115E25X500740}, 字段名: ${m['实际完成日期']}`);
         if (actual && typeof actual === 'number') {
           const date = new Date(actual);
-          const year = date.getUTCFullYear();
-          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-          const day = String(date.getUTCDate()).padStart(2, '0');
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
           actual = `${year}-${month}-${day}`;
           console.log(`✅ 里程碑 "${name}" 实际日期转换: ${actual}`);
         }
