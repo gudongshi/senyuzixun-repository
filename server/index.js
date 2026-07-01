@@ -170,14 +170,21 @@ function cleanField(value) {
 function parseDate(value) {
   if (!value) return null;
   if (typeof value === 'number') {
+    // 使用 UTC 时间，避免时区偏移
     const date = new Date(value);
-    return date.toISOString().split('T')[0];
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   if (typeof value === 'string' && /^\d+$/.test(value)) {
     const timestamp = parseInt(value);
     if (timestamp > 1e12) {
       const date = new Date(timestamp);
-      return date.toISOString().split('T')[0];
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
   }
   const str = String(value).trim();
