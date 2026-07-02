@@ -16,7 +16,7 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
   const [fullscreenChartOpen, setFullscreenChartOpen] = useState(false);
   const [fullscreenChartType, setFullscreenChartType] = useState<'gantt' | 'milestone' | 'both'>('both');
   const [progressHistory, setProgressHistory] = useState<{
-    recorded_at: string;
+    record_date: string;
     progress: number;
     weekly_detail: string;
     new_issues: string;
@@ -301,7 +301,7 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
   actualEnd={actualEnd}
   milestones={milestones}
   currentProgress={progress}
-  progressHistory={progressHistory.map(p => ({ date: p.recorded_at, progress: p.progress }))}
+  progressHistory={progressHistory.map(p => ({ date: p.record_date, progress: p.progress }))}
   height={280}
   showTitle={false}
   showGantt={false}
@@ -348,7 +348,7 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <span style={{ color: '#00f2ff', fontSize: '14px', fontWeight: '600' }}>
-                      {record.recorded_at ? new Date(record.recorded_at).toLocaleDateString('zh-CN') : '未知日期'}
+                      {record.record_date ? new Date(record.record_date).toLocaleDateString('zh-CN') : '未知日期'}
                     </span>
                     <span style={{
                       color: '#00f2ff',

@@ -164,7 +164,7 @@ function cleanField(value) {
     }
     return value.label || value.value || String(value);
   }
-  return String(value);
+  return String(value).trim();
 }
 
 // 使用本地时区解析日期
@@ -430,7 +430,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
         new_issues: newIssues,
         previous_issues_resolved: previousIssuesResolved,
         cross_department_coordination: crossDeptCoordination,
-        recorded_at: new Date().toISOString(),
+        record_date: new Date().toISOString().split('T')[0],
       };
 
       const { error: progressInsertError } = await supabase
@@ -656,7 +656,7 @@ app.get('/api/task-progress', authMiddleware, async (req, res) => {
       .from('task_progress_history')
       .select('*')
       .eq('task_id', taskId)
-      .order('recorded_at', { ascending: false });
+      .order('record_date', { ascending: false });
 
     if (error) {
       console.error('❌ 查询 task_progress_history 失败:', error);
