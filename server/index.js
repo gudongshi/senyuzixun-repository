@@ -372,6 +372,95 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
 
     const data = req.body;
 
+    // ============================================================
+    // 周报处理分支
+    // ============================================================
+    if (data.source === 'weekly_report') {
+      console.log('📋 检测到周报推送，进入周报处理分支');
+
+      const taskName = cleanField(data['任务名称'] || data.taskName);
+      if (!taskName) {
+        console.warn('⚠️ 周报未找到任务名称字段，跳过处理');
+        return res.status(200).json({ success: true, message: 'Weekly report ignored: no task name' });
+      }
+
+      // 查找 tasks 表获取任务 id
+      const { data: taskRecord, error: taskLookupError } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('任务名称', taskName)
+        .maybeSingle();
+
+      if (taskLookupError) {
+        console.error('❌ 周报查询任务失败:', taskLookupError);
+        return res.status(500).json({ success: false, error: taskLookupError.message });
+      }
+
+      if (!taskRecord) {
+        console.warn(`⚠️ 周报未找到任务 "${taskName}"，跳过处理`);
+        return res.status(200).json({ success: true, message: 'Weekly report ignored: task not found' });
+      }
+
+      const taskId = taskRecord.id;
+      console.log(`✅ 周报任务匹配: "${taskName}" -> task_id=${taskId}`);
+
+      // 提取当前进度(%)
+      let progressValue = null;
+      const progressRaw = data['当前进度(%)'] || data.progress;
+      if (progressRaw !== undefined && progressRaw !== null && progressRaw !== '') {
+        const progressStr = String(progressRaw).replace('%', '');
+        const parsed = parseFloat(progressStr);
+        if (!isNaN(parsed)) progressValue = parsed;
+      }
+
+      // 提取周报专有字段
+      const weeklyDetail = cleanField(data['周报详情'] || data.weeklyDetail || data['weekly_detail']) || '';
+      const newIssues = cleanField(data['新问题'] || data.newIssues || data['new_issues']) || '';
+      const previousIssuesResolved = cleanField(data['之前问题解决'] || data.previousIssuesResolved || data['previous_issues_resolved']) || '';
+      const crossDeptCoordination = cleanField(data['跨部门协调'] || data.crossDeptCoordination || data['cross_department_coordination']) || '';
+
+      console.log(`📋 周报字段: 进度=${progressValue}%, 周报详情="${weeklyDetail.slice(0, 50)}...", 新问题="${newIssues.slice(0, 50)}...", 之前问题解决="${previousIssuesResolved.slice(0, 50)}...", 跨部门协调="${crossDeptCoordination.slice(0, 50)}..."`);
+
+      // 插入 task_progress_history 表
+      const progressRecord = {
+        task_id: taskId,
+        task_name: taskName,
+        progress: progressValue,
+        weekly_detail: weeklyDetail,
+        new_issues: newIssues,
+        previous_issues_resolved: previousIssuesResolved,
+        cross_department_coordination: crossDeptCoordination,
+        recorded_at: new Date().toISOString(),
+      };
+
+      const { error: progressInsertError } = await supabase
+        .from('task_progress_history')
+        .insert(progressRecord);
+
+      if (progressInsertError) {
+        console.error('❌ 插入 task_progress_history 失败:', progressInsertError);
+        return res.status(500).json({ success: false, error: progressInsertError.message });
+      }
+
+      console.log(`✅ 周报进度记录已插入: ${taskName}`);
+
+      // 可选：同步更新 tasks 表的当前进度(%)
+      if (progressValue !== null) {
+        const { error: progressUpdateError } = await supabase
+          .from('tasks')
+          .update({ '当前进度(%)': progressValue })
+          .eq('id', taskId);
+
+        if (progressUpdateError) {
+          console.error('⚠️ 更新 tasks 表当前进度失败:', progressUpdateError);
+        } else {
+          console.log(`✅ 已同步更新任务 "${taskName}" 当前进度为 ${progressValue}%`);
+        }
+      }
+
+      return res.status(200).json({ success: true, message: 'Weekly report synced' });
+    }
+
     // --- 提取任务名称 ---
     const taskName = cleanField(data['任务名称'] || data.taskName);
     if (!taskName) {
@@ -551,6 +640,35 @@ app.use(express.json());
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ============================================================
+// 任务进度历史查询
+// ============================================================
+app.get('/api/task-progress', authMiddleware, async (req, res) => {
+  try {
+    const { taskId } = req.query;
+    if (!taskId) {
+      return res.status(400).json({ success: false, error: '缺少 taskId 参数' });
+    }
+
+    const { data, error } = await supabase
+      .from('task_progress_history')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('recorded_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ 查询 task_progress_history 失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`📋 查询任务 ${taskId} 的进度历史，共 ${(data || []).length} 条`);
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('❌ 查询任务进度历史异常:', err);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
 });
 
 // ============================================================

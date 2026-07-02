@@ -15,6 +15,14 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
   const { milestones, loading: milestonesLoading } = useTaskMilestones(task?.id || null);
   const [fullscreenChartOpen, setFullscreenChartOpen] = useState(false);
   const [fullscreenChartType, setFullscreenChartType] = useState<'gantt' | 'milestone' | 'both'>('both');
+  const [progressHistory, setProgressHistory] = useState<{
+    recorded_at: string;
+    progress: number;
+    weekly_detail: string;
+    new_issues: string;
+    previous_issues_resolved: string;
+    cross_department_coordination: string;
+  }[]>([]);
 
   // 防止背景滚动
   useEffect(() => {
@@ -27,6 +35,27 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
       document.body.style.overflow = '';
     };
   }, [open]);
+
+  // 获取周报进度历史
+  useEffect(() => {
+    if (task?.id) {
+      fetch(`/api/task-progress?taskId=${task.id}`)
+        .then(res => res.json())
+        .then(result => {
+          if (result.success && result.data) {
+            setProgressHistory(result.data);
+          } else {
+            setProgressHistory([]);
+          }
+        })
+        .catch(err => {
+          console.error('获取进度历史失败:', err);
+          setProgressHistory([]);
+        });
+    } else {
+      setProgressHistory([]);
+    }
+  }, [task?.id]);
 
   if (!task) return null;
 
@@ -264,16 +293,19 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
                 <span style={{ fontSize: '10px', color: '#00f2ff' }}>🔍 点击全屏</span>
               </div>
               <TaskChart
-                taskName={taskName}
-                planStart={planStart}
-                planEnd={planEnd}
-                actualStart={actualStart}
-                actualEnd={actualEnd}
-                milestones={milestones}
-                height={280}
-                showTitle={false}
-                showGantt={false}
-              />
+  key={milestones.length} // 添加 key，当里程碑数量变化时强制重绘
+  taskName={taskName}
+  planStart={planStart}
+  planEnd={planEnd}
+  actualStart={actualStart}
+  actualEnd={actualEnd}
+  milestones={milestones}
+  currentProgress={progress}
+  progressHistory={progressHistory.map(p => ({ date: p.recorded_at, progress: p.progress }))}
+  height={280}
+  showTitle={false}
+  showGantt={false}
+/>
             </div>
           )}
 
@@ -294,6 +326,65 @@ export default function TaskDetailDrawer({ open, onClose, task }: TaskDetailDraw
                       <span style={{ color: milestone.actual_date ? '#34d399' : '#fbbf24' }}>实际: {milestone.actual_date || '未完成'}</span>
                     </div>
                   </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* 周报历史 */}
+          <div style={{ background: 'rgba(51, 65, 85, 0.5)', borderRadius: '12px', padding: '16px' }}>
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>📋 周报历史</div>
+            {progressHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>暂无周报记录</div>
+            ) : (
+              progressHistory.map((record, index) => (
+                <div
+                  key={index}
+                  style={{
+                    borderBottom: index < progressHistory.length - 1 ? '1px solid #334155' : 'none',
+                    paddingBottom: '12px',
+                    marginBottom: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ color: '#00f2ff', fontSize: '14px', fontWeight: '600' }}>
+                      {record.recorded_at ? new Date(record.recorded_at).toLocaleDateString('zh-CN') : '未知日期'}
+                    </span>
+                    <span style={{
+                      color: '#00f2ff',
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      background: 'rgba(0, 242, 255, 0.1)',
+                      padding: '2px 8px',
+                      borderRadius: '8px',
+                    }}>
+                      {record.progress != null ? `${record.progress}%` : '—'}
+                    </span>
+                  </div>
+                  {record.weekly_detail && (
+                    <div style={{ marginBottom: '6px' }}>
+                      <span style={{ color: '#94a3b8', fontSize: '12px' }}>📝 周报详情：</span>
+                      <span style={{ color: '#cbd5e1', fontSize: '13px' }}>{record.weekly_detail}</span>
+                    </div>
+                  )}
+                  {record.new_issues && (
+                    <div style={{ marginBottom: '6px' }}>
+                      <span style={{ color: '#f87171', fontSize: '12px' }}>⚠️ 新问题：</span>
+                      <span style={{ color: '#cbd5e1', fontSize: '13px' }}>{record.new_issues}</span>
+                    </div>
+                  )}
+                  {record.previous_issues_resolved && (
+                    <div style={{ marginBottom: '6px' }}>
+                      <span style={{ color: '#34d399', fontSize: '12px' }}>✅ 之前问题解决：</span>
+                      <span style={{ color: '#cbd5e1', fontSize: '13px' }}>{record.previous_issues_resolved}</span>
+                    </div>
+                  )}
+                  {record.cross_department_coordination && (
+                    <div style={{ marginBottom: '6px' }}>
+                      <span style={{ color: '#fbbf24', fontSize: '12px' }}>🤝 跨部门协调：</span>
+                      <span style={{ color: '#cbd5e1', fontSize: '13px' }}>{record.cross_department_coordination}</span>
+                    </div>
+                  )}
                 </div>
               ))
             )}
