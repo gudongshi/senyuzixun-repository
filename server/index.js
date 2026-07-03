@@ -345,10 +345,10 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           '备注': extract('备注'),
           '里程碑明细': extractArray('里程碑明细'),
           source: extract('source'),
-          '周报详情': extract('周报详情'),
-          '新问题': extract('新问题'),
-          '之前问题解决': extract('之前问题解决'),
-          '跨部门协调': extract('跨部门协调'),
+          '周报详情': extract('本周任务完成情况详情') || extract('周报详情'),
+          '新问题': extract('本周任务出现新问题及解决方案') || extract('新问题'),
+          '之前问题解决': extract('之前问题解决情况') || extract('之前问题解决'),
+          '跨部门协调': extract('需要跨部门协调的问题') || extract('跨部门协调'),
         };
         console.log('✅ 手动提取所有字段成功');
         console.log('📦 提取的数据:', JSON.stringify(data, null, 2));
