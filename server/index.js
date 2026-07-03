@@ -429,8 +429,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       // 插入 task_progress_history 表
       const progressRecord = {
         task_id: taskId,
-        task_name: taskName,
-        progress: progressValue,
+        actual_progress: progressValue,
         weekly_detail: weeklyDetail,
         new_issues: newIssues,
         previous_issues_resolved: previousIssuesResolved,
