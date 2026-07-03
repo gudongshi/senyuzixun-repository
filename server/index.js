@@ -312,7 +312,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           }
           // 针对当前进度(%) 字段，因为字段名含特殊字符，使用更精确的正则
           if (key === '当前进度(%)') {
-            const match = rawBody.match(/"当前进度\(%\)":\s*"(\d+)"?/);
+            const match = rawBody.match(/"当前进度\(%\)":\s*"\s*(\d+)\s*"/);
             if (match) {
               return match[1];
             }
@@ -416,6 +416,11 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
         const progressStr = String(progressRaw).replace('%', '');
         const parsed = parseFloat(progressStr);
         if (!isNaN(parsed)) progressValue = parsed;
+      }
+
+      // 如果 progressValue 为 null 或 undefined，设置为 0
+      if (progressValue === null || progressValue === undefined) {
+        progressValue = 0;
       }
 
       // 提取周报专有字段
