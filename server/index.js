@@ -24,6 +24,132 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ============================================================
+// AI 风险分析（通义千问）
+// ============================================================
+const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
+const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
+
+async function callRiskAnalysis(taskData) {
+  const prompt = `
+你是一个项目风险分析专家。请根据以下任务信息，分析该任务的风险等级和潜在风险点，并以 JSON 格式返回结果。
+
+任务信息：
+- 任务名称：${taskData['任务名称'] || taskData.taskName || '未知'}
+- 当前进度：${taskData['当前进度(%)'] || taskData.progress || 0}%
+- 状态：${taskData['状态'] || taskData.status || '未开始'}
+- 当前风险等级：${taskData['风险等级'] || taskData.riskLevel || '未设置'}
+- 任务分类：${taskData['任务分类'] || taskData.taskCategory || ''}
+- 所属项目：${taskData['所属项目'] || taskData.project || ''}
+- 计划开始时间：${taskData['计划开始时间'] || taskData.planStart || ''}
+- 计划结束时间：${taskData['计划结束时间'] || taskData.planEnd || ''}
+- 里程碑完成情况：${JSON.stringify(taskData.milestones || [])}
+- 责任人：${taskData['责任人'] || taskData.responsible || ''}
+
+请返回以下 JSON 格式的分析结果：
+{
+  "riskScore": 0-100 的数字,
+  "riskLevel": "低风险" | "中风险" | "高风险" | "极高风险",
+  "riskAlerts": ["预警1", "预警2", ...],
+  "suggestions": ["建议1", "建议2", ...],
+  "analysisSummary": "简要的风险分析说明"
+}
+
+风险评分参考规则：
+- 进度严重滞后（<30%）且无实际进展 → 高风险
+- 进度略有滞后（30%-60%）→ 中风险
+- 进度正常（>60%）→ 低风险
+- 存在未完成的里程碑且已超期 → 高风险
+- 任务分类为"外部依赖"且进度滞后 → 高风险
+- 其他情况适当调整。
+请务必只返回纯 JSON，不要包含其他解释文字。
+`;
+
+  try {
+    const response = await axios.post(
+      DASHSCOPE_URL,
+      {
+        model: 'qwen-turbo',
+        input: { messages: [{ role: 'user', content: prompt }] },
+        parameters: { result_format: 'message' }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    const resultText = response.data.output.choices[0].message.content;
+    let jsonStr = resultText;
+    const match = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) jsonStr = match[1];
+    return JSON.parse(jsonStr);
+  } catch (error) {
+    console.error('❌ 通义千问 API 调用失败:', error.response?.data || error.message);
+    return {
+      riskScore: 0,
+      riskLevel: '未评估',
+      riskAlerts: ['AI 分析暂时不可用'],
+      suggestions: [],
+      analysisSummary: '分析失败，请稍后重试'
+    };
+  }
+}
+
+async function updateOverallRiskIndex() {
+  try {
+    const { data: tasks, error } = await supabase
+      .from('tasks')
+      .select('risk_score, 风险等级');
+
+    if (error) throw error;
+
+    const total = tasks.length;
+    if (total === 0) {
+      const value = { score: 0, level: '低风险', lastUpdated: new Date().toISOString(), totalTasks: 0, highRiskCount: 0 };
+      await supabase
+        .from('system_config')
+        .update({ value, updated_at: new Date().toISOString() })
+        .eq('key', 'overall_risk_index');
+      return;
+    }
+
+    let sumScore = 0;
+    let highRiskCount = 0;
+    for (const task of tasks) {
+      const score = task.risk_score || 0;
+      sumScore += score;
+      if (task['风险等级'] === '高风险' || task['风险等级'] === '极高风险') {
+        highRiskCount++;
+      }
+    }
+    const avgScore = Math.round(sumScore / total);
+    let level = '低风险';
+    if (avgScore > 70) level = '高风险';
+    else if (avgScore > 40) level = '中风险';
+
+    const value = {
+      score: avgScore,
+      level: level,
+      lastUpdated: new Date().toISOString(),
+      totalTasks: total,
+      highRiskCount: highRiskCount
+    };
+
+    await supabase
+      .from('system_config')
+      .update({ value, updated_at: new Date().toISOString() })
+      .eq('key', 'overall_risk_index');
+
+    console.log('✅ 整体风险指数已更新:', value);
+  } catch (err) {
+    console.error('❌ 更新整体风险指数失败:', err);
+  }
+}
+
+// ============================================================
 // 中间件（先不加载 express.json()）
 // ============================================================
 app.use(cookieParser());
@@ -634,12 +760,111 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       }
     }
 
+    // 异步触发风险分析（不阻塞响应）
+    if (taskId) {
+      (async () => {
+        try {
+          const { data: task } = await supabase
+            .from('tasks')
+            .select('*')
+            .eq('id', taskId)
+            .single();
+          if (task) {
+            const { data: milestones } = await supabase
+              .from('task_milestones')
+              .select('*')
+              .eq('task_id', taskId);
+            task.milestones = milestones;
+            const result = await callRiskAnalysis(task);
+            await supabase
+              .from('tasks')
+              .update({
+                risk_score: result.riskScore,
+                '风险等级': result.riskLevel,
+                risk_alerts: result.riskAlerts,
+                risk_analysis_updated_at: new Date().toISOString()
+              })
+              .eq('id', taskId);
+            console.log(`✅ 风险分析完成，任务 ${taskId} 风险等级: ${result.riskLevel}`);
+            // 更新整体风险指数
+            await updateOverallRiskIndex();
+          }
+        } catch (err) {
+          console.error(`❌ 异步风险分析失败 (task ${taskId}):`, err);
+        }
+      })();
+    }
+
     console.log('✅ Supabase 操作成功');
     res.status(200).json({ success: true, message: 'Synced' });
   } catch (err) {
     console.error('❌ 处理异常:', err.stack || err);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
+});
+
+// 手动触发风险分析
+app.post('/api/risk-analysis', async (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({ success: false, error: '缺少 taskId' });
+  }
+
+  try {
+    const { data: task, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', taskId)
+      .single();
+
+    if (error || !task) {
+      return res.status(404).json({ success: false, error: '任务不存在' });
+    }
+
+    const { data: milestones } = await supabase
+      .from('task_milestones')
+      .select('*')
+      .eq('task_id', taskId);
+
+    task.milestones = milestones;
+
+    const result = await callRiskAnalysis(task);
+
+    const { error: updateError } = await supabase
+      .from('tasks')
+      .update({
+        risk_score: result.riskScore,
+        '风险等级': result.riskLevel,
+        risk_alerts: result.riskAlerts,
+        risk_analysis_updated_at: new Date().toISOString()
+      })
+      .eq('id', taskId);
+
+    if (updateError) {
+      return res.status(500).json({ success: false, error: updateError.message });
+    }
+
+    // 异步更新整体风险指数
+    updateOverallRiskIndex();
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 风险分析失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 获取整体风险指数
+app.get('/api/overall-risk', async (req, res) => {
+  const { data, error } = await supabase
+    .from('system_config')
+    .select('value')
+    .eq('key', 'overall_risk_index')
+    .single();
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+  res.json({ success: true, data: data.value });
 });
 
 // ============================================================
