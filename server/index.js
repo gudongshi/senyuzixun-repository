@@ -19,6 +19,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
+const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -917,10 +918,100 @@ app.get('/api/task-progress', authMiddleware, async (req, res) => {
   }
 });
 
+// 获取所有任务的风险预警（用于实时风险滚动条）
+app.get('/api/risk-alerts', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('risk_alerts, 任务名称')
+      .not('risk_alerts', 'eq', '{}')
+      .not('risk_alerts', 'is', null);
+    if (error) throw error;
+    // 收集所有预警并去重
+    const allAlerts = [];
+    const seen = new Set();
+    data.forEach(task => {
+      if (task.risk_alerts && Array.isArray(task.risk_alerts)) {
+        task.risk_alerts.forEach(alert => {
+          const key = alert.trim();
+          if (!seen.has(key)) {
+            seen.add(key);
+            allAlerts.push({
+              project: task['任务名称'] || '未知任务',
+              issue: alert,
+              level: 'high'
+            });
+          }
+        });
+      }
+    });
+    res.json({ success: true, data: allAlerts });
+  } catch (err) {
+    console.error('❌ 获取风险预警失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ============================================================
 // 启动服务器
 // ============================================================
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
   console.log(`✅ 钉钉 AppKey: ${DINGTALK_APP_KEY.slice(0, 8)}...`);
+});
+
+// ============================================================
+// 定时任务：每天早上 8:30 全量风险分析
+// ============================================================
+cron.schedule('30 8 * * *', async () => {
+  console.log('⏰ 定时任务启动：全量风险分析');
+  try {
+    // 获取所有任务
+    const { data: tasks, error } = await supabase
+      .from('tasks')
+      .select('id');
+    if (error) throw error;
+    console.log(`📋 共 ${tasks.length} 个任务需要分析`);
+    let successCount = 0;
+    let failCount = 0;
+    for (const task of tasks) {
+      try {
+        // 获取任务详情和里程碑
+        const { data: taskDetail } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('id', task.id)
+          .single();
+        if (taskDetail) {
+          const { data: milestones } = await supabase
+            .from('task_milestones')
+            .select('*')
+            .eq('task_id', task.id);
+          taskDetail.milestones = milestones;
+          const result = await callRiskAnalysis(taskDetail);
+          await supabase
+            .from('tasks')
+            .update({
+              risk_score: result.riskScore,
+              '风险等级': result.riskLevel,
+              risk_alerts: result.riskAlerts,
+              risk_analysis_updated_at: new Date().toISOString()
+            })
+            .eq('id', task.id);
+          successCount++;
+          console.log(`✅ 任务 ${task.id} 分析完成，风险等级: ${result.riskLevel}`);
+          // 延迟 500ms 避免 API 限流
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (err) {
+        failCount++;
+        console.error(`❌ 任务 ${task.id} 分析失败:`, err.message);
+      }
+    }
+    console.log(`✅ 定时任务完成：成功 ${successCount}，失败 ${failCount}`);
+    // 更新整体风险指数
+    await updateOverallRiskIndex();
+  } catch (err) {
+    console.error('❌ 定时任务失败:', err);
+  }
 });
