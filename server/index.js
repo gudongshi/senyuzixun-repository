@@ -65,6 +65,7 @@ async function callRiskAnalysis(taskData) {
 `;
 
   try {
+    console.log('⏳ 正在调用通义千问 API...');
     const response = await axios.post(
       DASHSCOPE_URL,
       {
@@ -81,13 +82,24 @@ async function callRiskAnalysis(taskData) {
       }
     );
 
+    console.log('✅ 通义千问 API 响应成功');
     const resultText = response.data.output.choices[0].message.content;
+    console.log('📝 AI 原始响应:', resultText.slice(0, 200));
     let jsonStr = resultText;
     const match = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) jsonStr = match[1];
-    return JSON.parse(jsonStr);
+    if (match) {
+      jsonStr = match[1];
+      console.log('🔧 从 markdown 代码块中提取 JSON');
+    }
+    const parsed = JSON.parse(jsonStr);
+    console.log('✅ AI 分析结果解析成功，风险等级:', parsed.riskLevel, '评分:', parsed.riskScore);
+    return parsed;
   } catch (error) {
-    console.error('❌ 通义千问 API 调用失败:', error.response?.data || error.message);
+    console.error('❌ 通义千问 API 调用失败');
+    console.error('   错误消息:', error.message);
+    console.error('   响应状态:', error.response?.status);
+    console.error('   响应数据:', JSON.stringify(error.response?.data || '无响应数据').slice(0, 500));
+    if (error.code) console.error('   错误代码:', error.code);
     return {
       riskScore: 0,
       riskLevel: '未评估',
@@ -803,6 +815,11 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
   }
 });
 
+// ============================================================
+// 其他路由（使用 express.json()）
+// ============================================================
+app.use(express.json());
+
 // 手动触发风险分析
 app.post('/api/risk-analysis', async (req, res) => {
   const { taskId } = req.body;
@@ -866,11 +883,6 @@ app.get('/api/overall-risk', async (req, res) => {
   }
   res.json({ success: true, data: data.value });
 });
-
-// ============================================================
-// 其他路由（使用 express.json()）
-// ============================================================
-app.use(express.json());
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
