@@ -1007,7 +1007,7 @@ app.get('/api/stats/user-ranking', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tasks')
-      .select('责任人, 状态, 当前进度(%)');
+      .select('责任人, 状态, "当前进度(%)"');
 
     if (error) throw error;
 
