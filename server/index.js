@@ -111,6 +111,40 @@ async function callRiskAnalysis(taskData) {
   }
 }
 
+// ============================================================
+// 通用 AI 调用函数（复用通义千问）
+// ============================================================
+async function callAI(prompt) {
+  console.log('⏳ 正在调用通义千问 API...');
+  const response = await axios.post(
+    DASHSCOPE_URL,
+    {
+      model: 'qwen-turbo',
+      input: { messages: [{ role: 'user', content: prompt }] },
+      parameters: { result_format: 'message' }
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    }
+  );
+  console.log('✅ 通义千问 API 响应成功');
+  const resultText = response.data.output.choices[0].message.content;
+  console.log('📝 AI 原始响应:', resultText.slice(0, 200));
+  let jsonStr = resultText;
+  const match = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (match) {
+    jsonStr = match[1];
+    console.log('🔧 从 markdown 代码块中提取 JSON');
+  }
+  const parsed = JSON.parse(jsonStr);
+  console.log('✅ AI 解析成功');
+  return parsed;
+}
+
 async function updateOverallRiskIndex() {
   try {
     const { data: tasks, error } = await supabase
@@ -1041,6 +1075,131 @@ app.get('/api/stats/user-ranking', async (req, res) => {
     res.json({ success: true, data: ranking });
   } catch (err) {
     console.error('❌ 获取用户排名失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// AI 用户效能分析接口
+// ============================================================
+app.post('/api/ai/user-analysis', async (req, res) => {
+  try {
+    const { userName } = req.body;
+    if (!userName) {
+      return res.status(400).json({ success: false, error: '缺少 userName 参数' });
+    }
+
+    console.log(`🔍 开始分析用户效能: ${userName}`);
+
+    // 查询该用户的所有任务
+    const { data: tasks, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('责任人', userName);
+
+    if (error) throw error;
+
+    if (!tasks || tasks.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          stats: {
+            totalTasks: 0,
+            completedTasks: 0,
+            avgProgress: 0,
+            categoryDistribution: {},
+            delayedTasks: 0,
+            onTimeDeliveryRate: 0
+          },
+          aiAnalysis: {
+            summary: '该用户暂无任务数据',
+            strengths: [],
+            weaknesses: [],
+            suggestions: []
+          }
+        }
+      });
+    }
+
+    // 计算统计指标
+    const totalTasks = tasks.length;
+    let completedTasks = 0;
+    let progressSum = 0;
+    let progressCount = 0;
+    const categoryMap = {};
+    let delayedTasks = 0;
+    const today = new Date().toISOString().split('T')[0];
+
+    tasks.forEach(task => {
+      // 已完成任务
+      if (task['状态'] === '已完成' || task['状态'] === '完成') {
+        completedTasks++;
+      }
+      // 进度统计
+      const progress = parseFloat(task['当前进度(%)']);
+      if (!isNaN(progress)) {
+        progressSum += progress;
+        progressCount++;
+      }
+      // 任务分类分布
+      const cat = task['任务分类'] || '未分类';
+      categoryMap[cat] = (categoryMap[cat] || 0) + 1;
+      // 延迟任务：计划结束时间 < 今天且未完成
+      if (task['计划结束时间'] && task['计划结束时间'] < today) {
+        if (task['状态'] !== '已完成' && task['状态'] !== '完成') {
+          delayedTasks++;
+        }
+      }
+    });
+
+    const avgProgress = progressCount > 0 ? Math.round(progressSum / progressCount) : 0;
+    const onTimeDeliveryRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    const stats = {
+      totalTasks,
+      completedTasks,
+      avgProgress,
+      categoryDistribution: categoryMap,
+      delayedTasks,
+      onTimeDeliveryRate
+    };
+
+    console.log(`📊 统计完成: 总任务=${totalTasks}, 已完成=${completedTasks}, 平均进度=${avgProgress}%, 延迟=${delayedTasks}, 准时率=${onTimeDeliveryRate}%`);
+
+    // 构造 Prompt 并调用 AI
+    const prompt = `你是一位项目效能分析专家。请根据以下数据，分析该员工的效能表现：
+- 总任务数：${totalTasks}
+- 已完成：${completedTasks}
+- 平均进度：${avgProgress}%
+- 任务分类分布：${JSON.stringify(categoryMap)}
+- 延迟任务：${delayedTasks}个
+- 准时交付率：${onTimeDeliveryRate}%
+
+请以 JSON 格式返回：
+{
+  "summary": "整体评价（一句话）",
+  "strengths": ["优势1", "优势2"],
+  "weaknesses": ["待改进1", "待改进2"],
+  "suggestions": ["建议1", "建议2"]
+}
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    let aiAnalysis;
+    try {
+      aiAnalysis = await callAI(prompt);
+    } catch (aiErr) {
+      console.error('❌ AI 分析失败:', aiErr.message);
+      aiAnalysis = {
+        summary: 'AI 分析暂时不可用，请稍后重试',
+        strengths: [],
+        weaknesses: [],
+        suggestions: []
+      };
+    }
+
+    res.json({ success: true, data: { stats, aiAnalysis } });
+  } catch (err) {
+    console.error('❌ 用户效能分析失败:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

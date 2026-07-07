@@ -666,6 +666,153 @@ export default function Dashboard() {
   );
 }
 
+// Person Analysis Component (real API data)
+function PersonAnalysis({ target }: { target: string }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{
+    stats: { totalTasks: number; completedTasks: number; avgProgress: number; categoryDistribution: Record<string, number>; delayedTasks: number; onTimeDeliveryRate: number };
+    aiAnalysis: { summary: string; strengths: string[]; weaknesses: string[]; suggestions: string[] };
+  } | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch('/api/ai/user-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userName: target })
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setData(result.data);
+        } else {
+          setError(result.error || '分析失败');
+        }
+      })
+      .catch(err => setError(err.message || '网络错误'))
+      .finally(() => setLoading(false));
+  }, [target]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="text-cyan-400 text-lg animate-pulse mb-3">⏳ AI 正在分析效能数据...</div>
+        <div className="text-slate-500 text-sm">正在为 {target} 生成分析报告</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 text-center">
+        <div className="text-red-400 text-lg mb-2">⚠️ 分析失败</div>
+        <div className="text-slate-400 text-sm">{error}</div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { stats, aiAnalysis } = data;
+
+  return (
+    <>
+      {/* 统计卡片 */}
+      <div className="mb-6">
+        <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+          <span className="text-blue-500">◆</span> {target} - 效能统计
+        </h3>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-cyan-300">{stats.totalTasks}</div>
+            <div className="text-xs text-slate-400 mt-1">总任务数</div>
+          </div>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-emerald-400">{stats.completedTasks}</div>
+            <div className="text-xs text-slate-400 mt-1">已完成</div>
+          </div>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-cyan-300">{stats.avgProgress}%</div>
+            <div className="text-xs text-slate-400 mt-1">平均进度</div>
+          </div>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-emerald-400">{stats.onTimeDeliveryRate}%</div>
+            <div className="text-xs text-slate-400 mt-1">准时交付率</div>
+          </div>
+        </div>
+      </div>
+
+      {/* AI 综合评估 */}
+      {aiAnalysis.summary && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 综合评估
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 {aiAnalysis.summary}
+          </div>
+        </div>
+      )}
+
+      {/* 优势分析 */}
+      {aiAnalysis.strengths.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-emerald-400 mb-4 flex items-center gap-2">
+            <span className="text-emerald-500">◆</span> 优势分析
+          </h3>
+          <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-xl p-5">
+            <ul className="space-y-2">
+              {aiAnalysis.strengths.map((s, i) => (
+                <li key={i} className="text-sm text-emerald-300 flex items-start gap-2">
+                  <span className="text-emerald-400 mt-0.5">✅</span> {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* 待改进 */}
+      {aiAnalysis.weaknesses.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-amber-400 mb-4 flex items-center gap-2">
+            <span className="text-amber-500">◆</span> 待改进
+          </h3>
+          <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-5">
+            <ul className="space-y-2">
+              {aiAnalysis.weaknesses.map((w, i) => (
+                <li key={i} className="text-sm text-amber-300 flex items-start gap-2">
+                  <span className="text-amber-400 mt-0.5">⚠️</span> {w}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* AI 建议 */}
+      {aiAnalysis.suggestions.length > 0 && (
+        <div>
+          <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-5">
+            <ul className="space-y-2">
+              {aiAnalysis.suggestions.map((s, i) => (
+                <li key={i} className="text-sm text-blue-300 flex items-start gap-2">
+                  <span className="text-blue-400 mt-0.5">💡</span> {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // AI Analysis Content Component
 function AIAnalysisContent({ target }: { target: string }) {
   const analyses: Record<string, JSX.Element> = {
@@ -830,45 +977,9 @@ function AIAnalysisContent({ target }: { target: string }) {
     )
   };
 
-  // Default analysis for person names
+  // Default analysis for person names — use real API data
   if (!analyses[target]) {
-    return (
-      <>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> {target} - 效能分析
-          </h3>
-          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">本月完成任务</span>
-              <span className="text-emerald-400 font-bold text-base">{Math.floor(Math.random() * 20 + 30)} 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">平均质量评分</span>
-              <span className="text-cyan-300 font-bold text-base">{(Math.random() * 10 + 85).toFixed(1)} 分</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">准时交付率</span>
-              <span className="text-emerald-400 font-bold text-base">{(Math.random() * 15 + 80).toFixed(1)}%</span>
-            </div>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-slate-300 text-sm">团队协作度</span>
-              <span className="text-cyan-300 font-bold text-base">{(Math.random() * 10 + 85).toFixed(1)} 分</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> 优势分析
-          </h3>
-          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
-            ✨ {target}在任务执行效率方面表现突出，特别是在复杂问题的解决能力上。
-            <br/><br/>
-            建议继续保持当前的工作状态，并可以考虑承担更多技术攻关任务。
-          </div>
-        </div>
-      </>
-    );
+    return <PersonAnalysis target={target} />;
   }
 
   return analyses[target];
