@@ -63,6 +63,7 @@ export default function Dashboard() {
   const centralChartRef = useRef<HTMLDivElement>(null);
   const heatmapChartRef = useRef<HTMLDivElement>(null);
   const gaugeChartRef = useRef<HTMLDivElement>(null);
+  const heatmapChartInstance = useRef<echarts.ECharts | null>(null);
 
   const [kpis, setKpis] = useState<KPI[]>([
     { label: '进行中项目数', value: 24, key: 'ongoing' },
@@ -74,6 +75,11 @@ export default function Dashboard() {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [overallRisk, setOverallRisk] = useState<{ score: number; level: string; totalTasks: number; highRiskCount: number; lastUpdated: string } | null>(null);
+  const [riskAlerts, setRiskAlerts] = useState<{ project: string; issue: string; level: string }[]>([]);
+  const [monthlyNewTasks, setMonthlyNewTasks] = useState<number>(156);
+  const [taskCategories, setTaskCategories] = useState<{ name: string; value: number }[]>(mockData.taskHeatmap);
+  const [rankingData, setRankingData] = useState<{ name: string; score: number; completed: number }[]>(mockData.rankings);
 
   // Initialize charts
   useEffect(() => {
@@ -242,6 +248,7 @@ export default function Dashboard() {
 
     if (heatmapChartRef.current) {
       const chart = echarts.init(heatmapChartRef.current);
+      heatmapChartInstance.current = chart;
       // @ts-ignore - ECharts treemap options
       chart.setOption({
         series: [{
@@ -308,26 +315,155 @@ export default function Dashboard() {
     };
   }, []);
 
+  // Update heatmap when taskCategories changes
+  useEffect(() => {
+    if (heatmapChartInstance.current && taskCategories.length > 0) {
+      heatmapChartInstance.current.setOption({
+        series: [{
+          type: 'treemap',
+          data: taskCategories,
+          itemStyle: {
+            borderColor: '#1e293b',
+            borderWidth: 2,
+            color: new (echarts.graphic as any).LinearGradient(0, 0, 1, 1, [
+              { offset: 0, color: '#0047AB' },
+              { offset: 1, color: '#00f2ff' }
+            ])
+          },
+          label: {
+            color: '#fff',
+            formatter: '{b}\n{c}个'
+          }
+        }]
+      });
+    }
+  }, [taskCategories]);
+
+  // Fetch monthly new tasks
+  useEffect(() => {
+    fetch('/api/stats/monthly-new-tasks')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && typeof result.data === 'number') {
+          setMonthlyNewTasks(result.data);
+          setKpis(prev => prev.map(kpi => {
+            if (kpi.key === 'newTasks') return { ...kpi, value: result.data };
+            return kpi;
+          }));
+        }
+      })
+      .catch(err => console.error('获取本月新增任务数失败:', err));
+  }, []);
+
+  // Fetch task categories
+  useEffect(() => {
+    fetch('/api/stats/task-categories')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && result.data && result.data.length > 0) {
+          setTaskCategories(result.data);
+        }
+      })
+      .catch(err => console.error('获取任务分类统计失败:', err));
+  }, []);
+
+  // Fetch user ranking
+  useEffect(() => {
+    fetch('/api/stats/user-ranking')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && result.data && result.data.length > 0) {
+          setRankingData(result.data);
+        }
+      })
+      .catch(err => console.error('获取用户排名失败:', err));
+  }, []);
+
   // Update time
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // Fetch overall risk index
+  useEffect(() => {
+    fetch('/api/overall-risk')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && result.data) {
+          setOverallRisk(result.data);
+          // 更新 KPI 中的风险指数卡片
+          setKpis(prev => prev.map(kpi => {
+            if (kpi.key === 'risk') {
+              const d = result.data;
+              return { ...kpi, value: `风险评分：${d.score}（${d.level}）` };
+            }
+            return kpi;
+          }));
+        }
+      })
+      .catch(err => {
+        console.error('获取整体风险指数失败:', err);
+      });
+  }, []);
+
+  // Fetch risk alerts
+  useEffect(() => {
+    const fetchRiskAlerts = () => {
+      fetch('/api/risk-alerts')
+        .then(res => res.json())
+        .then(result => {
+          if (result.success) {
+            setRiskAlerts(result.data);
+          }
+        })
+        .catch(console.error);
+    };
+    fetchRiskAlerts();
+    const interval = setInterval(fetchRiskAlerts, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Auto refresh
   useEffect(() => {
     const interval = setInterval(() => {
-      // Simulate data refresh
+      // Simulate data refresh for mock KPIs (skip risk — uses real API data)
       setKpis(prev => prev.map(kpi => {
         if (kpi.key === 'ongoing') {
           return { ...kpi, value: Number(kpi.value) + Math.floor(Math.random() * 3) - 1 };
         }
-        if (kpi.key === 'risk') {
-          const currentRisk = parseInt(String(kpi.value));
-          return { ...kpi, value: `${Math.max(0, Math.min(100, currentRisk + Math.floor(Math.random() * 5) - 2))}%` };
-        }
+        // risk KPI is driven by real API data, skip mock refresh
         return kpi;
       }));
+      // 定期刷新整体风险指数
+      fetch('/api/overall-risk')
+        .then(res => res.json())
+        .then(result => {
+          if (result.success && result.data) {
+            setOverallRisk(result.data);
+            setKpis(prev => prev.map(kpi => {
+              if (kpi.key === 'risk') {
+                const d = result.data;
+                return { ...kpi, value: `风险评分：${d.score}（${d.level}）` };
+              }
+              return kpi;
+            }));
+          }
+        })
+        .catch(() => {});
+      // 定期刷新本月新增任务数
+      fetch('/api/stats/monthly-new-tasks')
+        .then(res => res.json())
+        .then(result => {
+          if (result.success && typeof result.data === 'number') {
+            setMonthlyNewTasks(result.data);
+            setKpis(prev => prev.map(kpi => {
+              if (kpi.key === 'newTasks') return { ...kpi, value: result.data };
+              return kpi;
+            }));
+          }
+        })
+        .catch(() => {});
     }, 60000);
 
     return () => clearInterval(interval);
@@ -405,13 +541,34 @@ export default function Dashboard() {
                 onClick={() => handleKPIClick(kpi.label)}
                 className="bg-gradient-to-br from-blue-900/30 to-cyan-500/10 border border-blue-900/40 rounded-xl p-5 text-center cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-blue-900/40"
               >
-                <div className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-blue-700 bg-clip-text text-transparent">
+                <div className={`font-bold bg-gradient-to-r from-cyan-400 to-blue-700 bg-clip-text text-transparent ${kpi.key === 'risk' ? 'text-xl' : 'text-4xl'}`}>
                   {kpi.value}
                 </div>
                 <div className="text-sm text-slate-400 mt-2">{kpi.label}</div>
               </div>
             ))}
           </div>
+
+          {overallRisk && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '24px',
+              marginBottom: '16px',
+              padding: '10px 16px',
+              background: 'rgba(0, 242, 255, 0.05)',
+              borderRadius: '10px',
+              border: '1px solid rgba(0, 242, 255, 0.15)',
+            }}>
+              <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
+                高风险任务数：{overallRisk.highRiskCount}
+              </span>
+              <span style={{ color: '#94a3b8', fontSize: '13px' }}>|</span>
+              <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
+                总任务数：{overallRisk.totalTasks}
+              </span>
+            </div>
+          )}
 
           <div ref={centralChartRef} className="w-full h-96 mb-5"></div>
 
@@ -422,14 +579,16 @@ export default function Dashboard() {
             </div>
             <div className="overflow-hidden">
               <div className="flex animate-scroll-left">
-                {[...mockData.riskAlerts, ...mockData.riskAlerts].map((alert, idx) => (
+                {riskAlerts.length > 0 ? [...riskAlerts, ...riskAlerts].map((alert, idx) => (
                   <div
                     key={idx}
                     className="flex-shrink-0 bg-red-900/20 rounded-lg px-4 py-2 mr-3 text-sm text-red-300 whitespace-nowrap"
                   >
                     {alert.level === 'high' ? '🔴' : '🟡'} {alert.project} - {alert.issue}
                   </div>
-                ))}
+                )) : (
+                  <div className="flex-shrink-0 text-slate-400 px-4 py-2">暂无风险预警</div>
+                )}
               </div>
             </div>
           </div>
@@ -447,7 +606,7 @@ export default function Dashboard() {
           <div className="mb-5">
             <h3 className="text-base text-cyan-400 mb-3">个人效能排行榜 TOP 5</h3>
             <ul className="space-y-2">
-              {mockData.rankings.map((item, index) => (
+              {(rankingData.length > 0 ? rankingData : mockData.rankings).map((item, index) => (
                 <li
                   key={item.name}
                   onClick={() => handleKPIClick(item.name)}

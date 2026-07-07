@@ -954,6 +954,98 @@ app.get('/api/risk-alerts', async (req, res) => {
 });
 
 // ============================================================
+// 统计接口：本月新增任务数
+// ============================================================
+app.get('/api/stats/monthly-new-tasks', async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
+
+    const { count, error } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', startOfMonthStr);
+
+    if (error) throw error;
+    res.json({ success: true, data: count || 0 });
+  } catch (err) {
+    console.error('❌ 获取本月新增任务数失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 统计接口：按任务分类统计数量
+// ============================================================
+app.get('/api/stats/task-categories', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('任务分类');
+
+    if (error) throw error;
+
+    const categoryMap = {};
+    (data || []).forEach(task => {
+      const cat = task['任务分类'] || '未分类';
+      categoryMap[cat] = (categoryMap[cat] || 0) + 1;
+    });
+
+    const result = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取任务分类统计失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 统计接口：按责任人统计任务数（TOP 5 + 效能分）
+// ============================================================
+app.get('/api/stats/user-ranking', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('责任人, 状态, 当前进度(%)');
+
+    if (error) throw error;
+
+    const userMap = {};
+    (data || []).forEach(task => {
+      const user = task['责任人'] || '未分配';
+      if (!userMap[user]) {
+        userMap[user] = { total: 0, completed: 0, progressSum: 0, progressCount: 0 };
+      }
+      userMap[user].total++;
+      if (task['状态'] === '已完成' || task['状态'] === '完成') {
+        userMap[user].completed++;
+      }
+      const progress = parseFloat(task['当前进度(%)']);
+      if (!isNaN(progress)) {
+        userMap[user].progressSum += progress;
+        userMap[user].progressCount++;
+      }
+    });
+
+    // 计算效能分：完成任务数 × 2 + 平均进度 × 0.5
+    const ranking = Object.entries(userMap)
+      .map(([name, stats]) => {
+        const avgProgress = stats.progressCount > 0 ? stats.progressSum / stats.progressCount : 0;
+        const score = Math.round(stats.completed * 2 + avgProgress * 0.5);
+        return { name, score, completed: stats.completed };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    res.json({ success: true, data: ranking });
+  } catch (err) {
+    console.error('❌ 获取用户排名失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 app.listen(PORT, () => {
