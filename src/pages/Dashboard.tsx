@@ -957,6 +957,149 @@ function OverallRiskAnalysis() {
   );
 }
 
+// Monthly Tasks Analysis Component (real API data)
+function MonthlyTasksAnalysis() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{
+    total: number;
+    lastMonthTotal: number;
+    growthRate: number;
+    categoryDistribution: Record<string, number>;
+    aiAnalysis: { summary: string; suggestions: string[] };
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/ai/monthly-tasks-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setData(result.data);
+        } else {
+          setError(result.error || '分析失败');
+        }
+      })
+      .catch(err => setError(err.message || '网络错误'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="text-cyan-400 text-lg animate-pulse mb-3">⏳ AI 正在分析本月新增任务...</div>
+        <div className="text-slate-500 text-sm">正在统计任务数据</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> 任务分布分析
+          </h3>
+          <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 text-center">
+            <div className="text-red-400 text-lg mb-2">⚠️ 分析失败</div>
+            <div className="text-slate-400 text-sm">{error}</div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 请稍后重试，或联系管理员检查服务状态。
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!data) return null;
+
+  const { total, lastMonthTotal, growthRate, categoryDistribution, aiAnalysis } = data;
+  const isGrowthPositive = growthRate >= 0;
+  const categoryEntries = Object.entries(categoryDistribution);
+
+  return (
+    <>
+      {/* 本月新增任务统计 */}
+      <div className="mb-6">
+        <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+          <span className="text-blue-500">◆</span> 任务分布分析
+        </h3>
+        <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-center flex-1">
+              <div className="text-3xl font-bold text-cyan-300">{total}</div>
+              <div className="text-xs text-slate-400 mt-1">本月新增</div>
+            </div>
+            <div className="text-slate-600 text-2xl px-4">|</div>
+            <div className="text-center flex-1">
+              <div className="text-2xl font-bold text-slate-400">{lastMonthTotal}</div>
+              <div className="text-xs text-slate-500 mt-1">上月新增</div>
+            </div>
+            <div className="text-slate-600 text-2xl px-4">|</div>
+            <div className="text-center flex-1">
+              <div className={`text-2xl font-bold flex items-center justify-center gap-1 ${isGrowthPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                {isGrowthPositive ? '+' : ''}{growthRate}%
+                <span className="text-sm">{isGrowthPositive ? '↑' : '↓'}</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">增长率</div>
+            </div>
+          </div>
+
+          {categoryEntries.length > 0 && (
+            <div className="border-t border-slate-600/30 pt-3 mt-3">
+              <div className="text-xs text-slate-400 mb-2">任务分类分布</div>
+              <div className="space-y-1.5">
+                {categoryEntries.map(([cat, count]) => (
+                  <div key={cat} className="flex justify-between items-center">
+                    <span className="text-sm text-slate-300">- {cat}</span>
+                    <span className="text-sm text-cyan-300 font-medium">{count} 个</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* AI 综合评估 */}
+      {aiAnalysis.summary && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 综合评估
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 {aiAnalysis.summary}
+          </div>
+        </div>
+      )}
+
+      {/* AI 建议 */}
+      {aiAnalysis.suggestions.length > 0 && (
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            {aiAnalysis.suggestions.map((s, i) => (
+              <div key={i} className={i > 0 ? 'mt-3' : ''}>
+                💡 {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // AI Analysis Content Component
 function AIAnalysisContent({ target }: { target: string }) {
   const analyses: Record<string, JSX.Element> = {
@@ -1012,43 +1155,7 @@ function AIAnalysisContent({ target }: { target: string }) {
         </div>
       </>
     ),
-    '本月新增任务': (
-      <>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> 任务分布分析
-          </h3>
-          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">开发类任务</span>
-              <span className="text-cyan-300 font-bold text-base">68 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">测试类任务</span>
-              <span className="text-cyan-300 font-bold text-base">42 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">设计类任务</span>
-              <span className="text-cyan-300 font-bold text-base">28 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-slate-300 text-sm">其他任务</span>
-              <span className="text-cyan-300 font-bold text-base">18 个</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> AI 建议
-          </h3>
-          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
-            💡 本月新增任务量较上月增长 23%，建议评估团队承载能力。
-            <br/><br/>
-            可考虑将部分低优先级任务延后至下月，或协调跨部门资源支持。
-          </div>
-        </div>
-      </>
-    ),
+    '本月新增任务': <MonthlyTasksAnalysis />,
     '整体风险指数': <OverallRiskAnalysis />,
     '人员负荷率': (
       <>

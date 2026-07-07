@@ -1322,6 +1322,94 @@ app.post('/api/ai/overall-risk-analysis', async (req, res) => {
 });
 
 // ============================================================
+// AI 本月新增任务分析接口
+// ============================================================
+app.post('/api/ai/monthly-tasks-analysis', async (req, res) => {
+  try {
+    console.log('🔍 开始本月新增任务分析...');
+
+    const now = new Date();
+    const thisMonthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthFirst = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const thisMonthStr = thisMonthFirst.toISOString().split('T')[0];
+    const lastMonthStr = lastMonthFirst.toISOString().split('T')[0];
+
+    // 查询本月新增任务
+    const { data: thisMonthTasks, error: thisMonthError } = await supabase
+      .from('tasks')
+      .select('*')
+      .gte('created_at', thisMonthStr);
+
+    if (thisMonthError) throw thisMonthError;
+
+    // 查询上月新增任务数（仅计数）
+    const { count: lastMonthCount, error: lastMonthError } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', lastMonthStr)
+      .lt('created_at', thisMonthStr);
+
+    if (lastMonthError) throw lastMonthError;
+
+    const total = (thisMonthTasks || []).length;
+    const lastMonthTotal = lastMonthCount || 0;
+
+    // 计算增长率
+    const growthRate = lastMonthTotal > 0
+      ? Math.round(((total - lastMonthTotal) / lastMonthTotal) * 100)
+      : (total > 0 ? 100 : 0);
+
+    // 统计任务分类分布
+    const categoryMap = {};
+    (thisMonthTasks || []).forEach(task => {
+      const cat = task['任务分类'] || '未分类';
+      categoryMap[cat] = (categoryMap[cat] || 0) + 1;
+    });
+
+    console.log(`📊 本月新增: ${total}, 上月: ${lastMonthTotal}, 增长率: ${growthRate}%`);
+
+    // 构造 Prompt 并调用 AI
+    const prompt = `你是一位项目管理专家。请根据以下本月新增任务数据，分析任务结构和趋势：
+- 本月新增任务总数：${total}
+- 上月新增任务总数：${lastMonthTotal}
+- 增长率：${growthRate}%
+- 任务分类分布：${JSON.stringify(categoryMap)}
+
+请以 JSON 格式返回：
+{
+  "summary": "本月新增任务情况总结（一句话）",
+  "suggestions": ["建议1", "建议2", "建议3"]
+}
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    let aiAnalysis;
+    try {
+      aiAnalysis = await callAI(prompt);
+    } catch (aiErr) {
+      console.error('❌ AI 分析失败:', aiErr.message);
+      aiAnalysis = {
+        summary: 'AI 分析暂时不可用，请稍后重试',
+        suggestions: []
+      };
+    }
+
+    res.json({
+      success: true,
+      data: {
+        total,
+        lastMonthTotal,
+        growthRate,
+        categoryDistribution: categoryMap,
+        aiAnalysis
+      }
+    });
+  } catch (err) {
+    console.error('❌ 本月新增任务分析失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 app.listen(PORT, () => {
