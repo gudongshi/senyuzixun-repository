@@ -371,6 +371,7 @@ app.get('/api/dingtalk/login', async (req, res) => {
       "RWATGRZfsEJGwSILSZyXvwiEiE",   // 赵莘
       "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
       "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
+      "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
     ];
     if (!ALLOWED_USERS.includes(userId)) {
       console.warn(`⛔ 拒绝访问: ${userName} (${userId}) 不在白名单中`);
