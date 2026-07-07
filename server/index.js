@@ -1205,6 +1205,123 @@ app.post('/api/ai/user-analysis', async (req, res) => {
 });
 
 // ============================================================
+// AI 整体风险分析接口
+// ============================================================
+app.post('/api/ai/overall-risk-analysis', async (req, res) => {
+  try {
+    console.log('🔍 开始整体风险分析...');
+
+    // 查询所有任务
+    const { data: tasks, error } = await supabase
+      .from('tasks')
+      .select('*');
+
+    if (error) throw error;
+
+    if (!tasks || tasks.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          riskComposition: { progressRisk: 0, qualityRisk: 0, costRisk: 0, personnelRisk: 0 },
+          aiAnalysis: { summary: '暂无任务数据', suggestions: [] }
+        }
+      });
+    }
+
+    const totalTasks = tasks.length;
+    const today = new Date().toISOString().split('T')[0];
+
+    let progressRiskCount = 0;
+    let completedCount = 0;
+    let overdueCompletedCount = 0;
+    let externalDependencyCount = 0;
+    let externalDependencySlowCount = 0;
+    let unassignedCount = 0;
+
+    tasks.forEach(task => {
+      const progress = parseFloat(task['当前进度(%)']) || 0;
+
+      // 进度风险：进度 < 30% 的任务数
+      if (progress < 30) progressRiskCount++;
+
+      // 质量风险：已完成任务中，实际结束时间 > 计划结束时间
+      if (task['状态'] === '已完成' || task['状态'] === '完成') {
+        completedCount++;
+        if (task['实际结束时间'] && task['计划结束时间'] && task['实际结束时间'] > task['计划结束时间']) {
+          overdueCompletedCount++;
+        }
+      }
+
+      // 成本风险：任务分类为"外部依赖"且进度 < 50%
+      const category = task['任务分类'] || '';
+      if (category === '外部依赖') {
+        externalDependencyCount++;
+        if (progress < 50) externalDependencySlowCount++;
+      }
+
+      // 人员风险：责任人未分配
+      const responsible = task['责任人'] || '';
+      if (!responsible || responsible.trim() === '') {
+        unassignedCount++;
+      }
+    });
+
+    const progressRisk = Math.round((progressRiskCount / totalTasks) * 100);
+    const qualityRisk = completedCount > 0 ? Math.round((overdueCompletedCount / completedCount) * 100) : 0;
+    const costRisk = externalDependencyCount > 0
+      ? Math.round((externalDependencySlowCount / totalTasks) * 100)
+      : 0;
+    const personnelRisk = Math.round((unassignedCount / totalTasks) * 100);
+
+    const riskComposition = { progressRisk, qualityRisk, costRisk, personnelRisk };
+
+    console.log(`📊 风险构成: 进度=${progressRisk}%, 质量=${qualityRisk}%, 成本=${costRisk}%, 人员=${personnelRisk}%`);
+
+    // 获取整体风险指数
+    const { data: configData } = await supabase
+      .from('system_config')
+      .select('value')
+      .eq('key', 'overall_risk_index')
+      .single();
+
+    const overallRisk = configData?.value || { score: 0, level: '低风险' };
+
+    // 构造 Prompt 并调用 AI
+    const prompt = `你是一位项目风险管理专家。请根据以下整体项目数据，分析整体风险状况：
+- 总任务数：${totalTasks}
+- 进度风险（进度<30%的任务占比）：${progressRisk}%
+- 质量风险（实际超期完成占比）：${qualityRisk}%
+- 成本风险（外部依赖任务占比）：${costRisk}%
+- 人员风险（责任人未分配占比）：${personnelRisk}%
+- 整体风险指数：${overallRisk.score}
+- 整体风险等级：${overallRisk.level}
+
+请以 JSON 格式返回：
+{
+  "summary": "整体风险状况总结（一句话）",
+  "suggestions": ["建议1", "建议2", "建议3"]
+}
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    let aiAnalysis;
+    try {
+      aiAnalysis = await callAI(prompt);
+    } catch (aiErr) {
+      console.error('❌ AI 分析失败:', aiErr.message);
+      aiAnalysis = {
+        summary: 'AI 分析暂时不可用，请稍后重试',
+        suggestions: []
+      };
+    }
+
+    res.json({ success: true, data: { riskComposition, aiAnalysis } });
+  } catch (err) {
+    console.error('❌ 整体风险分析失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 app.listen(PORT, () => {

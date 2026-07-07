@@ -813,6 +813,150 @@ function PersonAnalysis({ target }: { target: string }) {
   );
 }
 
+// Overall Risk Analysis Component (real API data)
+function OverallRiskAnalysis() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{
+    riskComposition: { progressRisk: number; qualityRisk: number; costRisk: number; personnelRisk: number };
+    aiAnalysis: { summary: string; suggestions: string[] };
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/ai/overall-risk-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setData(result.data);
+        } else {
+          setError(result.error || '分析失败');
+        }
+      })
+      .catch(err => setError(err.message || '网络错误'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="text-cyan-400 text-lg animate-pulse mb-3">⏳ AI 正在分析整体风险...</div>
+        <div className="text-slate-500 text-sm">正在汇总全量任务数据</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> 风险构成
+          </h3>
+          <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 text-center">
+            <div className="text-red-400 text-lg mb-2">⚠️ 分析失败</div>
+            <div className="text-slate-400 text-sm">{error}</div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 请稍后重试，或联系管理员检查服务状态。
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!data) return null;
+
+  const { riskComposition, aiAnalysis } = data;
+
+  const riskItems = [
+    { label: '进度风险', value: riskComposition.progressRisk, color: 'amber' },
+    { label: '成本风险', value: riskComposition.costRisk, color: 'cyan' },
+    { label: '质量风险', value: riskComposition.qualityRisk, color: 'cyan' },
+    { label: '人员风险', value: riskComposition.personnelRisk, color: 'red' },
+  ];
+
+  const getBarColor = (color: string) => {
+    switch (color) {
+      case 'amber': return 'bg-amber-500';
+      case 'red': return 'bg-red-500';
+      case 'cyan': return 'bg-cyan-500';
+      default: return 'bg-cyan-500';
+    }
+  };
+
+  const getTextColor = (color: string) => {
+    switch (color) {
+      case 'amber': return 'text-amber-400';
+      case 'red': return 'text-red-400';
+      case 'cyan': return 'text-cyan-300';
+      default: return 'text-cyan-300';
+    }
+  };
+
+  return (
+    <>
+      {/* 风险构成 */}
+      <div className="mb-6">
+        <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+          <span className="text-blue-500">◆</span> 风险构成
+        </h3>
+        <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 space-y-4">
+          {riskItems.map(item => (
+            <div key={item.label}>
+              <div className="flex justify-between items-center mb-1.5">
+                <span className="text-slate-300 text-sm">{item.label}</span>
+                <span className={`${getTextColor(item.color)} font-bold text-sm`}>{item.value}%</span>
+              </div>
+              <div className="w-full bg-slate-600/50 rounded-full h-2.5">
+                <div
+                  className={`${getBarColor(item.color)} h-2.5 rounded-full transition-all duration-700`}
+                  style={{ width: `${item.value}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* AI 综合评估 */}
+      {aiAnalysis.summary && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 综合评估
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 {aiAnalysis.summary}
+          </div>
+        </div>
+      )}
+
+      {/* AI 建议 */}
+      {aiAnalysis.suggestions.length > 0 && (
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            {aiAnalysis.suggestions.map((s, i) => (
+              <div key={i} className={i > 0 ? 'mt-3' : ''}>
+                💡 {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // AI Analysis Content Component
 function AIAnalysisContent({ target }: { target: string }) {
   const analyses: Record<string, JSX.Element> = {
@@ -905,43 +1049,7 @@ function AIAnalysisContent({ target }: { target: string }) {
         </div>
       </>
     ),
-    '整体风险指数': (
-      <>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> 风险构成
-          </h3>
-          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">进度风险</span>
-              <span className="text-amber-400 font-bold text-base">35%</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">成本风险</span>
-              <span className="text-cyan-300 font-bold text-base">18%</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">质量风险</span>
-              <span className="text-cyan-300 font-bold text-base">12%</span>
-            </div>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-slate-300 text-sm">人员风险</span>
-              <span className="text-red-400 font-bold text-base">35%</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> AI 建议
-          </h3>
-          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
-            💡 整体风险指数呈下降趋势，但人员风险仍需重点关注。
-            <br/><br/>
-            建议启动关键岗位备份计划，降低人员流动对项目的影响。
-          </div>
-        </div>
-      </>
-    ),
+    '整体风险指数': <OverallRiskAnalysis />,
     '人员负荷率': (
       <>
         <div className="mb-6">
