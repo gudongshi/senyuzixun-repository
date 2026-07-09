@@ -1483,6 +1483,59 @@ function mapDbToResponse(dbRecord) {
 }
 
 // ============================================================
+// 周报字段映射：英文请求 → 数据库字段（project_weekly_reports 表）
+// ============================================================
+const WEEKLY_REPORT_FIELD_MAP_TO_DB = {
+  reportDate: 'report_date',
+  currentProgress: 'current_progress',
+  weeklySummary: 'weekly_summary',
+  issuesEncountered: 'issues_encountered',
+  nextWeekPlan: 'next_week_plan',
+  riskSelfAssessment: 'risk_self_assessment',
+};
+
+// 周报字段映射：数据库字段 → 英文响应
+const WEEKLY_REPORT_FIELD_MAP_FROM_DB = {
+  report_date: 'reportDate',
+  current_progress: 'currentProgress',
+  weekly_summary: 'weeklySummary',
+  issues_encountered: 'issuesEncountered',
+  next_week_plan: 'nextWeekPlan',
+  risk_self_assessment: 'riskSelfAssessment',
+};
+
+// 将周报请求体英文字段映射为数据库字段（写入 project_weekly_reports）
+function mapWeeklyReportRequestToDb(body) {
+  const record = {};
+  for (const [enKey, dbKey] of Object.entries(WEEKLY_REPORT_FIELD_MAP_TO_DB)) {
+    if (body[enKey] !== undefined) {
+      record[dbKey] = body[enKey];
+    }
+  }
+  return record;
+}
+
+// 将周报数据库记录映射为英文响应
+function mapWeeklyReportDbToResponse(dbRecord) {
+  if (!dbRecord) return null;
+  const result = {};
+  for (const [dbKey, enKey] of Object.entries(WEEKLY_REPORT_FIELD_MAP_FROM_DB)) {
+    result[enKey] = dbRecord[dbKey] !== undefined ? dbRecord[dbKey] : null;
+  }
+  result.id = dbRecord.id;
+  result.projectId = dbRecord.project_id;
+  result.createdAt = dbRecord.created_at;
+  return result;
+}
+
+// AI 项目分析占位函数（后续任务 2.4 完善）
+async function triggerProjectAIAnalysis(projectId) {
+  console.log(`🤖 [占位] 触发项目 ${projectId} 的 AI 分析（待实现）`);
+  // TODO: 后续任务 2.4 实现真实 AI 分析逻辑
+  return { success: true, message: 'AI 分析占位' };
+}
+
+// ============================================================
 // GET /api/projects - 获取项目列表
 // ============================================================
 app.get('/api/projects', authMiddleware, async (req, res) => {
@@ -1940,6 +1993,157 @@ app.get('/api/stats/projects-category', async (req, res) => {
     res.json({ success: true, data: result });
   } catch (err) {
     console.error('❌ 获取服务类别分布失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 周报接口：提交周报
+// ============================================================
+app.post('/api/projects/:id/weekly-report', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reportDate, currentProgress, weeklySummary } = req.body;
+
+    console.log(`📋 POST /api/projects/${id}/weekly-report - reportDate=${reportDate}, currentProgress=${currentProgress}`);
+
+    // 必填字段校验
+    const missingFields = [];
+    if (!reportDate) missingFields.push('reportDate');
+    if (currentProgress === undefined || currentProgress === null) missingFields.push('currentProgress');
+    if (!weeklySummary) missingFields.push('weeklySummary');
+
+    if (missingFields.length > 0) {
+      console.warn(`⚠️ 缺少必填字段: ${missingFields.join(', ')}`);
+      return res.status(400).json({
+        success: false,
+        error: `缺少必填字段: ${missingFields.join(', ')}`,
+      });
+    }
+
+    // 验证项目是否存在且未删除
+    const { data: project, error: findError } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        console.warn(`⚠️ 项目不存在: id=${id}`);
+        return res.status(404).json({ success: false, error: '项目不存在' });
+      }
+      throw findError;
+    }
+
+    if (project['项目状态'] === '已删除') {
+      console.warn(`⚠️ 项目已删除，无法提交周报: ${project[FIELD_MAP_TO_DB.projectName] || id}`);
+      return res.status(400).json({ success: false, error: '项目已删除，无法提交周报' });
+    }
+
+    const projectName = project[FIELD_MAP_TO_DB.projectName] || '未知项目';
+    console.log(`✅ 项目验证通过: ${projectName} (id=${id})`);
+
+    // 映射周报字段并插入
+    const weeklyReportRecord = mapWeeklyReportRequestToDb(req.body);
+    weeklyReportRecord.project_id = id;
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('project_weekly_reports')
+      .insert(weeklyReportRecord)
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('❌ 插入周报失败:', insertError);
+      return res.status(500).json({ success: false, error: insertError.message });
+    }
+
+    console.log(`✅ 周报已插入: project=${projectName}, reportDate=${reportDate}`);
+
+    // 更新 projects 表的当前进度和最近周报日期
+    const projectUpdate = {};
+    projectUpdate[FIELD_MAP_TO_DB.currentProgress] = currentProgress;
+    projectUpdate[FIELD_MAP_TO_DB.lastWeeklyReportAt] = reportDate;
+
+    const { error: updateError } = await supabase
+      .from('projects')
+      .update(projectUpdate)
+      .eq('id', id);
+
+    if (updateError) {
+      console.error('⚠️ 更新项目进度失败:', updateError);
+    } else {
+      console.log(`✅ 项目进度已更新: ${projectName}, 当前进度=${currentProgress}%, 最近周报日期=${reportDate}`);
+    }
+
+    // 异步触发 AI 项目分析（不阻塞响应）
+    triggerProjectAIAnalysis(id).then(result => {
+      console.log(`🤖 AI 分析触发结果: ${result.message}`);
+    }).catch(err => {
+      console.error(`❌ AI 分析触发异常 (project ${id}):`, err.message);
+    });
+
+    const responseData = mapWeeklyReportDbToResponse(inserted);
+    res.status(201).json({ success: true, data: responseData });
+  } catch (err) {
+    console.error('❌ 提交周报异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 周报接口：获取项目周报历史
+// ============================================================
+app.get('/api/projects/:id/weekly-reports', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 GET /api/projects/${id}/weekly-reports`);
+
+    const { data, error } = await supabase
+      .from('project_weekly_reports')
+      .select('*')
+      .eq('project_id', id)
+      .order('report_date', { ascending: false });
+
+    if (error) throw error;
+
+    const result = (data || []).map(record => mapWeeklyReportDbToResponse(record));
+
+    console.log(`✅ 周报历史: project=${id}, 共 ${result.length} 条记录`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取周报历史失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 周报接口：获取最新一条周报
+// ============================================================
+app.get('/api/projects/:id/weekly-report/latest', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 GET /api/projects/${id}/weekly-report/latest`);
+
+    const { data, error } = await supabase
+      .from('project_weekly_reports')
+      .select('*')
+      .eq('project_id', id)
+      .order('report_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    const result = data ? mapWeeklyReportDbToResponse(data) : null;
+
+    console.log(`✅ 最新周报: project=${id}, ${result ? `reportDate=${result.reportDate}` : '无记录'}`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取最新周报失败:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
