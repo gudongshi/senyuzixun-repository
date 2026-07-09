@@ -1410,6 +1410,403 @@ app.post('/api/ai/monthly-tasks-analysis', async (req, res) => {
 });
 
 // ============================================================
+// 项目管理接口
+// ============================================================
+
+// 钉钉同步占位函数（后续任务 2.5 完善）
+function syncProjectToDingTalk(projectData) {
+  console.log('📤 准备同步到钉钉AI表格:', projectData.contract_number || projectData['合同编号']);
+  return { success: true, message: '模拟同步成功' };
+}
+
+// 字段映射：英文请求 → 中文数据库字段
+const FIELD_MAP_TO_DB = {
+  contractNumber: '合同编号',
+  projectName: '项目名称',
+  serviceCategory: '服务类别',
+  projectStatus: '项目状态',
+  contractAmount: '合同金额',
+  finalContractAmount: '最终合同金额',
+  receivedAmount: '已收款',
+  invoicedAmount: '已开票',
+  projectLeader: '项目负责人',
+  department: '所属部门',
+  partnerUnit: '合作单位',
+  signedDate: '签订日期',
+  plannedEndDate: '计划结束日期',
+  currentProgress: '当前进度',
+  lastWeeklyReportAt: '最近周报日期',
+  remark: '备注',
+};
+
+// 字段映射：中文数据库字段 → 英文响应
+const FIELD_MAP_FROM_DB = {
+  '合同编号': 'contractNumber',
+  '项目名称': 'projectName',
+  '服务类别': 'serviceCategory',
+  '项目状态': 'projectStatus',
+  '合同金额': 'contractAmount',
+  '最终合同金额': 'finalContractAmount',
+  '已收款': 'receivedAmount',
+  '已开票': 'invoicedAmount',
+  '项目负责人': 'projectLeader',
+  '所属部门': 'department',
+  '合作单位': 'partnerUnit',
+  '签订日期': 'signedDate',
+  '计划结束日期': 'plannedEndDate',
+  '当前进度': 'currentProgress',
+  '最近周报日期': 'lastWeeklyReportAt',
+  '备注': 'remark',
+};
+
+// 将请求体英文字段映射为中文字段（写入 DB）
+function mapRequestToDb(body) {
+  const record = {};
+  for (const [enKey, cnKey] of Object.entries(FIELD_MAP_TO_DB)) {
+    if (body[enKey] !== undefined) {
+      record[cnKey] = body[enKey];
+    }
+  }
+  return record;
+}
+
+// 将数据库记录中文字段映射为英文字段（返回响应）
+function mapDbToResponse(dbRecord) {
+  if (!dbRecord) return null;
+  const result = { id: dbRecord.id };
+  for (const [cnKey, enKey] of Object.entries(FIELD_MAP_FROM_DB)) {
+    result[enKey] = dbRecord[cnKey] !== undefined ? dbRecord[cnKey] : null;
+  }
+  result.createdAt = dbRecord.created_at;
+  result.updatedAt = dbRecord.updated_at;
+  return result;
+}
+
+// ============================================================
+// GET /api/projects - 获取项目列表
+// ============================================================
+app.get('/api/projects', authMiddleware, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+    const { status, category, leader, search } = req.query;
+
+    console.log(`📋 GET /api/projects - page=${page}, limit=${limit}, status=${status || '-'}, category=${category || '-'}, leader=${leader || '-'}, search=${search || '-'}`);
+
+    let query = supabase.from('projects').select('*', { count: 'exact' });
+
+    // 筛选条件
+    if (status) {
+      query = query.eq('项目状态', status);
+    }
+    if (category) {
+      query = query.eq('服务类别', category);
+    }
+    if (leader) {
+      query = query.eq('项目负责人', leader);
+    }
+    if (search) {
+      // 模糊匹配项目名称或合同编号
+      query = query.or(`项目名称.ilike.%${search}%,合同编号.ilike.%${search}%`);
+    }
+
+    // 分页 + 排序
+    query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    // 为每个项目统计关联任务数（通过 tasks.所属项目 匹配）
+    const projectsWithTaskCount = await Promise.all(
+      (data || []).map(async (project) => {
+        const projectName = project['项目名称'];
+        let taskCount = 0;
+
+        if (projectName) {
+          const { count: tc, error: taskError } = await supabase
+            .from('tasks')
+            .select('*', { count: 'exact', head: true })
+            .eq('所属项目', projectName);
+
+          if (taskError) {
+            console.warn(`⚠️ 统计项目 "${projectName}" 任务数失败:`, taskError.message);
+          } else {
+            taskCount = tc || 0;
+          }
+        }
+
+        const mapped = mapDbToResponse(project);
+        mapped.taskCount = taskCount;
+        return mapped;
+      })
+    );
+
+    console.log(`✅ 返回 ${projectsWithTaskCount.length} 条项目记录，总数: ${count}`);
+
+    res.json({
+      success: true,
+      data: projectsWithTaskCount,
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
+    });
+  } catch (err) {
+    console.error('❌ 获取项目列表失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// GET /api/projects/:id - 获取项目详情
+// ============================================================
+app.get('/api/projects/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 GET /api/projects/${id}`);
+
+    // 查询项目
+    const { data: project, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '项目不存在' });
+      }
+      throw error;
+    }
+
+    const projectName = project['项目名称'];
+
+    // 查询关联任务（通过 tasks.project_id 或 所属项目 匹配）
+    let tasks = [];
+    const { data: tasksByProjectId, error: tasksError1 } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('project_id', id);
+
+    if (tasksError1) {
+      // project_id 列可能不存在，尝试通过项目名称匹配
+      console.warn('⚠️ 通过 project_id 查询任务失败，尝试通过项目名称匹配:', tasksError1.message);
+      const { data: tasksByName, error: tasksError2 } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('所属项目', projectName);
+
+      if (!tasksError2) {
+        tasks = tasksByName || [];
+      } else {
+        console.warn('⚠️ 通过项目名称查询任务也失败:', tasksError2.message);
+      }
+    } else {
+      tasks = tasksByProjectId || [];
+    }
+
+    // 查询关联周报（通过任务关联，按 record_date 倒序）
+    let weeklyReports = [];
+    if (tasks.length > 0) {
+      const taskIds = tasks.map(t => t.id);
+      const { data: reports, error: reportsError } = await supabase
+        .from('task_progress_history')
+        .select('*')
+        .in('task_id', taskIds)
+        .order('record_date', { ascending: false });
+
+      if (reportsError) {
+        console.warn('⚠️ 查询周报失败:', reportsError.message);
+      } else {
+        weeklyReports = reports || [];
+      }
+    }
+
+    const result = mapDbToResponse(project);
+    result.tasks = tasks;
+    result.weeklyReports = weeklyReports;
+
+    console.log(`✅ 项目详情: ${projectName}, 关联任务: ${tasks.length}, 周报: ${weeklyReports.length}`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取项目详情失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// POST /api/projects - 创建项目
+// ============================================================
+app.post('/api/projects', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 POST /api/projects - 请求体:', JSON.stringify(req.body, null, 2));
+
+    const { contractNumber, projectName, serviceCategory, contractAmount, projectLeader } = req.body;
+
+    // 必填字段校验
+    const missingFields = [];
+    if (!contractNumber) missingFields.push('contractNumber');
+    if (!projectName) missingFields.push('projectName');
+    if (!serviceCategory) missingFields.push('serviceCategory');
+    if (!contractAmount) missingFields.push('contractAmount');
+    if (!projectLeader) missingFields.push('projectLeader');
+
+    if (missingFields.length > 0) {
+      console.warn('⚠️ 缺少必填字段:', missingFields.join(', '));
+      return res.status(400).json({
+        success: false,
+        error: `缺少必填字段: ${missingFields.join(', ')}`,
+      });
+    }
+
+    // 英文字段映射为中文字段
+    const record = mapRequestToDb(req.body);
+
+    console.log('📝 映射后的数据库记录:', JSON.stringify(record, null, 2));
+
+    const { data, error } = await supabase
+      .from('projects')
+      .insert(record)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 创建项目失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 项目创建成功:', data['合同编号']);
+
+    // 异步同步到钉钉AI表格（不阻塞响应）
+    syncProjectToDingTalk(data).then(result => {
+      console.log('📤 钉钉同步结果:', result.message);
+    }).catch(err => {
+      console.error('❌ 钉钉同步异常:', err.message);
+    });
+
+    const responseData = mapDbToResponse(data);
+    res.status(201).json({ success: true, data: responseData });
+  } catch (err) {
+    console.error('❌ 创建项目异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// PUT /api/projects/:id - 更新项目
+// ============================================================
+app.put('/api/projects/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 PUT /api/projects/${id} - 请求体:`, JSON.stringify(req.body, null, 2));
+
+    // 先检查项目是否存在
+    const { data: existing, error: findError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '项目不存在' });
+      }
+      throw findError;
+    }
+
+    // 英文字段映射为中文字段
+    const record = mapRequestToDb(req.body);
+
+    if (Object.keys(record).length === 0) {
+      return res.status(400).json({ success: false, error: '没有需要更新的字段' });
+    }
+
+    console.log('📝 映射后的更新记录:', JSON.stringify(record, null, 2));
+
+    const { data, error } = await supabase
+      .from('projects')
+      .update(record)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新项目失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 项目更新成功:', data['合同编号']);
+
+    // 异步同步到钉钉AI表格（不阻塞响应）
+    syncProjectToDingTalk(data).then(result => {
+      console.log('📤 钉钉同步结果:', result.message);
+    }).catch(err => {
+      console.error('❌ 钉钉同步异常:', err.message);
+    });
+
+    const responseData = mapDbToResponse(data);
+    res.json({ success: true, data: responseData });
+  } catch (err) {
+    console.error('❌ 更新项目异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// DELETE /api/projects/:id - 删除项目（软删除）
+// ============================================================
+app.delete('/api/projects/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 DELETE /api/projects/${id}`);
+
+    // 先检查项目是否存在
+    const { data: existing, error: findError } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '项目不存在' });
+      }
+      throw findError;
+    }
+
+    // 软删除：将项目状态更新为"已删除"
+    const { data, error } = await supabase
+      .from('projects')
+      .update({
+        '项目状态': '已删除',
+        // 预留：删除时间和操作人字段（后续扩展）
+        // deleted_at: new Date().toISOString(),
+        // deleted_by: req.user?.name || req.user?.userId,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 软删除项目失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 项目已软删除:', existing['合同编号'] || existing['项目名称']);
+
+    res.json({ success: true, message: '项目已删除', data: mapDbToResponse(data) });
+  } catch (err) {
+    console.error('❌ 删除项目异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 app.listen(PORT, () => {
