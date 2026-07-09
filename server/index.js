@@ -1528,11 +1528,162 @@ function mapWeeklyReportDbToResponse(dbRecord) {
   return result;
 }
 
-// AI 项目分析占位函数（后续任务 2.4 完善）
+// AI 项目分析函数（完整实现）
 async function triggerProjectAIAnalysis(projectId) {
-  console.log(`🤖 [占位] 触发项目 ${projectId} 的 AI 分析（待实现）`);
-  // TODO: 后续任务 2.4 实现真实 AI 分析逻辑
-  return { success: true, message: 'AI 分析占位' };
+  console.log(`🤖 开始项目 AI 分析: projectId=${projectId}`);
+
+  try {
+    // 1. 查询项目完整信息
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single();
+
+    if (projectError) {
+      console.error(`❌ AI 分析失败 - 项目不存在: projectId=${projectId}`, projectError.message);
+      return { success: false, error: '项目不存在' };
+    }
+
+    const projectName = project[FIELD_MAP_TO_DB.projectName] || '未知项目';
+    console.log(`📋 AI 分析项目: ${projectName}`);
+
+    // 2. 查询最近 3 条周报
+    const { data: weeklyReports, error: reportsError } = await supabase
+      .from('project_weekly_reports')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('report_date', { ascending: false })
+      .limit(3);
+
+    if (reportsError) {
+      console.warn(`⚠️ 查询周报失败: ${reportsError.message}`);
+    }
+
+    // 3. 查询关联任务（通过 project_id 或 所属项目 匹配）
+    let tasks = [];
+    const { data: tasksByProjectId, error: tasksError1 } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('project_id', projectId);
+
+    if (tasksError1) {
+      console.warn(`⚠️ 通过 project_id 查询任务失败，尝试通过项目名称匹配: ${tasksError1.message}`);
+      const { data: tasksByName, error: tasksError2 } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('所属项目', projectName);
+
+      if (!tasksError2) {
+        tasks = tasksByName || [];
+      } else {
+        console.warn(`⚠️ 通过项目名称查询任务也失败: ${tasksError2.message}`);
+      }
+    } else {
+      tasks = tasksByProjectId || [];
+    }
+
+    // 4. 构造 Prompt
+    const serviceCategory = cleanField(project[FIELD_MAP_TO_DB.serviceCategory]) || '未分类';
+    const projectStatus = project[FIELD_MAP_TO_DB.projectStatus] || '未知';
+    const contractAmount = parseFloat(project[FIELD_MAP_TO_DB.contractAmount]) || 0;
+    const receivedAmount = parseFloat(project[FIELD_MAP_TO_DB.receivedAmount]) || 0;
+    const paymentRate = contractAmount > 0 ? Math.round((receivedAmount / contractAmount) * 100) : 0;
+    const currentProgress = parseFloat(project[FIELD_MAP_TO_DB.currentProgress]) || 0;
+    const plannedEndDate = project[FIELD_MAP_TO_DB.plannedEndDate] || '未设置';
+
+    // 汇总最近周报内容
+    let weeklyReportsSummary = '无近期周报';
+    if (weeklyReports && weeklyReports.length > 0) {
+      const summaries = weeklyReports.map((r, i) => {
+        const date = r.report_date || '未知日期';
+        const summary = r.weekly_summary || '';
+        const issues = r.issues_encountered || '';
+        const plan = r.next_week_plan || '';
+        return `[第${i + 1}条 - ${date}] 本周完成: ${summary.slice(0, 100)}; 问题: ${issues.slice(0, 80)}; 下周计划: ${plan.slice(0, 80)}`;
+      });
+      weeklyReportsSummary = summaries.join('\n');
+    }
+
+    // 任务统计
+    const taskCount = tasks.length;
+    let taskProgressSum = 0;
+    let taskProgressCount = 0;
+    tasks.forEach(t => {
+      const p = parseFloat(t['当前进度(%)']);
+      if (!isNaN(p)) {
+        taskProgressSum += p;
+        taskProgressCount++;
+      }
+    });
+    const avgTaskProgress = taskProgressCount > 0 ? Math.round(taskProgressSum / taskProgressCount) : 0;
+
+    const prompt = `你是一位项目风险分析专家。请根据以下项目信息，分析该项目的风险状况，并以 JSON 格式返回结果。
+
+项目信息：
+- 项目名称：${projectName}
+- 服务类别：${serviceCategory}
+- 项目状态：${projectStatus}
+- 合同金额：${contractAmount} 元
+- 已收款：${receivedAmount} 元（回款率：${paymentRate}%）
+- 当前进度：${currentProgress}%
+- 计划结束日期：${plannedEndDate}
+- 最近周报：${weeklyReportsSummary}
+- 关联任务：${taskCount} 个，平均进度 ${avgTaskProgress}%
+
+请返回以下 JSON 格式的分析结果：
+{
+  "riskScore": 0-100 的数字,
+  "riskLevel": "低风险" | "中风险" | "高风险" | "极高风险",
+  "riskAlerts": ["预警1", "预警2", ...],
+  "suggestions": ["建议1", "建议2", ...],
+  "analysisSummary": "简要的风险分析说明"
+}
+
+风险评分参考规则：
+- 进度滞后（<50%）且无近期周报 → 高风险
+- 回款率低于 50% → 中高风险
+- 已超计划结束日期且未结项 → 高风险
+- 其他情况适当调整。
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    // 5. 调用 AI 分析
+    let aiResult;
+    try {
+      aiResult = await callAI(prompt);
+      console.log(`✅ AI 分析完成: ${projectName}, 风险等级=${aiResult.riskLevel}, 评分=${aiResult.riskScore}`);
+    } catch (aiErr) {
+      console.error(`❌ AI 调用失败 (${projectName}):`, aiErr.message);
+      aiResult = {
+        riskScore: 0,
+        riskLevel: '未评估',
+        riskAlerts: ['AI 分析暂时不可用'],
+        suggestions: [],
+        analysisSummary: 'AI 分析失败，请稍后重试'
+      };
+    }
+
+    // 6. 存储 AI 分析结果到 projects 表
+    const analyzedAt = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from('projects')
+      .update({
+        ai_analysis_result: aiResult,
+        ai_analyzed_at: analyzedAt
+      })
+      .eq('id', projectId);
+
+    if (updateError) {
+      console.error(`❌ 存储 AI 分析结果失败 (${projectName}):`, updateError.message);
+    } else {
+      console.log(`✅ AI 分析结果已存储: ${projectName}, ai_analyzed_at=${analyzedAt}`);
+    }
+
+    return { success: true, data: { ...aiResult, analyzedAt } };
+  } catch (err) {
+    console.error(`❌ AI 项目分析异常 (projectId=${projectId}):`, err.message);
+    return { success: false, error: err.message };
+  }
 }
 
 // ============================================================
@@ -2144,6 +2295,180 @@ app.get('/api/projects/:id/weekly-report/latest', authMiddleware, async (req, re
     res.json({ success: true, data: result });
   } catch (err) {
     console.error('❌ 获取最新周报失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// AI 接口：手动触发单个项目 AI 分析
+// ============================================================
+app.post('/api/ai/project-analysis/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 POST /api/ai/project-analysis/${id}`);
+
+    const result = await triggerProjectAIAnalysis(id);
+
+    if (!result.success) {
+      return res.status(404).json({ success: false, error: result.error });
+    }
+
+    console.log(`✅ 项目 AI 分析完成: projectId=${id}, riskLevel=${result.data.riskLevel}`);
+    res.json({ success: true, data: result.data });
+  } catch (err) {
+    console.error('❌ 手动触发项目 AI 分析异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// AI 接口：整体项目经营分析
+// ============================================================
+app.post('/api/ai/projects-overview', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 POST /api/ai/projects-overview - 开始整体项目经营分析');
+
+    // 查询所有未删除的项目
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('*')
+      .neq('项目状态', '已删除');
+
+    if (error) throw error;
+
+    const list = projects || [];
+    const total = list.length;
+
+    if (total === 0) {
+      return res.json({
+        success: true,
+        data: {
+          stats: {
+            total: 0,
+            inProgress: 0,
+            completed: 0,
+            paused: 0,
+            planning: 0,
+            totalContractAmount: 0,
+            avgProgress: 0,
+            categoryCounts: {},
+            overdueProjects: 0
+          },
+          aiAnalysis: {
+            summary: '暂无项目数据',
+            keyFindings: [],
+            suggestions: []
+          }
+        }
+      });
+    }
+
+    // 计算统计指标
+    let inProgress = 0;
+    let completed = 0;
+    let paused = 0;
+    let planning = 0;
+    let totalContractAmount = 0;
+    let totalReceivedAmount = 0;
+    let progressSum = 0;
+    let progressCount = 0;
+    let overdueProjects = 0;
+    const categoryCounts = {};
+    const today = new Date().toISOString().split('T')[0];
+
+    list.forEach(project => {
+      const status = project[FIELD_MAP_TO_DB.projectStatus] || '';
+      if (status === '进行中') inProgress++;
+      else if (status === '已结项') completed++;
+      else if (status === '暂停') paused++;
+      else if (status === '规划中') planning++;
+
+      // 合同金额
+      const amount = parseFloat(project[FIELD_MAP_TO_DB.contractAmount]);
+      if (!isNaN(amount)) totalContractAmount += amount;
+
+      // 已收款
+      const received = parseFloat(project[FIELD_MAP_TO_DB.receivedAmount]);
+      if (!isNaN(received)) totalReceivedAmount += received;
+
+      // 进度
+      const progress = parseFloat(project[FIELD_MAP_TO_DB.currentProgress]);
+      if (!isNaN(progress)) {
+        progressSum += progress;
+        progressCount++;
+      }
+
+      // 服务类别分布
+      const cat = cleanField(project[FIELD_MAP_TO_DB.serviceCategory]) || '未分类';
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+
+      // 超期项目：计划结束日期 < 今天 且 状态不是已结项
+      const plannedEndRaw = project[FIELD_MAP_TO_DB.plannedEndDate];
+      const plannedEndDate = parseDate(plannedEndRaw);
+      if (plannedEndDate && plannedEndDate < today && status !== '已结项') {
+        overdueProjects++;
+      }
+    });
+
+    const avgProgress = progressCount > 0
+      ? Math.round((progressSum / progressCount) * 10) / 10
+      : 0;
+
+    const paymentRate = totalContractAmount > 0
+      ? Math.round((totalReceivedAmount / totalContractAmount) * 100)
+      : 0;
+
+    const stats = {
+      total,
+      inProgress,
+      completed,
+      paused,
+      planning,
+      totalContractAmount,
+      avgProgress,
+      categoryCounts,
+      overdueProjects,
+      paymentRate
+    };
+
+    console.log(`📊 整体统计: 总数=${total}, 进行中=${inProgress}, 已结项=${completed}, 暂停=${paused}, 规划中=${planning}, 合同总金额=${totalContractAmount}, 回款率=${paymentRate}%, 平均进度=${avgProgress}%, 超期=${overdueProjects}`);
+
+    // 构造 Prompt
+    const prompt = `你是一位项目经营管理专家。请根据以下公司整体项目数据，分析经营状况：
+
+项目总数：${total}
+进行中：${inProgress}，已结项：${completed}，暂停：${paused}，规划中：${planning}
+合同总金额：${totalContractAmount} 元
+平均进度：${avgProgress}%
+回款率：${paymentRate}%
+服务类别分布：${JSON.stringify(categoryCounts)}
+超期项目数：${overdueProjects}
+
+请返回以下 JSON 格式的分析结果：
+{
+  "summary": "整体经营状况总结（一句话）",
+  "keyFindings": ["发现1", "发现2", "发现3"],
+  "suggestions": ["建议1", "建议2", "建议3"]
+}
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    // 调用 AI
+    let aiAnalysis;
+    try {
+      aiAnalysis = await callAI(prompt);
+      console.log(`✅ 整体经营分析完成: summary=${aiAnalysis.summary?.slice(0, 50)}...`);
+    } catch (aiErr) {
+      console.error('❌ 整体经营 AI 分析失败:', aiErr.message);
+      aiAnalysis = {
+        summary: 'AI 分析暂时不可用，请稍后重试',
+        keyFindings: [],
+        suggestions: []
+      };
+    }
+
+    res.json({ success: true, data: { stats, aiAnalysis } });
+  } catch (err) {
+    console.error('❌ 整体项目经营分析异常:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
