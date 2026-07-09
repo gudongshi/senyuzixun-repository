@@ -1807,6 +1807,144 @@ app.delete('/api/projects/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// 统计接口：项目总览 KPI
+// ============================================================
+app.get('/api/stats/projects-overview', async (req, res) => {
+  try {
+    console.log('📋 GET /api/stats/projects-overview - 查询项目总览KPI');
+
+    // 查询所有未删除的项目
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('*')
+      .neq('项目状态', '已删除');
+
+    if (error) throw error;
+
+    const list = projects || [];
+    const total = list.length;
+
+    let inProgress = 0;
+    let completed = 0;
+    let paused = 0;
+    let planning = 0;
+    let totalContractAmount = 0;
+    let progressSum = 0;
+    let progressCount = 0;
+    const categoryCounts = {};
+
+    list.forEach(project => {
+      const status = project['项目状态'] || '';
+      if (status === '进行中') inProgress++;
+      else if (status === '已结项') completed++;
+      else if (status === '暂停') paused++;
+      else if (status === '规划中') planning++;
+
+      // 合同金额累加
+      const amount = parseFloat(project['合同金额']);
+      if (!isNaN(amount)) {
+        totalContractAmount += amount;
+      }
+
+      // 进度统计
+      const progress = parseFloat(project['当前进度']);
+      if (!isNaN(progress)) {
+        progressSum += progress;
+        progressCount++;
+      }
+
+      // 服务类别分布
+      const cat = cleanField(project['服务类别']) || '未分类';
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    });
+
+    const avgProgress = progressCount > 0
+      ? Math.round((progressSum / progressCount) * 10) / 10
+      : 0;
+
+    const result = {
+      total,
+      inProgress,
+      completed,
+      paused,
+      planning,
+      totalContractAmount,
+      avgProgress,
+      categoryCounts,
+    };
+
+    console.log(`✅ 项目总览KPI: 总数=${total}, 进行中=${inProgress}, 已结项=${completed}, 暂停=${paused}, 规划中=${planning}, 合同总金额=${totalContractAmount}, 平均进度=${avgProgress}%`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取项目总览KPI失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 统计接口：各项目进度（用于大屏条形图）
+// ============================================================
+app.get('/api/stats/projects-progress', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    console.log(`📋 GET /api/stats/projects-progress - limit=${limit}`);
+
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('项目名称, 当前进度')
+      .neq('项目状态', '已删除')
+      .order('当前进度', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    const result = (projects || []).map(project => ({
+      projectName: project['项目名称'] || '未知项目',
+      progress: parseFloat(project['当前进度']) || 0,
+    }));
+
+    console.log(`✅ 各项目进度: 返回 ${result.length} 条记录`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取各项目进度失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 统计接口：各服务类别分布（用于大屏饼图）
+// ============================================================
+app.get('/api/stats/projects-category', async (req, res) => {
+  try {
+    console.log('📋 GET /api/stats/projects-category - 查询服务类别分布');
+
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('服务类别')
+      .neq('项目状态', '已删除');
+
+    if (error) throw error;
+
+    const categoryMap = {};
+    (projects || []).forEach(project => {
+      const cat = cleanField(project['服务类别']) || '未分类';
+      categoryMap[cat] = (categoryMap[cat] || 0) + 1;
+    });
+
+    const result = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
+
+    console.log(`✅ 服务类别分布: ${result.length} 个类别, 详情: ${JSON.stringify(result)}`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取服务类别分布失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 app.listen(PORT, () => {
