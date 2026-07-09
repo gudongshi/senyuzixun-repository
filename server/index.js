@@ -197,6 +197,119 @@ async function updateOverallRiskIndex() {
 }
 
 // ============================================================
+// 计算并存储整体项目健康度
+// ============================================================
+async function updateOverallProjectHealth() {
+  try {
+    console.log('📊 开始计算整体项目健康度...');
+
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('*')
+      .neq('项目状态', '已删除');
+
+    if (error) throw error;
+
+    const list = projects || [];
+    const total = list.length;
+
+    if (total === 0) {
+      const value = {
+        total: 0,
+        inProgress: 0,
+        completed: 0,
+        avgProgress: 0,
+        totalContractAmount: 0,
+        paymentRate: 0,
+        overdueProjects: 0,
+        highRiskProjects: 0,
+        lastUpdated: new Date().toISOString()
+      };
+      await supabase
+        .from('system_config')
+        .upsert({ key: 'overall_project_health', value, updated_at: new Date().toISOString() });
+      console.log('✅ 整体项目健康度已更新（无项目数据）');
+      return;
+    }
+
+    let inProgress = 0;
+    let completed = 0;
+    let totalContractAmount = 0;
+    let totalReceivedAmount = 0;
+    let progressSum = 0;
+    let progressCount = 0;
+    let overdueProjects = 0;
+    let highRiskProjects = 0;
+    const today = new Date().toISOString().split('T')[0];
+
+    list.forEach(project => {
+      const status = project[FIELD_MAP_TO_DB.projectStatus] || '';
+      if (status === '进行中') inProgress++;
+      else if (status === '已结项') completed++;
+
+      // 合同金额
+      const amount = parseFloat(project[FIELD_MAP_TO_DB.contractAmount]);
+      if (!isNaN(amount)) totalContractAmount += amount;
+
+      // 已收款
+      const received = parseFloat(project[FIELD_MAP_TO_DB.receivedAmount]);
+      if (!isNaN(received)) totalReceivedAmount += received;
+
+      // 进度
+      const progress = parseFloat(project[FIELD_MAP_TO_DB.currentProgress]);
+      if (!isNaN(progress)) {
+        progressSum += progress;
+        progressCount++;
+      }
+
+      // 超期项目：计划结束日期 < 今天 且 状态不是已结项
+      const plannedEndRaw = project[FIELD_MAP_TO_DB.plannedEndDate];
+      const plannedEndDate = parseDate(plannedEndRaw);
+      if (plannedEndDate && plannedEndDate < today && status !== '已结项') {
+        overdueProjects++;
+      }
+
+      // 高风险项目：AI 分析结果中风险等级为高风险或极高风险
+      const aiResult = project.ai_analysis_result;
+      if (aiResult && typeof aiResult === 'object') {
+        const riskLevel = aiResult.riskLevel || '';
+        if (riskLevel === '高风险' || riskLevel === '极高风险') {
+          highRiskProjects++;
+        }
+      }
+    });
+
+    const avgProgress = progressCount > 0
+      ? Math.round((progressSum / progressCount) * 10) / 10
+      : 0;
+
+    const paymentRate = totalContractAmount > 0
+      ? Math.round((totalReceivedAmount / totalContractAmount) * 100)
+      : 0;
+
+    const value = {
+      total,
+      inProgress,
+      completed,
+      avgProgress,
+      totalContractAmount,
+      paymentRate,
+      overdueProjects,
+      highRiskProjects,
+      lastUpdated: new Date().toISOString()
+    };
+
+    await supabase
+      .from('system_config')
+      .upsert({ key: 'overall_project_health', value, updated_at: new Date().toISOString() });
+
+    console.log(`📊 整体项目健康度已更新: total=${total}, avgProgress=${avgProgress}%, highRisk=${highRiskProjects}`);
+  } catch (err) {
+    console.error('❌ 更新整体项目健康度失败:', err);
+  }
+}
+
+// ============================================================
 // 中间件（先不加载 express.json()）
 // ============================================================
 app.use(cookieParser());
@@ -2486,18 +2599,20 @@ app.listen(PORT, () => {
 // ============================================================
 cron.schedule('30 8 * * *', async () => {
   console.log('⏰ 定时任务启动：全量风险分析');
+
+  // ============================================================
+  // 1. 任务系统全量分析
+  // ============================================================
   try {
-    // 获取所有任务
     const { data: tasks, error } = await supabase
       .from('tasks')
       .select('id');
     if (error) throw error;
-    console.log(`📋 共 ${tasks.length} 个任务需要分析`);
-    let successCount = 0;
-    let failCount = 0;
+    console.log(`📋 任务系统分析：共 ${tasks.length} 个任务需要分析`);
+    let taskSuccessCount = 0;
+    let taskFailCount = 0;
     for (const task of tasks) {
       try {
-        // 获取任务详情和里程碑
         const { data: taskDetail } = await supabase
           .from('tasks')
           .select('*')
@@ -2519,20 +2634,69 @@ cron.schedule('30 8 * * *', async () => {
               risk_analysis_updated_at: new Date().toISOString()
             })
             .eq('id', task.id);
-          successCount++;
+          taskSuccessCount++;
           console.log(`✅ 任务 ${task.id} 分析完成，风险等级: ${result.riskLevel}`);
-          // 延迟 500ms 避免 API 限流
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       } catch (err) {
-        failCount++;
+        taskFailCount++;
         console.error(`❌ 任务 ${task.id} 分析失败:`, err.message);
       }
     }
-    console.log(`✅ 定时任务完成：成功 ${successCount}，失败 ${failCount}`);
+    console.log(`✅ 任务系统完成：成功 ${taskSuccessCount}，失败 ${taskFailCount}`);
     // 更新整体风险指数
     await updateOverallRiskIndex();
   } catch (err) {
-    console.error('❌ 定时任务失败:', err);
+    console.error('❌ 任务系统分析阶段失败:', err);
   }
+
+  // ============================================================
+  // 2. 项目系统全量分析
+  // ============================================================
+  try {
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .neq('项目状态', '已删除');
+
+    if (projectError) throw projectError;
+
+    const projectList = projects || [];
+    const totalProjects = projectList.length;
+    console.log(`📋 项目系统分析：共 ${totalProjects} 个项目需要分析`);
+
+    let projectSuccessCount = 0;
+    let projectFailCount = 0;
+
+    for (let i = 0; i < projectList.length; i++) {
+      const project = projectList[i];
+      const index = i + 1;
+      try {
+        const result = await triggerProjectAIAnalysis(project.id);
+        if (result.success && result.data) {
+          projectSuccessCount++;
+          console.log(`🤖 项目分析 (${index}/${totalProjects}): projectId=${project.id} → 风险等级: ${result.data.riskLevel}`);
+        } else {
+          projectFailCount++;
+          console.warn(`⚠️ 项目分析 (${index}/${totalProjects}): projectId=${project.id} → 失败: ${result.error || '未知错误'}`);
+        }
+      } catch (err) {
+        projectFailCount++;
+        console.error(`❌ 项目分析 (${index}/${totalProjects}): projectId=${project.id} → 异常: ${err.message}`);
+      }
+      // 间隔 500ms 避免 API 限流
+      if (i < projectList.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    console.log(`✅ 项目系统完成：成功 ${projectSuccessCount}，失败 ${projectFailCount}`);
+
+    // 更新整体项目健康度
+    await updateOverallProjectHealth();
+  } catch (err) {
+    console.error('❌ 项目系统分析阶段失败:', err);
+  }
+
+  console.log('✅ 定时任务全部完成');
 });
