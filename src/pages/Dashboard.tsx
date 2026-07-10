@@ -1,9 +1,12 @@
 import TaskList from '../components/TaskList';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
-import { X } from 'lucide-react';
+import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-// Mock Data
+// ============================================================
+// Mock Data（降级数据，API 失败时使用）
+// ============================================================
 const mockData = {
   revenueDistribution: [
     { value: 35, name: '智慧园区' },
@@ -50,21 +53,475 @@ const mockData = {
   ]
 };
 
+// ============================================================
+// 类型定义
+// ============================================================
 interface KPI {
   label: string;
   value: string | number;
   key: string;
 }
 
+interface Project {
+  id: number;
+  contractNumber: string | null;
+  projectName: string | null;
+  serviceCategory: string | null;
+  projectStatus: string | null;
+  contractAmount: number | null;
+  finalContractAmount: number | null;
+  receivedAmount: number | null;
+  invoicedAmount: number | null;
+  projectLeader: string | null;
+  department: string | null;
+  partnerUnit: string | null;
+  signedDate: string | null;
+  plannedEndDate: string | null;
+  currentProgress: number | null;
+  lastWeeklyReportAt: string | null;
+  remark: string | null;
+  taskCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface WeeklyReport {
+  id: number;
+  projectId: number;
+  reportDate: string;
+  currentProgress: number;
+  weeklySummary: string;
+  issuesEncountered: string;
+  nextWeekPlan: string;
+  riskSelfAssessment: string;
+  createdAt: string;
+}
+
+interface AIAnalysis {
+  riskScore: number;
+  riskLevel: string;
+  riskAlerts: string[];
+  suggestions: string[];
+  analysisSummary: string;
+  analyzedAt: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+// ============================================================
+// 工具函数（与 ProjectManager.tsx 保持一致）
+// ============================================================
+function getStatusColor(status: string) {
+  switch (status) {
+    case '进行中': return 'bg-emerald-900/20 border-emerald-500/30 text-emerald-400';
+    case '已结项': return 'bg-blue-900/20 border-blue-500/30 text-blue-400';
+    case '暂停': return 'bg-amber-900/20 border-amber-500/30 text-amber-400';
+    case '规划中': return 'bg-slate-700/50 border-slate-500/30 text-slate-400';
+    default: return 'bg-slate-700/50 border-slate-500/30 text-slate-400';
+  }
+}
+
+function getRiskColor(level: string) {
+  switch (level) {
+    case '极高风险': return 'text-red-400 bg-red-900/20 border-red-500/30';
+    case '高风险': return 'text-red-400 bg-red-900/20 border-red-500/30';
+    case '中风险': return 'text-amber-400 bg-amber-900/20 border-amber-500/30';
+    case '低风险': return 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30';
+    default: return 'text-slate-400 bg-slate-700/50 border-slate-500/30';
+  }
+}
+
+function formatMoney(amount: number | null) {
+  if (amount === null || amount === undefined) return '-';
+  return amount.toLocaleString('zh-CN');
+}
+
+// ============================================================
+// 简化版项目详情抽屉（Dashboard 专用）
+// 仅展示基本信息 + 周报历史 + AI 分析，不含编辑/删除/周报提交
+// ============================================================
+function ProjectDetailDrawerSimple({
+  open, project, onClose
+}: {
+  open: boolean;
+  project: Project | null;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<'info' | 'reports' | 'ai'>('info');
+  const [detail, setDetail] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && project) {
+      console.log('[Dashboard] 打开项目详情抽屉, projectId:', project.id);
+      setActiveTab('info');
+      fetchDetail();
+      fetchWeeklyReports();
+      fetchAIAnalysis();
+    }
+  }, [open, project?.id]);
+
+  const fetchDetail = async () => {
+    if (!project) return;
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/projects/${project.id}`);
+      const result = await resp.json();
+      if (result.success) {
+        console.log('[Dashboard] 项目详情:', result.data);
+        setDetail(result.data);
+      }
+    } catch (err) {
+      console.error('[Dashboard] 获取项目详情失败:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchWeeklyReports = async () => {
+    if (!project) return;
+    setReportsLoading(true);
+    try {
+      const resp = await fetch(`/api/projects/${project.id}/weekly-reports`);
+      const result = await resp.json();
+      if (result.success) {
+        console.log('[Dashboard] 周报历史:', result.data?.length, '条');
+        setWeeklyReports(result.data || []);
+      }
+    } catch (err) {
+      console.error('[Dashboard] 获取周报历史失败:', err);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  const fetchAIAnalysis = async () => {
+    if (!project) return;
+    setAiLoading(true);
+    try {
+      const resp = await fetch(`/api/ai/project-analysis/${project.id}`, { method: 'POST' });
+      const result = await resp.json();
+      if (result.success && result.data) {
+        console.log('[Dashboard] AI 分析结果:', result.data);
+        setAiAnalysis(result.data);
+      }
+    } catch (err) {
+      console.error('[Dashboard] 获取 AI 分析失败:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  if (!open || !project) return null;
+
+  const tabs = [
+    { key: 'info' as const, label: '基本信息', icon: Building2 },
+    { key: 'reports' as const, label: '周报历史', icon: FileText },
+    { key: 'ai' as const, label: 'AI 分析', icon: Bot },
+  ];
+
+  const fieldClass = "flex justify-between py-2.5 border-b border-slate-700/30";
+  const fieldLabelClass = "text-slate-400 text-sm";
+  const fieldValueClass = "text-slate-200 text-sm text-right max-w-[55%]";
+
+  return (
+    <>
+      {/* Overlay */}
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40" onClick={onClose} />
+
+      {/* Drawer */}
+      <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-l-2 border-cyan-400 z-50 shadow-2xl shadow-blue-900/50 overflow-y-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center p-6 border-b border-cyan-500/30 bg-slate-800/50 sticky top-0 backdrop-blur-md z-10">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-cyan-400 truncate">
+              {project.projectName || '项目详情'}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">合同编号: {project.contractNumber || '-'}</p>
+          </div>
+          <button onClick={onClose}
+            className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
+            <X size={22} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-slate-700/50">
+          {tabs.map(tab => (
+            <button key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                activeTab === tab.key
+                  ? 'border-cyan-400 text-cyan-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}>
+              <tab.icon size={16} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div className="p-6">
+          {/* 基本信息 Tab */}
+          {activeTab === 'info' && (
+            loading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="size-8 text-cyan-400 animate-spin" />
+              </div>
+            ) : detail ? (
+              <div className="space-y-1 bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目名称</span>
+                  <span className={fieldValueClass}>{detail.projectName || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>合同编号</span>
+                  <span className={fieldValueClass}>{detail.contractNumber || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>服务类别</span>
+                  <span className={fieldValueClass}>{detail.serviceCategory || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目状态</span>
+                  <span className={`px-2 py-0.5 rounded text-xs border ${getStatusColor(detail.projectStatus || '')}`}>
+                    {detail.projectStatus || '-'}
+                  </span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>合同金额</span>
+                  <span className={fieldValueClass}>¥{formatMoney(detail.contractAmount)}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>已收款</span>
+                  <span className={fieldValueClass}>¥{formatMoney(detail.receivedAmount)}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>已开票</span>
+                  <span className={fieldValueClass}>¥{formatMoney(detail.invoicedAmount)}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>当前进度</span>
+                  <span className={fieldValueClass}>{detail.currentProgress ?? '-'}%</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目负责人</span>
+                  <span className={fieldValueClass}>{detail.projectLeader || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>所属部门</span>
+                  <span className={fieldValueClass}>{detail.department || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>合作单位</span>
+                  <span className={fieldValueClass}>{detail.partnerUnit || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>签订日期</span>
+                  <span className={fieldValueClass}>{detail.signedDate || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>计划结束日期</span>
+                  <span className={fieldValueClass}>{detail.plannedEndDate || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>最近周报日期</span>
+                  <span className={fieldValueClass}>{detail.lastWeeklyReportAt || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>关联任务数</span>
+                  <span className={fieldValueClass}>{detail.taskCount ?? 0}</span>
+                </div>
+                <div className="pt-2.5">
+                  <span className={fieldLabelClass}>备注</span>
+                  <p className="text-slate-300 text-sm mt-1">{detail.remark || '无'}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-20 text-slate-500">加载失败</div>
+            )
+          )}
+
+          {/* 周报历史 Tab */}
+          {activeTab === 'reports' && (
+            reportsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="size-8 text-cyan-400 animate-spin" />
+              </div>
+            ) : weeklyReports.length === 0 ? (
+              <div className="text-center py-20 text-slate-500">
+                <FileText className="size-12 mx-auto mb-3 text-slate-600" />
+                <p>暂无周报记录</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {weeklyReports.map((report) => (
+                  <div key={report.id} className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-cyan-400 font-semibold text-sm">{report.reportDate}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-400 text-xs">进度: {report.currentProgress}%</span>
+                        {report.riskSelfAssessment && (
+                          <span className={`px-2 py-0.5 rounded text-xs border ${
+                            report.riskSelfAssessment === '高' ? 'border-red-500/30 text-red-400 bg-red-900/20' :
+                            report.riskSelfAssessment === '中' ? 'border-amber-500/30 text-amber-400 bg-amber-900/20' :
+                            'border-emerald-500/30 text-emerald-400 bg-emerald-900/20'
+                          }`}>
+                            风险: {report.riskSelfAssessment}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="w-full bg-slate-600/50 rounded-full h-2 mb-3">
+                      <div className="bg-gradient-to-r from-cyan-500 to-blue-600 h-2 rounded-full transition-all"
+                        style={{ width: `${report.currentProgress}%` }} />
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="text-slate-500">本周总结：</span>
+                        <p className="text-slate-300 mt-0.5">{report.weeklySummary || '无'}</p>
+                      </div>
+                      {report.issuesEncountered && (
+                        <div>
+                          <span className="text-amber-500">遇到的问题：</span>
+                          <p className="text-amber-300/80 mt-0.5">{report.issuesEncountered}</p>
+                        </div>
+                      )}
+                      {report.nextWeekPlan && (
+                        <div>
+                          <span className="text-blue-500">下周计划：</span>
+                          <p className="text-blue-300/80 mt-0.5">{report.nextWeekPlan}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+
+          {/* AI 分析 Tab */}
+          {activeTab === 'ai' && (
+            <div className="space-y-4">
+              {aiLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="size-8 text-cyan-400 animate-spin" />
+                </div>
+              ) : aiAnalysis ? (
+                <>
+                  {/* 风险评分 */}
+                  <div className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-cyan-400 font-semibold">风险评分</h3>
+                      <span className={`px-3 py-1 rounded-lg text-sm font-bold border ${getRiskColor(aiAnalysis.riskLevel)}`}>
+                        {aiAnalysis.riskLevel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-4xl font-bold text-cyan-400">{aiAnalysis.riskScore}</div>
+                      <div className="text-slate-500 text-sm">/ 100</div>
+                    </div>
+                    <div className="w-full bg-slate-600/50 rounded-full h-3 mt-3">
+                      <div className={`h-3 rounded-full transition-all ${
+                        aiAnalysis.riskScore >= 70 ? 'bg-gradient-to-r from-red-500 to-red-400' :
+                        aiAnalysis.riskScore >= 40 ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
+                        'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                      }`} style={{ width: `${aiAnalysis.riskScore}%` }} />
+                    </div>
+                  </div>
+
+                  {/* 分析摘要 */}
+                  {aiAnalysis.analysisSummary && (
+                    <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5">
+                      <p className="text-slate-200 text-sm leading-relaxed">💡 {aiAnalysis.analysisSummary}</p>
+                    </div>
+                  )}
+
+                  {/* 风险预警 */}
+                  {aiAnalysis.riskAlerts && aiAnalysis.riskAlerts.length > 0 && (
+                    <div className="bg-red-900/10 border border-red-500/30 rounded-xl p-5">
+                      <h3 className="text-red-400 font-semibold mb-3 flex items-center gap-2">
+                        ⚠️ 风险预警
+                      </h3>
+                      <ul className="space-y-2">
+                        {aiAnalysis.riskAlerts.map((alert, i) => (
+                          <li key={i} className="text-red-300/80 text-sm flex items-start gap-2">
+                            <span className="text-red-400 mt-0.5">⚠️</span> {alert}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 建议 */}
+                  {aiAnalysis.suggestions && aiAnalysis.suggestions.length > 0 && (
+                    <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-5">
+                      <h3 className="text-blue-400 font-semibold mb-3 flex items-center gap-2">
+                        💡 AI 建议
+                      </h3>
+                      <ul className="space-y-2">
+                        {aiAnalysis.suggestions.map((s, i) => (
+                          <li key={i} className="text-blue-300/80 text-sm flex items-start gap-2">
+                            <span className="text-blue-400 mt-0.5">💡</span> {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {aiAnalysis.analyzedAt && (
+                    <p className="text-xs text-slate-600 text-right">
+                      分析时间: {new Date(aiAnalysis.analyzedAt).toLocaleString('zh-CN')}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-16">
+                  <Bot className="size-16 mx-auto mb-4 text-slate-600" />
+                  <p className="text-slate-500">暂无 AI 分析结果</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================
+// 主页面组件 Dashboard
+// ============================================================
 export default function Dashboard() {
+  // ---- 图表 DOM refs ----
   const revenueChartRef = useRef<HTMLDivElement>(null);
   const progressChartRef = useRef<HTMLDivElement>(null);
   const categoryChartRef = useRef<HTMLDivElement>(null);
   const centralChartRef = useRef<HTMLDivElement>(null);
   const heatmapChartRef = useRef<HTMLDivElement>(null);
   const gaugeChartRef = useRef<HTMLDivElement>(null);
+
+  // ---- 图表实例 refs（用于后续 setOption 更新）----
+  const revenueChartInstance = useRef<echarts.ECharts | null>(null);
+  const progressChartInstance = useRef<echarts.ECharts | null>(null);
+  const categoryChartInstance = useRef<echarts.ECharts | null>(null);
   const heatmapChartInstance = useRef<echarts.ECharts | null>(null);
 
+  // ---- 数据是否已请求标记 ----
+  const statsFetchedRef = useRef(false);
+  const projectsFetchedRef = useRef(false);
+
+  // ---- KPI 状态 ----
   const [kpis, setKpis] = useState<KPI[]>([
     { label: '进行中项目数', value: 24, key: 'ongoing' },
     { label: '本月新增任务', value: 156, key: 'newTasks' },
@@ -72,6 +529,7 @@ export default function Dashboard() {
     { label: '人员负荷率', value: '78%', key: 'load' }
   ]);
 
+  // ---- 面板状态 ----
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -81,17 +539,140 @@ export default function Dashboard() {
   const [taskCategories, setTaskCategories] = useState<{ name: string; value: number }[]>(mockData.taskHeatmap);
   const [rankingData, setRankingData] = useState<{ name: string; score: number; completed: number }[]>(mockData.rankings);
 
-  // Initialize charts
+  // ---- 任务 A：项目总表状态 ----
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectPagination, setProjectPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
+  const projectPageRef = useRef(1);
+
+  // ============================================================
+  // 任务 B & C：获取项目统计数据（图表 + KPI）
+  // ============================================================
+  const fetchProjectStats = useCallback(async () => {
+    console.log('[Dashboard] 开始获取项目统计数据...');
+    try {
+      const [categoryRes, progressRes, overviewRes] = await Promise.all([
+        fetch('/api/stats/projects-category').then(r => r.json()).catch(() => ({ success: false })),
+        fetch('/api/stats/projects-progress').then(r => r.json()).catch(() => ({ success: false })),
+        fetch('/api/stats/projects-overview').then(r => r.json()).catch(() => ({ success: false })),
+      ]);
+
+      // --- 饼图：服务类别占比 ---
+      if (categoryRes.success && categoryRes.data?.length > 0) {
+        console.log('[Dashboard] 项目类别数据:', categoryRes.data);
+        if (revenueChartInstance.current) {
+          revenueChartInstance.current.setOption({
+            series: [{
+              type: 'pie',
+              data: categoryRes.data,
+            }]
+          });
+          revenueChartInstance.current.resize();
+        }
+      } else {
+        console.warn('[Dashboard] 项目类别数据获取失败，使用降级 mock 数据');
+      }
+
+      // --- 条形图：项目进度（取前 10 个）---
+      if (progressRes.success && progressRes.data?.length > 0) {
+        console.log('[Dashboard] 项目进度数据:', progressRes.data);
+        if (progressChartInstance.current) {
+          progressChartInstance.current.setOption({
+            yAxis: {
+              type: 'category',
+              data: progressRes.data.map((item: { projectName: string; progress: number }) => item.projectName),
+            },
+            series: [{
+              type: 'bar',
+              data: progressRes.data.map((item: { projectName: string; progress: number }) => item.progress),
+            }]
+          });
+          progressChartInstance.current.resize();
+        }
+      } else {
+        console.warn('[Dashboard] 项目进度数据获取失败，使用降级 mock 数据');
+      }
+
+      // --- 雷达图 + KPI「进行中项目数」---
+      if (overviewRes.success && overviewRes.data) {
+        const d = overviewRes.data;
+        console.log('[Dashboard] 项目概览数据:', d);
+
+        // 任务 C：更新 KPI「进行中项目数」
+        if (d.inProgress !== undefined && d.inProgress !== null) {
+          setKpis(prev => prev.map(kpi => {
+            if (kpi.key === 'ongoing') return { ...kpi, value: d.inProgress };
+            return kpi;
+          }));
+        }
+
+        // 雷达图 5 个维度
+        const total = d.total || 1;
+        const radarValues = [
+          d.avgProgress ?? 0,                                                          // 进度
+          d.total ? Math.round(Math.max(0, 100 - ((d.overdueProjects || 0) / total * 100))) : 100,  // 质量（按时完成率）
+          d.paymentRate ?? 0,                                                          // 成本（回款率）
+          d.total ? Math.round(Math.max(0, 100 - ((d.highRiskProjects || 0) / total * 100))) : 100, // 风险（安全率）
+          d.total ? Math.round(((d.inProgress || 0) / total) * 100) : 0,               // 资源（活跃率）
+        ];
+
+        if (categoryChartInstance.current) {
+          categoryChartInstance.current.setOption({
+            series: [{
+              type: 'radar',
+              data: [{ value: radarValues, name: '项目综合评估' }]
+            }]
+          });
+          categoryChartInstance.current.resize();
+        }
+      } else {
+        console.warn('[Dashboard] 项目概览数据获取失败，使用降级 mock 数据');
+      }
+    } catch (err) {
+      console.error('[Dashboard] 获取项目统计数据失败:', err);
+    }
+  }, []);
+
+  // ============================================================
+  // 任务 A：获取项目列表
+  // ============================================================
+  const fetchProjects = useCallback(async (page = 1) => {
+    console.log(`[Dashboard] 获取项目列表 page=${page} limit=20...`);
+    projectPageRef.current = page;
+    setProjectsLoading(true);
+    try {
+      const resp = await fetch(`/api/projects?page=${page}&limit=20`);
+      const result = await resp.json();
+      if (result.success) {
+        console.log('[Dashboard] 项目列表:', result.data?.length, '条, 总计:', result.pagination?.total);
+        setProjects(result.data || []);
+        setProjectPagination(result.pagination || { page, limit: 20, total: 0, totalPages: 0 });
+      } else {
+        console.warn('[Dashboard] 项目列表获取失败:', result.error);
+      }
+    } catch (err) {
+      console.error('[Dashboard] 获取项目列表失败:', err);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
+  // ============================================================
+  // 初始化图表（使用 mockData 作为降级数据）
+  // ============================================================
   useEffect(() => {
     const charts: echarts.ECharts[] = [];
 
     if (revenueChartRef.current) {
       const chart = echarts.init(revenueChartRef.current);
+      revenueChartInstance.current = chart;
       chart.setOption({
         tooltip: { trigger: 'item' },
-        legend: { 
-          orient: 'vertical', 
-          right: 10, 
+        legend: {
+          orient: 'vertical',
+          right: 10,
           top: 'center',
           textStyle: { color: '#e2e8f0' }
         },
@@ -119,6 +700,7 @@ export default function Dashboard() {
 
     if (progressChartRef.current) {
       const chart = echarts.init(progressChartRef.current);
+      progressChartInstance.current = chart;
       chart.setOption({
         tooltip: { trigger: 'axis' },
         grid: { left: '3%', right: '4%', bottom: '3%', top: '3%', containLabel: true },
@@ -156,6 +738,7 @@ export default function Dashboard() {
 
     if (categoryChartRef.current) {
       const chart = echarts.init(categoryChartRef.current);
+      categoryChartInstance.current = chart;
       chart.setOption({
         radar: {
           indicator: mockData.categoryStats.map(item => ({
@@ -200,18 +783,18 @@ export default function Dashboard() {
           axisLabel: { color: '#94a3b8' }
         },
         yAxis: [
-          { 
-            type: 'value', 
-            name: '项目数', 
-            axisLabel: { color: '#94a3b8' }, 
-            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } } 
+          {
+            type: 'value',
+            name: '项目数',
+            axisLabel: { color: '#94a3b8' },
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
           },
-          { 
-            type: 'value', 
-            name: '完成率', 
-            max: 100, 
-            axisLabel: { color: '#94a3b8', formatter: '{c}%' }, 
-            splitLine: { show: false } 
+          {
+            type: 'value',
+            name: '完成率',
+            max: 100,
+            axisLabel: { color: '#94a3b8', formatter: '{c}%' },
+            splitLine: { show: false }
           }
         ],
         series: [
@@ -305,17 +888,58 @@ export default function Dashboard() {
 
     // Resize handler
     const handleResize = () => {
-      charts.forEach(chart => chart.resize());
+      charts.forEach(c => c.resize());
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
-      charts.forEach(chart => chart.dispose());
+      charts.forEach(c => c.dispose());
       window.removeEventListener('resize', handleResize);
     };
   }, []);
 
-  // Update heatmap when taskCategories changes
+  // ============================================================
+  // 初始数据加载（仅执行一次）
+  // ============================================================
+  useEffect(() => {
+    if (!statsFetchedRef.current) {
+      statsFetchedRef.current = true;
+      fetchProjectStats();
+    }
+    if (!projectsFetchedRef.current) {
+      projectsFetchedRef.current = true;
+      fetchProjects(1);
+    }
+  }, [fetchProjectStats, fetchProjects]);
+
+  // ============================================================
+  // Supabase Realtime 订阅 projects 表变更
+  // ============================================================
+  useEffect(() => {
+    console.log('[Dashboard] 订阅 Supabase Realtime: projects 表...');
+    const channel = supabase
+      .channel('dashboard-projects')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'projects' },
+        (payload) => {
+          console.log('[Dashboard] Realtime projects 变更:', payload.eventType, payload.new);
+          // 变更后刷新当前页项目列表
+          fetchProjects(projectPageRef.current);
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Dashboard] Supabase Realtime 订阅状态:', status);
+      });
+
+    return () => {
+      console.log('[Dashboard] 取消 Supabase Realtime 订阅');
+      supabase.removeChannel(channel);
+    };
+  }, [fetchProjects]);
+
+  // ============================================================
+  // 更新热度图（taskCategories 变更时）
+  // ============================================================
   useEffect(() => {
     if (heatmapChartInstance.current && taskCategories.length > 0) {
       heatmapChartInstance.current.setOption({
@@ -392,7 +1016,6 @@ export default function Dashboard() {
       .then(result => {
         if (result.success && result.data) {
           setOverallRisk(result.data);
-          // 更新 KPI 中的风险指数卡片
           setKpis(prev => prev.map(kpi => {
             if (kpi.key === 'risk') {
               const d = result.data;
@@ -424,18 +1047,19 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto refresh
+  // Auto refresh (60s)
   useEffect(() => {
     const interval = setInterval(() => {
-      // Simulate data refresh for mock KPIs (skip risk — uses real API data)
+      // 刷新项目统计数据（图表 + KPI）
+      fetchProjectStats();
+      // 刷新项目列表
+      fetchProjects(projectPageRef.current);
+      // 刷新 KPI 中非实时数据
       setKpis(prev => prev.map(kpi => {
-        if (kpi.key === 'ongoing') {
-          return { ...kpi, value: Number(kpi.value) + Math.floor(Math.random() * 3) - 1 };
-        }
-        // risk KPI is driven by real API data, skip mock refresh
+        // risk KPI 由 API 驱动，不再 mock
         return kpi;
       }));
-      // 定期刷新整体风险指数
+      // 刷新整体风险指数
       fetch('/api/overall-risk')
         .then(res => res.json())
         .then(result => {
@@ -451,7 +1075,7 @@ export default function Dashboard() {
           }
         })
         .catch(() => {});
-      // 定期刷新本月新增任务数
+      // 刷新本月新增任务数
       fetch('/api/stats/monthly-new-tasks')
         .then(res => res.json())
         .then(result => {
@@ -467,11 +1091,30 @@ export default function Dashboard() {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchProjectStats, fetchProjects]);
 
+  // ============================================================
+  // 事件处理
+  // ============================================================
   const handleKPIClick = (target: string) => {
     setSelectedTarget(target);
     setAiPanelOpen(true);
+  };
+
+  const handleProjectPageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > projectPagination.totalPages) return;
+    fetchProjects(newPage);
+  };
+
+  const handleViewProjectDetail = (project: Project) => {
+    console.log('[Dashboard] 查看项目详情:', project.id, project.projectName);
+    setSelectedProject(project);
+    setProjectDrawerOpen(true);
+  };
+
+  const handleRefreshProjects = () => {
+    console.log('[Dashboard] 手动刷新项目列表');
+    fetchProjects(projectPageRef.current);
   };
 
   const formatDateTime = (date: Date) => {
@@ -498,9 +1141,9 @@ export default function Dashboard() {
       {/* Header */}
       <header className="flex justify-between items-center pb-5 mb-5 border-b border-cyan-500/20">
         <div className="flex items-center gap-4">
-          <img 
-            src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg" 
-            alt="森宇集团 Logo" 
+          <img
+            src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg"
+            alt="森宇集团 Logo"
             className="h-12 w-auto rounded-lg"
             onError={(e) => (e.currentTarget.style.display = 'none')}
           />
@@ -515,25 +1158,29 @@ export default function Dashboard() {
 
       {/* Main Grid */}
       <main className="grid grid-cols-3 gap-5 min-h-[calc(100vh-140px)]">
-        {/* Left Panel */}
+        {/* ============================================================ */}
+        {/* Left Panel — 项目全景 */}
+        {/* ============================================================ */}
         <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
           <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
             项目全景
           </h2>
-          
+
           <div ref={revenueChartRef} className="w-full h-72 mb-5"></div>
           <div ref={progressChartRef} className="w-full h-56 mb-5"></div>
           <div ref={categoryChartRef} className="w-full h-56"></div>
         </section>
 
-        {/* Center Panel */}
+        {/* ============================================================ */}
+        {/* Center Panel — 核心态势 */}
+        {/* ============================================================ */}
         <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
           <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
             核心态势
           </h2>
-          
+
           <div className="grid grid-cols-2 gap-4 mb-5">
             {kpis.map((kpi) => (
               <div
@@ -594,13 +1241,15 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Right Panel */}
+        {/* ============================================================ */}
+        {/* Right Panel — 任务效能 + 项目总表 */}
+        {/* ============================================================ */}
         <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
           <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
             任务效能
           </h2>
-          
+
           <div ref={heatmapChartRef} className="w-full h-56 mb-5"></div>
 
           <div className="mb-5">
@@ -629,17 +1278,137 @@ export default function Dashboard() {
           <div ref={gaugeChartRef} className="w-full h-56"></div>
           {/* 新增任务列表 */}
           <TaskList />
+
+          {/* ============================================================ */}
+          {/* 任务 A：项目总表（实时同步） */}
+          {/* ============================================================ */}
+          <div className="border-t border-blue-900/30 mt-5 pt-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-cyan-400 flex items-center gap-2">
+                <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
+                项目总表（实时同步）
+              </h2>
+              <button
+                onClick={handleRefreshProjects}
+                disabled={projectsLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 text-xs hover:bg-cyan-500/10 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={projectsLoading ? 'animate-spin' : ''} />
+                刷新
+              </button>
+            </div>
+
+            {/* 项目表格 */}
+            {projectsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="size-6 text-cyan-400 animate-spin" />
+                <span className="ml-2 text-slate-400 text-sm">加载中...</span>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <Building2 className="size-10 mx-auto mb-2 text-slate-600" />
+                <p className="text-sm">暂无项目数据</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-blue-900/30 text-slate-400 text-xs">
+                        <th className="text-left py-2 pr-2 font-medium">项目名称</th>
+                        <th className="text-left py-2 px-2 font-medium whitespace-nowrap">服务类别</th>
+                        <th className="text-left py-2 px-2 font-medium whitespace-nowrap">负责人</th>
+                        <th className="text-left py-2 px-2 font-medium">进度</th>
+                        <th className="text-left py-2 px-2 font-medium">状态</th>
+                        <th className="text-center py-2 pl-2 font-medium">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projects.map((proj) => (
+                        <tr key={proj.id} className="border-b border-slate-700/30 hover:bg-blue-900/10 transition-colors">
+                          <td className="py-2.5 pr-2">
+                            <span className="text-slate-200 truncate block max-w-[140px]" title={proj.projectName || ''}>
+                              {proj.projectName || '-'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            <span className="text-slate-400 text-xs">{proj.serviceCategory || '-'}</span>
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            <span className="text-slate-400 text-xs">{proj.projectLeader || '-'}</span>
+                          </td>
+                          <td className="py-2.5 px-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 min-w-[50px] bg-slate-600/50 rounded-full h-1.5">
+                                <div
+                                  className="bg-gradient-to-r from-cyan-500 to-blue-600 h-1.5 rounded-full transition-all"
+                                  style={{ width: `${proj.currentProgress ?? 0}%` }}
+                                />
+                              </div>
+                              <span className="text-cyan-400 text-xs w-8 text-right">{proj.currentProgress ?? 0}%</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-xs border ${getStatusColor(proj.projectStatus || '')}`}>
+                              {proj.projectStatus || '-'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pl-2 text-center">
+                            <button
+                              onClick={() => handleViewProjectDetail(proj)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-cyan-500/30 text-cyan-400 text-xs hover:bg-cyan-500/10 transition-colors"
+                            >
+                              <Eye size={12} />
+                              查看详情
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 分页 */}
+                <div className="flex items-center justify-between mt-3 pt-2 border-t border-blue-900/20">
+                  <span className="text-xs text-slate-500">
+                    共 {projectPagination.total} 个项目
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleProjectPageChange(projectPagination.page - 1)}
+                      disabled={projectPagination.page <= 1}
+                      className="p-1 rounded border border-slate-600/50 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span className="text-xs text-slate-400">
+                      {projectPagination.page} / {projectPagination.totalPages || 1}
+                    </span>
+                    <button
+                      onClick={() => handleProjectPageChange(projectPagination.page + 1)}
+                      disabled={projectPagination.page >= projectPagination.totalPages}
+                      className="p-1 rounded border border-slate-600/50 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </section>
       </main>
 
-      {/* Overlay Backdrop */}
+      {/* ============================================================ */}
+      {/* AI Diagnostic Panel Overlay */}
+      {/* ============================================================ */}
       {aiPanelOpen && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 transition-opacity duration-300"
           onClick={() => setAiPanelOpen(false)}
         />
       )}
-      
+
       {/* AI Diagnostic Panel */}
       <div
         className={`fixed top-0 right-0 w-[600px] h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-l-2 border-cyan-400 z-50 transition-all duration-500 ease-out overflow-y-auto shadow-2xl shadow-blue-900/50 ${
@@ -657,16 +1426,27 @@ export default function Dashboard() {
             <X size={22} />
           </button>
         </div>
-        
+
         <div className="p-6 space-y-6">
           <AIAnalysisContent target={selectedTarget} />
         </div>
       </div>
+
+      {/* ============================================================ */}
+      {/* 任务 A：简化版项目详情抽屉 */}
+      {/* ============================================================ */}
+      <ProjectDetailDrawerSimple
+        open={projectDrawerOpen}
+        project={selectedProject}
+        onClose={() => setProjectDrawerOpen(false)}
+      />
     </div>
   );
 }
 
+// ============================================================
 // Person Analysis Component (real API data)
+// ============================================================
 function PersonAnalysis({ target }: { target: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -813,7 +1593,9 @@ function PersonAnalysis({ target }: { target: string }) {
   );
 }
 
+// ============================================================
 // Overall Risk Analysis Component (real API data)
+// ============================================================
 function OverallRiskAnalysis() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -957,7 +1739,9 @@ function OverallRiskAnalysis() {
   );
 }
 
+// ============================================================
 // Monthly Tasks Analysis Component (real API data)
+// ============================================================
 function MonthlyTasksAnalysis() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1100,7 +1884,9 @@ function MonthlyTasksAnalysis() {
   );
 }
 
+// ============================================================
 // AI Analysis Content Component
+// ============================================================
 function AIAnalysisContent({ target }: { target: string }) {
   const analyses: Record<string, JSX.Element> = {
     '进行中项目数': (
