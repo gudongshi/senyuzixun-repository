@@ -1170,119 +1170,11 @@ export default function Dashboard() {
           <div ref={revenueChartRef} className="w-full h-72 mb-5"></div>
           <div ref={progressChartRef} className="w-full h-56 mb-5"></div>
           <div ref={categoryChartRef} className="w-full h-56"></div>
-        </section>
-
-        {/* ============================================================ */}
-        {/* Center Panel — 核心态势 */}
-        {/* ============================================================ */}
-        <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
-          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
-            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
-            核心态势
-          </h2>
-
-          <div className="grid grid-cols-2 gap-4 mb-5">
-            {kpis.map((kpi) => (
-              <div
-                key={kpi.key}
-                onClick={() => handleKPIClick(kpi.label)}
-                className="bg-gradient-to-br from-blue-900/30 to-cyan-500/10 border border-blue-900/40 rounded-xl p-5 text-center cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-blue-900/40"
-              >
-                <div className={`font-bold bg-gradient-to-r from-cyan-400 to-blue-700 bg-clip-text text-transparent ${kpi.key === 'risk' ? 'text-xl' : 'text-4xl'}`}>
-                  {kpi.value}
-                </div>
-                <div className="text-sm text-slate-400 mt-2">{kpi.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {overallRisk && (
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              gap: '24px',
-              marginBottom: '16px',
-              padding: '10px 16px',
-              background: 'rgba(0, 242, 255, 0.05)',
-              borderRadius: '10px',
-              border: '1px solid rgba(0, 242, 255, 0.15)',
-            }}>
-              <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
-                高风险任务数：{overallRisk.highRiskCount}
-              </span>
-              <span style={{ color: '#94a3b8', fontSize: '13px' }}>|</span>
-              <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
-                总任务数：{overallRisk.totalTasks}
-              </span>
-            </div>
-          )}
-
-          <div ref={centralChartRef} className="w-full h-96 mb-5"></div>
-
-          {/* Risk Alert Bar */}
-          <div className="bg-red-900/10 border border-red-500/30 rounded-xl p-4 overflow-hidden">
-            <div className="text-red-400 text-sm mb-3 flex items-center gap-2">
-              <span>⚠️</span> 实时风险预警
-            </div>
-            <div className="overflow-hidden">
-              <div className="flex animate-scroll-left">
-                {riskAlerts.length > 0 ? [...riskAlerts, ...riskAlerts].map((alert, idx) => (
-                  <div
-                    key={idx}
-                    className="flex-shrink-0 bg-red-900/20 rounded-lg px-4 py-2 mr-3 text-sm text-red-300 whitespace-nowrap"
-                  >
-                    {alert.level === 'high' ? '🔴' : '🟡'} {alert.project} - {alert.issue}
-                  </div>
-                )) : (
-                  <div className="flex-shrink-0 text-slate-400 px-4 py-2">暂无风险预警</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ============================================================ */}
-        {/* Right Panel — 任务效能 + 项目总表 */}
-        {/* ============================================================ */}
-        <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
-          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
-            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
-            任务效能
-          </h2>
-
-          <div ref={heatmapChartRef} className="w-full h-56 mb-5"></div>
-
-          <div className="mb-5">
-            <h3 className="text-base text-cyan-400 mb-3">个人效能排行榜 TOP 5</h3>
-            <ul className="space-y-2">
-              {(rankingData.length > 0 ? rankingData : mockData.rankings).map((item, index) => (
-                <li
-                  key={item.name}
-                  onClick={() => handleKPIClick(item.name)}
-                  className="flex items-center bg-blue-900/20 rounded-lg p-3 cursor-pointer transition-all duration-300 hover:bg-blue-900/40 hover:translate-x-1"
-                >
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm mr-3 ${getRankingNumClass(index)}`}>
-                    {index + 1}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-slate-200">{item.name}</div>
-                    <div className="text-xs text-cyan-400 mt-1">
-                      效能分：{item.score} | 完成任务：{item.completed}个
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div ref={gaugeChartRef} className="w-full h-56"></div>
-          {/* 新增任务列表 */}
-          <TaskList />
 
           {/* ============================================================ */}
           {/* 任务 A：项目总表（实时同步） */}
           {/* ============================================================ */}
-          <div className="border-t border-blue-900/30 mt-5 pt-5">
+          <div className="border-t border-blue-900/30 mt-4 pt-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-cyan-400 flex items-center gap-2">
                 <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
@@ -1396,6 +1288,114 @@ export default function Dashboard() {
               </>
             )}
           </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* Center Panel — 核心态势 */}
+        {/* ============================================================ */}
+        <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
+          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
+            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
+            核心态势
+          </h2>
+
+          <div className="grid grid-cols-2 gap-4 mb-5">
+            {kpis.map((kpi) => (
+              <div
+                key={kpi.key}
+                onClick={() => handleKPIClick(kpi.label)}
+                className="bg-gradient-to-br from-blue-900/30 to-cyan-500/10 border border-blue-900/40 rounded-xl p-5 text-center cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-blue-900/40"
+              >
+                <div className={`font-bold bg-gradient-to-r from-cyan-400 to-blue-700 bg-clip-text text-transparent ${kpi.key === 'risk' ? 'text-xl' : 'text-4xl'}`}>
+                  {kpi.value}
+                </div>
+                <div className="text-sm text-slate-400 mt-2">{kpi.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {overallRisk && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '24px',
+              marginBottom: '16px',
+              padding: '10px 16px',
+              background: 'rgba(0, 242, 255, 0.05)',
+              borderRadius: '10px',
+              border: '1px solid rgba(0, 242, 255, 0.15)',
+            }}>
+              <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
+                高风险任务数：{overallRisk.highRiskCount}
+              </span>
+              <span style={{ color: '#94a3b8', fontSize: '13px' }}>|</span>
+              <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
+                总任务数：{overallRisk.totalTasks}
+              </span>
+            </div>
+          )}
+
+          <div ref={centralChartRef} className="w-full h-96 mb-5"></div>
+
+          {/* Risk Alert Bar */}
+          <div className="bg-red-900/10 border border-red-500/30 rounded-xl p-4 overflow-hidden">
+            <div className="text-red-400 text-sm mb-3 flex items-center gap-2">
+              <span>⚠️</span> 实时风险预警
+            </div>
+            <div className="overflow-hidden">
+              <div className="flex animate-scroll-left">
+                {riskAlerts.length > 0 ? [...riskAlerts, ...riskAlerts].map((alert, idx) => (
+                  <div
+                    key={idx}
+                    className="flex-shrink-0 bg-red-900/20 rounded-lg px-4 py-2 mr-3 text-sm text-red-300 whitespace-nowrap"
+                  >
+                    {alert.level === 'high' ? '🔴' : '🟡'} {alert.project} - {alert.issue}
+                  </div>
+                )) : (
+                  <div className="flex-shrink-0 text-slate-400 px-4 py-2">暂无风险预警</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* Right Panel — 任务效能 */}
+        {/* ============================================================ */}
+        <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
+          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
+            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
+            任务效能
+          </h2>
+
+          <div ref={heatmapChartRef} className="w-full h-56 mb-5"></div>
+
+          <div className="mb-5">
+            <h3 className="text-base text-cyan-400 mb-3">个人效能排行榜 TOP 5</h3>
+            <ul className="space-y-2">
+              {(rankingData.length > 0 ? rankingData : mockData.rankings).map((item, index) => (
+                <li
+                  key={item.name}
+                  onClick={() => handleKPIClick(item.name)}
+                  className="flex items-center bg-blue-900/20 rounded-lg p-3 cursor-pointer transition-all duration-300 hover:bg-blue-900/40 hover:translate-x-1"
+                >
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm mr-3 ${getRankingNumClass(index)}`}>
+                    {index + 1}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-slate-200">{item.name}</div>
+                    <div className="text-xs text-cyan-400 mt-1">
+                      效能分：{item.score} | 完成任务：{item.completed}个
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div ref={gaugeChartRef} className="w-full h-56"></div>
+          {/* 新增任务列表 */}
+          <TaskList />
         </section>
       </main>
 
