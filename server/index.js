@@ -341,6 +341,28 @@ if (!DINGTALK_APP_KEY || !DINGTALK_APP_SECRET) {
 const JWT_SECRET = process.env.JWT_SECRET || 'senyu-dashboard-jwt-secret-2024';
 
 // ============================================================
+// 白名单配置（双白名单分权）
+// ============================================================
+// 大屏访问白名单（高管层 / 战略决策者）
+const ALLOWED_USERS_DASHBOARD = [
+  "RWATGRZfsEJGwSILSZyXvwiEiE",   // 赵莘
+  "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
+  "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
+  "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
+];
+
+// 项目管理后台访问白名单（项目操作人员）
+const ALLOWED_USERS_MANAGER = [
+  "RWATGRZfsEJGwSILSZyXvwiEiE",   // 赵莘
+  "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
+  "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
+  "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
+];
+
+// 合并所有授权用户（用于快速判断是否完全无权限）
+const ALL_ALLOWED_USERS = [...new Set([...ALLOWED_USERS_DASHBOARD, ...ALLOWED_USERS_MANAGER])];
+
+// ============================================================
 // 钉钉 Token 缓存
 // ============================================================
 let dingtalkAccessToken = null;
@@ -422,6 +444,12 @@ function authMiddleware(req, res, next) {
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    // 双重检查：token 有效，但用户是否仍在白名单中
+    if (!ALL_ALLOWED_USERS.includes(decoded.userId)) {
+      console.warn('⛔ 白名单校验失败:', decoded.userId);
+      return res.status(403).json({ success: false, error: '您的访问权限已被撤销，请联系管理员' });
+    }
+    console.log('✅ 白名单校验通过:', decoded.name, 'roles:', decoded.roles);
     req.user = decoded;
     next();
   } catch {
@@ -513,14 +541,8 @@ app.get('/api/dingtalk/login', async (req, res) => {
     const userId = user.userId || user.openId || '';
     const userName = user.nick || user.name || userId || '未知用户';
 
-    // 白名单校验
-    const ALLOWED_USERS = [
-      "RWATGRZfsEJGwSILSZyXvwiEiE",   // 赵莘
-      "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
-      "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
-      "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
-    ];
-    if (!ALLOWED_USERS.includes(userId)) {
+    // 白名单校验：检查是否在任意一个白名单中
+    if (!ALL_ALLOWED_USERS.includes(userId)) {
       console.warn(`⛔ 拒绝访问: ${userName} (${userId}) 不在白名单中`);
       return res.status(403).json({
         success: false,
@@ -529,8 +551,13 @@ app.get('/api/dingtalk/login', async (req, res) => {
     }
     console.log(`✅ 白名单校验通过: ${userName} (${userId})`);
 
+    const roles = {
+      dashboard: ALLOWED_USERS_DASHBOARD.includes(userId),
+      manager: ALLOWED_USERS_MANAGER.includes(userId),
+    };
+
     const sessionToken = jwt.sign(
-      { userId, name: userName, loginTime: Date.now() },
+      { userId, name: userName, roles, loginTime: Date.now() },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -546,7 +573,7 @@ app.get('/api/dingtalk/login', async (req, res) => {
     res.json({
       success: true,
       token: sessionToken,
-      user: { userId, name: userName },
+      user: { userId, name: userName, roles },
     });
   } catch (err) {
     const detail = err.response?.data || err.message;
@@ -558,7 +585,11 @@ app.get('/api/dingtalk/login', async (req, res) => {
 app.get('/api/dingtalk/me', authMiddleware, (req, res) => {
   res.json({
     success: true,
-    user: req.user,
+    user: {
+      userId: req.user.userId,
+      name: req.user.name,
+      roles: req.user.roles,
+    },
   });
 });
 
