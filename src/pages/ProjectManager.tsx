@@ -204,21 +204,6 @@ function ProjectFormModal({
     }
   }, [quickClientOpen]);
 
-  // 计算项目工期（显示为"X个月"或"X天"）
-  const calculatedDuration = useMemo(() => {
-    const start = form.plannedStartDate ? new Date(form.plannedStartDate) : null;
-    const end = form.plannedEndDate ? new Date(form.plannedEndDate) : null;
-    if (!start || !end || end < start) return '';
-    const diffMs = end.getTime() - start.getTime();
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
-    if (diffDays < 30) {
-      return `${Math.round(diffDays)} 天`;
-    } else {
-      const months = Math.round(diffDays / 30.44);
-      return `${months} 个月`;
-    }
-  }, [form.plannedStartDate, form.plannedEndDate]);
-
   const [form, setForm] = useState({
     contractNumber: '',
     projectName: '',
@@ -243,6 +228,21 @@ function ProjectFormModal({
     businessType: '',
     implementationStatus: '',
   });
+
+  // 计算项目工期（显示为"X个月"或"X天"）
+  const calculatedDuration = useMemo(() => {
+    const start = form.plannedStartDate ? new Date(form.plannedStartDate) : null;
+    const end = form.plannedEndDate ? new Date(form.plannedEndDate) : null;
+    if (!start || !end || end < start) return '';
+    const diffMs = end.getTime() - start.getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    if (diffDays < 30) {
+      return `${Math.round(diffDays)} 天`;
+    } else {
+      const months = Math.round(diffDays / 30.44);
+      return `${months} 个月`;
+    }
+  }, [form.plannedStartDate, form.plannedEndDate]);
 
   // 获取客户列表
   useEffect(() => {
