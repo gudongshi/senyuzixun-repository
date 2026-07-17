@@ -2177,26 +2177,181 @@ app.delete('/api/projects/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// GET /api/clients - 客户列表（精简版，供下拉列表使用）
+// GET /api/clients - 客户列表（完整版：分页 + 搜索）
 // ============================================================
 app.get('/api/clients', authMiddleware, async (req, res) => {
   try {
-    console.log('📋 GET /api/clients - 查询客户列表');
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
 
-    const { data, error } = await supabase
+    console.log(`📋 GET /api/clients - 查询客户列表 page=${page} limit=${limit} search="${search}"`);
+
+    let query = supabase
       .from('clients')
-      .select('id, client_name')
-      .order('client_name', { ascending: true });
+      .select('id, client_name, contact_person, contact_phone, responsible_person, created_at', { count: 'exact' });
+
+    if (search) {
+      query = query.ilike('client_name', `%${search}%`);
+    }
+
+    const { data, error, count } = await query
+      .order('client_name', { ascending: true })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       console.error('❌ 获取客户列表失败:', error.message);
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    console.log(`✅ 客户列表返回 ${(data || []).length} 条记录`);
-    res.json({ success: true, data: data || [] });
+    console.log(`✅ 客户列表返回 ${(data || []).length} 条记录，共 ${count || 0} 条`);
+    res.json({
+      success: true,
+      data: data || [],
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
+    });
   } catch (err) {
     console.error('❌ 获取客户列表异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// POST /api/clients - 新增客户
+// ============================================================
+app.post('/api/clients', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 POST /api/clients - 请求体:', JSON.stringify(req.body, null, 2));
+
+    const { client_name, contact_person, contact_phone, responsible_person } = req.body;
+
+    if (!client_name) {
+      console.warn('⚠️ 缺少必填字段: client_name');
+      return res.status(400).json({ success: false, error: '缺少必填字段: client_name' });
+    }
+
+    const record = {
+      client_name,
+      contact_person: contact_person || null,
+      contact_phone: contact_phone || null,
+      responsible_person: responsible_person || null,
+    };
+
+    const { data, error } = await supabase
+      .from('clients')
+      .insert(record)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 创建客户失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 客户创建成功:', data.client_name);
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 创建客户异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// PUT /api/clients/:id - 更新客户
+// ============================================================
+app.put('/api/clients/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 PUT /api/clients/${id} - 请求体:`, JSON.stringify(req.body, null, 2));
+
+    // 先检查客户是否存在
+    const { data: existing, error: findError } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '客户不存在' });
+      }
+      throw findError;
+    }
+
+    const { client_name, contact_person, contact_phone, responsible_person } = req.body;
+
+    const record = {};
+    if (client_name !== undefined) record.client_name = client_name;
+    if (contact_person !== undefined) record.contact_person = contact_person;
+    if (contact_phone !== undefined) record.contact_phone = contact_phone;
+    if (responsible_person !== undefined) record.responsible_person = responsible_person;
+
+    if (Object.keys(record).length === 0) {
+      return res.status(400).json({ success: false, error: '没有需要更新的字段' });
+    }
+
+    const { data, error } = await supabase
+      .from('clients')
+      .update(record)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新客户失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 客户更新成功:', data.client_name);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 更新客户异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// DELETE /api/clients/:id - 删除客户
+// ============================================================
+app.delete('/api/clients/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 DELETE /api/clients/${id}`);
+
+    // 先检查客户是否存在
+    const { data: existing, error: findError } = await supabase
+      .from('clients')
+      .select('id, client_name')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '客户不存在' });
+      }
+      throw findError;
+    }
+
+    const { error } = await supabase
+      .from('clients')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除客户失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 客户已删除:', existing.client_name);
+    res.json({ success: true, message: '客户已删除' });
+  } catch (err) {
+    console.error('❌ 删除客户异常:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

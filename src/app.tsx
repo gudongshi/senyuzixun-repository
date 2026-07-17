@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import ProjectManager from './pages/ProjectManager';
+import ClientManager from './pages/ClientManager';
 import { AuthGate, useAuthUser } from './components/AuthGate';
 
 /**
@@ -129,6 +130,16 @@ function AppRoutes() {
             <ProjectManager />
           ) : (
             <Navigate to={dashboard ? '/' : '/project-manager'} replace />
+          )
+        }
+      />
+      <Route
+        path="/clients"
+        element={
+          manager ? (
+            <ClientManager />
+          ) : (
+            <Navigate to={dashboard ? '/' : '/clients'} replace />
           )
         }
       />

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
-  Loader2, AlertTriangle, TrendingUp, Bot
+  Loader2, AlertTriangle, TrendingUp, Bot, Users
 } from 'lucide-react';
 
 // ============================================================
@@ -1301,6 +1301,13 @@ export default function ProjectManager() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-sm hover:bg-blue-900/20 transition-colors">
             <LayoutDashboard size={16} />
             指挥大屏
+          </a>
+
+          {/* 客户管理 */}
+          <a href="/clients"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-sm hover:bg-blue-900/20 transition-colors">
+            <Users size={16} />
+            客户管理
           </a>
 
           {/* 用户信息 */}
