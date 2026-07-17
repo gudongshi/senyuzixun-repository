@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import ProjectManager from './pages/ProjectManager';
 import ClientManager from './pages/ClientManager';
+import FinancialDataManager from './pages/FinancialDataManager';
 import { AuthGate, useAuthUser } from './components/AuthGate';
 
 /**
@@ -140,6 +141,16 @@ function AppRoutes() {
             <ClientManager />
           ) : (
             <Navigate to={dashboard ? '/' : '/clients'} replace />
+          )
+        }
+      />
+      <Route
+        path="/financial-data"
+        element={
+          manager ? (
+            <FinancialDataManager />
+          ) : (
+            <Navigate to={dashboard ? '/' : '/financial-data'} replace />
           )
         }
       />

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
-  Loader2, AlertTriangle, TrendingUp, Bot, Users
+  Loader2, AlertTriangle, TrendingUp, Bot, Users, DollarSign
 } from 'lucide-react';
 
 // ============================================================
@@ -2159,6 +2159,13 @@ export default function ProjectManager() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-sm hover:bg-blue-900/20 transition-colors">
             <Users size={16} />
             客户管理
+          </a>
+
+          {/* 财务数据 */}
+          <a href="/financial-data"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 text-sm hover:bg-emerald-900/20 transition-colors">
+            <DollarSign size={16} />
+            财务数据
           </a>
 
           {/* 用户信息 */}
