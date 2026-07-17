@@ -88,12 +88,20 @@ interface Project {
 interface WeeklyReport {
   id: number;
   projectId: number;
+  businessType: string | null;
   reportDate: string;
-  currentProgress: number;
+  reportType: string;
+  currentProgress: number | null;
   weeklySummary: string;
-  issuesEncountered: string;
-  nextWeekPlan: string;
-  riskSelfAssessment: string;
+  issuesEncountered: string | null;
+  nextWeekPlan: string | null;
+  riskSelfAssessment: string | null;
+  monthlyCompletedValue: number | null;
+  cumulativeCompletedValue: number | null;
+  monthlyInvoicedAmount: number | null;
+  cumulativeInvoicedAmount: number | null;
+  monthlyReceivedAmount: number | null;
+  cumulativeReceivedAmount: number | null;
   createdAt: string;
 }
 
@@ -191,14 +199,15 @@ function ProjectDetailDrawerSimple({
     if (!project) return;
     setReportsLoading(true);
     try {
-      const resp = await fetch(`/api/projects/${project.id}/weekly-reports`);
+      console.log(`📋 获取项目周报历史 projectId=${project.id}`);
+      const resp = await fetch(`/api/weekly-reports?projectId=${project.id}&limit=50`);
       const result = await resp.json();
       if (result.success) {
-        console.log('[Dashboard] 周报历史:', result.data?.length, '条');
+        console.log(`✅ 周报历史返回 ${result.data?.length || 0} 条记录`);
         setWeeklyReports(result.data || []);
       }
     } catch (err) {
-      console.error('[Dashboard] 获取周报历史失败:', err);
+      console.error('❌ 获取周报历史失败:', err);
     } finally {
       setReportsLoading(false);
     }
@@ -368,9 +377,18 @@ function ProjectDetailDrawerSimple({
                 {weeklyReports.map((report) => (
                   <div key={report.id} className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-4">
                     <div className="flex justify-between items-center mb-3">
-                      <span className="text-cyan-400 font-semibold text-sm">{report.reportDate}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-cyan-400 font-semibold text-sm">{report.reportDate}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs border ${
+                          report.reportType === 'monthly'
+                            ? 'bg-purple-900/20 text-purple-400 border-purple-500/30'
+                            : 'bg-cyan-900/20 text-cyan-400 border-cyan-500/30'
+                        }`}>
+                          {report.reportType === 'monthly' ? '月报' : '周报'}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-slate-400 text-xs">进度: {report.currentProgress}%</span>
+                        <span className="text-slate-400 text-xs">进度: {report.currentProgress ?? 0}%</span>
                         {report.riskSelfAssessment && (
                           <span className={`px-2 py-0.5 rounded text-xs border ${
                             report.riskSelfAssessment === '高' ? 'border-red-500/30 text-red-400 bg-red-900/20' :
@@ -384,7 +402,7 @@ function ProjectDetailDrawerSimple({
                     </div>
                     <div className="w-full bg-slate-600/50 rounded-full h-2 mb-3">
                       <div className="bg-gradient-to-r from-cyan-500 to-blue-600 h-2 rounded-full transition-all"
-                        style={{ width: `${report.currentProgress}%` }} />
+                        style={{ width: `${report.currentProgress ?? 0}%` }} />
                     </div>
                     <div className="space-y-2 text-sm">
                       <div>
@@ -401,6 +419,32 @@ function ProjectDetailDrawerSimple({
                         <div>
                           <span className="text-blue-500">下周计划：</span>
                           <p className="text-blue-300/80 mt-0.5">{report.nextWeekPlan}</p>
+                        </div>
+                      )}
+                      {/* 月报数据 */}
+                      {report.reportType === 'monthly' && (
+                        <div className="mt-3 pt-3 border-t border-slate-700/50">
+                          <span className="text-purple-400 text-xs font-medium mb-2 block">📊 月报数据</span>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {report.monthlyCompletedValue != null && (
+                              <div><span className="text-slate-500">本月产值：</span><span className="text-slate-300">{formatMoney(report.monthlyCompletedValue)}</span></div>
+                            )}
+                            {report.cumulativeCompletedValue != null && (
+                              <div><span className="text-slate-500">累计产值：</span><span className="text-slate-300">{formatMoney(report.cumulativeCompletedValue)}</span></div>
+                            )}
+                            {report.monthlyInvoicedAmount != null && (
+                              <div><span className="text-slate-500">本月开票：</span><span className="text-slate-300">{formatMoney(report.monthlyInvoicedAmount)}</span></div>
+                            )}
+                            {report.cumulativeInvoicedAmount != null && (
+                              <div><span className="text-slate-500">累计开票：</span><span className="text-slate-300">{formatMoney(report.cumulativeInvoicedAmount)}</span></div>
+                            )}
+                            {report.monthlyReceivedAmount != null && (
+                              <div><span className="text-slate-500">本月回款：</span><span className="text-slate-300">{formatMoney(report.monthlyReceivedAmount)}</span></div>
+                            )}
+                            {report.cumulativeReceivedAmount != null && (
+                              <div><span className="text-slate-500">累计回款：</span><span className="text-slate-300">{formatMoney(report.cumulativeReceivedAmount)}</span></div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
