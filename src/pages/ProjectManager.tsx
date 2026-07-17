@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
@@ -38,6 +38,8 @@ interface Project {
   projectTeam: string[] | null;
   clientId: number | null;
   businessType: string | null;
+  implementationStatus: string | null;
+  projectDuration: string | null;
   clientName?: string;
   taskCount: number;
   createdAt: string;
@@ -85,6 +87,7 @@ const SERVICE_CATEGORIES = ['招标代理', '项目管理', '监理', '技术咨
 const PROJECT_STATUSES = ['进行中', '已结项', '暂停', '规划中'];
 const RISK_LEVELS = ['低', '中', '高'];
 const BUSINESS_TYPES = ['全过程咨询', '工程咨询', '项目管理', '工程监理', '综合咨询', '招标代理', '政府采购', '造价咨询', '造价鉴定'];
+const IMPLEMENTATION_STATUSES = ['未开始', '进行中', '已暂停', '已完工', '已终止'];
 const PAGE_SIZE = 15;
 
 // ============================================================
@@ -200,6 +203,22 @@ function ProjectFormModal({
       }, 100);
     }
   }, [quickClientOpen]);
+
+  // 计算项目工期（显示为"X个月"或"X天"）
+  const calculatedDuration = useMemo(() => {
+    const start = form.plannedStartDate ? new Date(form.plannedStartDate) : null;
+    const end = form.plannedEndDate ? new Date(form.plannedEndDate) : null;
+    if (!start || !end || end < start) return '';
+    const diffMs = end.getTime() - start.getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    if (diffDays < 30) {
+      return `${Math.round(diffDays)} 天`;
+    } else {
+      const months = Math.round(diffDays / 30.44);
+      return `${months} 个月`;
+    }
+  }, [form.plannedStartDate, form.plannedEndDate]);
+
   const [form, setForm] = useState({
     contractNumber: '',
     projectName: '',
@@ -222,6 +241,7 @@ function ProjectFormModal({
     projectTeam: '',
     clientId: '',
     businessType: '',
+    implementationStatus: '',
   });
 
   // 获取客户列表
@@ -319,6 +339,7 @@ function ProjectFormModal({
         projectTeam: Array.isArray(project.projectTeam) ? project.projectTeam.join(', ') : (project.projectTeam || ''),
         clientId: project.clientId?.toString() || '',
         businessType: project.businessType || '',
+        implementationStatus: project.implementationStatus || '未开始',
       });
     } else {
       setForm({
@@ -343,6 +364,7 @@ function ProjectFormModal({
         projectTeam: '',
         clientId: '',
         businessType: '',
+        implementationStatus: '',
       });
     }
   }, [project, open]);
@@ -385,6 +407,7 @@ function ProjectFormModal({
         projectTeam: form.projectTeam ? form.projectTeam.split(',').map(s => s.trim()).filter(Boolean) : null,
         clientId: form.clientId ? parseInt(form.clientId) : null,
         businessType: form.businessType || null,
+        implementationStatus: form.implementationStatus || null,
       };
 
       console.log('📤 提交项目表单:', body);
@@ -477,11 +500,6 @@ function ProjectFormModal({
               <input type="date" className={inputClass} value={form.signedDate}
                 onChange={e => updateField('signedDate', e.target.value)} />
             </div>
-            <div>
-              <label className={labelClass}>计划结束日期</label>
-              <input type="date" className={inputClass} value={form.plannedEndDate}
-                onChange={e => updateField('plannedEndDate', e.target.value)} />
-            </div>
           </div>
 
           {/* 第一组：基础信息 */}
@@ -516,6 +534,11 @@ function ProjectFormModal({
                   onChange={e => updateField('plannedStartDate', e.target.value)} />
               </div>
               <div>
+                <label className={labelClass}>计划完成时间</label>
+                <input type="date" className={inputClass} value={form.plannedEndDate}
+                  onChange={e => updateField('plannedEndDate', e.target.value)} />
+              </div>
+              <div>
                 <label className={labelClass}>目标成本</label>
                 <input type="number" className={inputClass} value={form.targetCost}
                   onChange={e => updateField('targetCost', e.target.value)} placeholder="请输入目标成本" />
@@ -525,6 +548,12 @@ function ProjectFormModal({
                 <input type="number" className={inputClass} value={form.targetProfitRate}
                   onChange={e => updateField('targetProfitRate', e.target.value)} placeholder="请输入目标利润率" />
               </div>
+            </div>
+            <div className="mt-4">
+              <label className={labelClass}>项目工期</label>
+              <input type="text" className={`${inputClass} bg-slate-700/30 text-slate-400 cursor-not-allowed`}
+                value={calculatedDuration} readOnly disabled
+                placeholder="由计划时间自动计算" />
             </div>
           </div>
 
@@ -557,12 +586,21 @@ function ProjectFormModal({
             <h3 className="text-sm text-cyan-400 font-semibold mb-3">🏢 分类与客户</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>业务类型 <span className="text-red-400">*</span></label>
+                <label className={labelClass}>项目类型 <span className="text-red-400">*</span></label>
                 <select className={inputClass} value={form.businessType}
                   onChange={e => updateField('businessType', e.target.value)}>
                   <option value="">请选择</option>
                   {BUSINESS_TYPES.map(type => (
                     <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>项目实施状态 <span className="text-red-400">*</span></label>
+                <select className={inputClass} value={form.implementationStatus || '未开始'}
+                  onChange={e => updateField('implementationStatus', e.target.value)}>
+                  {IMPLEMENTATION_STATUSES.map(status => (
+                    <option key={status} value={status}>{status}</option>
                   ))}
                 </select>
               </div>
@@ -1110,8 +1148,16 @@ function ProjectDetailDrawer({
                   </span>
                 </div>
                 <div className={fieldClass}>
-                  <span className={fieldLabelClass}>业务类型</span>
+                  <span className={fieldLabelClass}>项目类型</span>
                   <span className={fieldValueClass}>{detail.businessType || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目实施状态</span>
+                  <span className={fieldValueClass}>{detail.implementationStatus || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目工期</span>
+                  <span className={fieldValueClass}>{detail.projectDuration || '-'}</span>
                 </div>
                 <div className={fieldClass}>
                   <span className={fieldLabelClass}>客户</span>

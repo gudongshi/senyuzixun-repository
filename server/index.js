@@ -1592,6 +1592,8 @@ const FIELD_MAP_TO_DB = {
   projectTeam: '项目人员组成',
   clientId: '客户ID',
   businessType: '业务类型',
+  implementationStatus: '项目实施状态',
+  projectDuration: '项目工期',
 };
 
 // 字段映射：中文数据库字段 → 英文响应
@@ -1623,6 +1625,8 @@ const FIELD_MAP_FROM_DB = {
   '项目人员组成': 'projectTeam',
   '客户ID': 'clientId',
   '业务类型': 'businessType',
+  '项目实施状态': 'implementationStatus',
+  '项目工期': 'projectDuration',
 };
 
 // 将请求体英文字段映射为中文字段（写入 DB）
