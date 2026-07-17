@@ -1654,25 +1654,9 @@ function mapDbToResponse(dbRecord) {
 
 // ============================================================
 // 周报字段映射：英文请求 → 数据库字段（project_weekly_reports 表）
+// 注意：WEEKLY_REPORT_FIELD_MAP_TO_DB / WEEKLY_REPORT_FIELD_MAP_FROM_DB
+// 已在下方"周报/财务接口"区块中统一定义（35 字段完整版），此处不再重复声明。
 // ============================================================
-const WEEKLY_REPORT_FIELD_MAP_TO_DB = {
-  reportDate: 'report_date',
-  currentProgress: 'current_progress',
-  weeklySummary: 'weekly_summary',
-  issuesEncountered: 'issues_encountered',
-  nextWeekPlan: 'next_week_plan',
-  riskSelfAssessment: 'risk_self_assessment',
-};
-
-// 周报字段映射：数据库字段 → 英文响应
-const WEEKLY_REPORT_FIELD_MAP_FROM_DB = {
-  report_date: 'reportDate',
-  current_progress: 'currentProgress',
-  weekly_summary: 'weeklySummary',
-  issues_encountered: 'issuesEncountered',
-  next_week_plan: 'nextWeekPlan',
-  risk_self_assessment: 'riskSelfAssessment',
-};
 
 // 将周报请求体英文字段映射为数据库字段（写入 project_weekly_reports）
 function mapWeeklyReportRequestToDb(body) {
