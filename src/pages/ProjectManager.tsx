@@ -181,6 +181,14 @@ function ProjectFormModal({
   const [loading, setLoading] = useState(false);
   const [clients, setClients] = useState<{ id: number; client_name: string }[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
+  const [quickClientOpen, setQuickClientOpen] = useState(false);
+  const [quickClientLoading, setQuickClientLoading] = useState(false);
+  const [quickClientForm, setQuickClientForm] = useState({
+    client_name: '',
+    contact_person: '',
+    contact_phone: '',
+    responsible_person: '',
+  });
   const [form, setForm] = useState({
     contractNumber: '',
     projectName: '',
@@ -222,6 +230,58 @@ function ProjectFormModal({
         .finally(() => setClientsLoading(false));
     }
   }, [open]);
+
+  // 刷新客户列表（快速新增客户后调用）
+  const fetchClients = () => {
+    fetch('/api/clients')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setClients(d.data || []);
+        }
+      })
+      .catch(err => console.error('❌ 刷新客户列表失败:', err));
+  };
+
+  // 快速新增客户
+  const handleQuickClientSubmit = async () => {
+    if (!quickClientForm.client_name.trim()) {
+      toast.error('请输入客户名称');
+      return;
+    }
+    setQuickClientLoading(true);
+    try {
+      console.log('📤 快速新增客户:', quickClientForm);
+      const resp = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(quickClientForm),
+      });
+      const result = await resp.json();
+      if (result.success) {
+        console.log('✅ 快速新增客户成功:', result.data.client_name);
+        toast.success('客户创建成功');
+        setQuickClientOpen(false);
+        // 刷新客户列表
+        const listResp = await fetch('/api/clients');
+        const listResult = await listResp.json();
+        if (listResult.success) {
+          setClients(listResult.data || []);
+          // 自动选中新客户
+          updateField('clientId', String(result.data.id));
+        }
+        setQuickClientForm({ client_name: '', contact_person: '', contact_phone: '', responsible_person: '' });
+      } else {
+        console.error('❌ 快速新增客户失败:', result.error);
+        toast.error(result.error || '创建失败');
+      }
+    } catch (err: any) {
+      console.error('❌ 快速新增客户失败:', err);
+      toast.error('网络错误，请重试');
+    } finally {
+      setQuickClientLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (project) {
@@ -497,14 +557,29 @@ function ProjectFormModal({
               </div>
               <div>
                 <label className={labelClass}>客户 <span className="text-red-400">*</span></label>
-                <select className={inputClass} value={form.clientId}
-                  onChange={e => updateField('clientId', e.target.value)}
-                  disabled={clientsLoading}>
-                  <option value="">请选择</option>
-                  {clients.map(c => (
-                    <option key={c.id} value={c.id}>{c.client_name}</option>
-                  ))}
-                </select>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <select className={inputClass} value={form.clientId}
+                      onChange={e => updateField('clientId', e.target.value)}
+                      disabled={clientsLoading}>
+                      <option value="">请选择</option>
+                      {clients.map(c => (
+                        <option key={c.id} value={c.id}>{c.client_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      console.log('📋 打开快速新增客户弹窗');
+                      setQuickClientOpen(true);
+                    }}
+                    className="px-3 py-2 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition-colors shrink-0"
+                    title="新增客户"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
                 {clientsLoading && (
                   <p className="text-xs text-slate-500 mt-1">加载客户列表中...</p>
                 )}
@@ -531,6 +606,75 @@ function ProjectFormModal({
           </div>
         </form>
       </div>
+
+      {/* 快速新增客户弹窗 */}
+      {quickClientOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center">
+          <div className="bg-slate-800 border border-cyan-500/30 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+            <div className="flex justify-between items-center p-5 border-b border-blue-900/30">
+              <h3 className="text-lg font-bold text-cyan-400">新增客户</h3>
+              <button
+                onClick={() => {
+                  setQuickClientOpen(false);
+                  setQuickClientForm({ client_name: '', contact_person: '', contact_phone: '', responsible_person: '' });
+                }}
+                className="text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className={labelClass}>客户名称 <span className="text-red-400">*</span></label>
+                <input type="text" className={inputClass} value={quickClientForm.client_name}
+                  onChange={e => setQuickClientForm(prev => ({ ...prev, client_name: e.target.value }))}
+                  placeholder="请输入客户名称" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>联系人</label>
+                  <input type="text" className={inputClass} value={quickClientForm.contact_person}
+                    onChange={e => setQuickClientForm(prev => ({ ...prev, contact_person: e.target.value }))}
+                    placeholder="请输入联系人" />
+                </div>
+                <div>
+                  <label className={labelClass}>联系电话</label>
+                  <input type="text" className={inputClass} value={quickClientForm.contact_phone}
+                    onChange={e => setQuickClientForm(prev => ({ ...prev, contact_phone: e.target.value }))}
+                    placeholder="请输入联系电话" />
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>负责人</label>
+                <input type="text" className={inputClass} value={quickClientForm.responsible_person}
+                  onChange={e => setQuickClientForm(prev => ({ ...prev, responsible_person: e.target.value }))}
+                  placeholder="请输入负责人" />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 px-5 pb-5">
+              <button
+                onClick={() => {
+                  setQuickClientOpen(false);
+                  setQuickClientForm({ client_name: '', contact_person: '', contact_phone: '', responsible_person: '' });
+                }}
+                className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleQuickClientSubmit}
+                disabled={quickClientLoading}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2 text-sm"
+              >
+                {quickClientLoading && <Loader2 className="size-4 animate-spin" />}
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
