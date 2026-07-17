@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
@@ -189,6 +189,17 @@ function ProjectFormModal({
     contact_phone: '',
     responsible_person: '',
   });
+  const quickClientNameInputRef = useRef<HTMLInputElement>(null);
+
+  // 快速新增客户弹窗打开时自动聚焦
+  useEffect(() => {
+    if (quickClientOpen && quickClientNameInputRef.current) {
+      setTimeout(() => {
+        quickClientNameInputRef.current?.focus();
+        console.log('🔍 快速新增客户弹窗已打开，焦点已移至客户名称输入框');
+      }, 100);
+    }
+  }, [quickClientOpen]);
   const [form, setForm] = useState({
     contractNumber: '',
     projectName: '',
@@ -627,7 +638,9 @@ function ProjectFormModal({
             <div className="p-5 space-y-4">
               <div>
                 <label className={labelClass}>客户名称 <span className="text-red-400">*</span></label>
-                <input type="text" className={inputClass} value={quickClientForm.client_name}
+                <input
+                  ref={quickClientNameInputRef}
+                  type="text" className={inputClass} value={quickClientForm.client_name}
                   onChange={e => setQuickClientForm(prev => ({ ...prev, client_name: e.target.value }))}
                   placeholder="请输入客户名称" />
               </div>
