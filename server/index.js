@@ -2177,6 +2177,31 @@ app.delete('/api/projects/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// GET /api/clients - 客户列表（精简版，供下拉列表使用）
+// ============================================================
+app.get('/api/clients', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 GET /api/clients - 查询客户列表');
+
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id, client_name')
+      .order('client_name', { ascending: true });
+
+    if (error) {
+      console.error('❌ 获取客户列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 客户列表返回 ${(data || []).length} 条记录`);
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('❌ 获取客户列表异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 统计接口：项目总览 KPI
 // ============================================================
 app.get('/api/stats/projects-overview', async (req, res) => {
