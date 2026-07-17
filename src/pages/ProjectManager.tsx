@@ -27,6 +27,18 @@ interface Project {
   currentProgress: number | null;
   lastWeeklyReportAt: string | null;
   remark: string | null;
+  serviceScope: string | null;
+  serviceContent: string | null;
+  paymentTerms: string | null;
+  plannedStartDate: string | null;
+  targetCost: number | null;
+  targetProfitRate: number | null;
+  actualProjectLeader: string | null;
+  projectAddress: string | null;
+  projectTeam: string[] | null;
+  clientId: number | null;
+  businessType: string | null;
+  clientName?: string;
   taskCount: number;
   createdAt: string;
   updatedAt: string;
@@ -72,6 +84,7 @@ interface UserInfo {
 const SERVICE_CATEGORIES = ['招标代理', '项目管理', '监理', '技术咨询', '造价咨询', '鉴定'];
 const PROJECT_STATUSES = ['进行中', '已结项', '暂停', '规划中'];
 const RISK_LEVELS = ['低', '中', '高'];
+const BUSINESS_TYPES = ['全过程咨询', '工程咨询', '项目管理', '工程监理', '综合咨询', '招标代理', '政府采购', '造价咨询', '造价鉴定'];
 const PAGE_SIZE = 15;
 
 // ============================================================
@@ -166,6 +179,8 @@ function ProjectFormModal({
   onSuccess: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const [clients, setClients] = useState<{ id: number; client_name: string }[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
   const [form, setForm] = useState({
     contractNumber: '',
     projectName: '',
@@ -177,10 +192,40 @@ function ProjectFormModal({
     signedDate: '',
     plannedEndDate: '',
     remark: '',
+    serviceScope: '',
+    serviceContent: '',
+    paymentTerms: '',
+    plannedStartDate: '',
+    targetCost: '',
+    targetProfitRate: '',
+    actualProjectLeader: '',
+    projectAddress: '',
+    projectTeam: '',
+    clientId: '',
+    businessType: '',
   });
+
+  // 获取客户列表
+  useEffect(() => {
+    if (open) {
+      console.log('📋 ProjectFormModal 加载客户列表...');
+      setClientsLoading(true);
+      fetch('/api/clients')
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            setClients(d.data || []);
+            console.log('✅ 客户列表加载成功:', d.data?.length || 0, '条');
+          }
+        })
+        .catch(err => console.error('❌ 客户列表加载失败:', err))
+        .finally(() => setClientsLoading(false));
+    }
+  }, [open]);
 
   useEffect(() => {
     if (project) {
+      console.log('📋 编辑模式回填数据:', project);
       setForm({
         contractNumber: project.contractNumber || '',
         projectName: project.projectName || '',
@@ -192,6 +237,17 @@ function ProjectFormModal({
         signedDate: project.signedDate || '',
         plannedEndDate: project.plannedEndDate || '',
         remark: project.remark || '',
+        serviceScope: project.serviceScope || '',
+        serviceContent: project.serviceContent || '',
+        paymentTerms: project.paymentTerms || '',
+        plannedStartDate: project.plannedStartDate || '',
+        targetCost: project.targetCost?.toString() || '',
+        targetProfitRate: project.targetProfitRate?.toString() || '',
+        actualProjectLeader: project.actualProjectLeader || '',
+        projectAddress: project.projectAddress || '',
+        projectTeam: Array.isArray(project.projectTeam) ? project.projectTeam.join(', ') : (project.projectTeam || ''),
+        clientId: project.clientId?.toString() || '',
+        businessType: project.businessType || '',
       });
     } else {
       setForm({
@@ -205,6 +261,17 @@ function ProjectFormModal({
         signedDate: '',
         plannedEndDate: '',
         remark: '',
+        serviceScope: '',
+        serviceContent: '',
+        paymentTerms: '',
+        plannedStartDate: '',
+        targetCost: '',
+        targetProfitRate: '',
+        actualProjectLeader: '',
+        projectAddress: '',
+        projectTeam: '',
+        clientId: '',
+        businessType: '',
       });
     }
   }, [project, open]);
@@ -236,7 +303,20 @@ function ProjectFormModal({
         signedDate: form.signedDate || undefined,
         plannedEndDate: form.plannedEndDate || undefined,
         remark: form.remark || undefined,
+        serviceScope: form.serviceScope || null,
+        serviceContent: form.serviceContent || null,
+        paymentTerms: form.paymentTerms || null,
+        plannedStartDate: form.plannedStartDate || null,
+        targetCost: form.targetCost ? parseFloat(form.targetCost) : null,
+        targetProfitRate: form.targetProfitRate ? parseFloat(form.targetProfitRate) : null,
+        actualProjectLeader: form.actualProjectLeader || null,
+        projectAddress: form.projectAddress || null,
+        projectTeam: form.projectTeam ? form.projectTeam.split(',').map(s => s.trim()).filter(Boolean) : null,
+        clientId: form.clientId ? parseInt(form.clientId) : null,
+        businessType: form.businessType || null,
       };
+
+      console.log('📤 提交项目表单:', body);
 
       const url = isEdit ? `/api/projects/${project.id}` : '/api/projects';
       const method = isEdit ? 'PUT' : 'POST';
@@ -332,6 +412,106 @@ function ProjectFormModal({
                 onChange={e => updateField('plannedEndDate', e.target.value)} />
             </div>
           </div>
+
+          {/* 第一组：基础信息 */}
+          <div className="border-t border-slate-700/50 pt-4">
+            <h3 className="text-sm text-cyan-400 font-semibold mb-3">📋 基础信息</h3>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>服务范围</label>
+                <input type="text" className={inputClass} value={form.serviceScope}
+                  onChange={e => updateField('serviceScope', e.target.value)} placeholder="请输入服务范围" />
+              </div>
+              <div>
+                <label className={labelClass}>服务内容</label>
+                <textarea className={inputClass} rows={3} value={form.serviceContent}
+                  onChange={e => updateField('serviceContent', e.target.value)} placeholder="请输入服务内容" />
+              </div>
+              <div>
+                <label className={labelClass}>付款条款</label>
+                <textarea className={inputClass} rows={3} value={form.paymentTerms}
+                  onChange={e => updateField('paymentTerms', e.target.value)} placeholder="请输入付款条款" />
+              </div>
+            </div>
+          </div>
+
+          {/* 第二组：时间与成本 */}
+          <div className="border-t border-slate-700/50 pt-4">
+            <h3 className="text-sm text-cyan-400 font-semibold mb-3">💰 时间与成本</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>计划开始时间</label>
+                <input type="date" className={inputClass} value={form.plannedStartDate}
+                  onChange={e => updateField('plannedStartDate', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelClass}>目标成本</label>
+                <input type="number" className={inputClass} value={form.targetCost}
+                  onChange={e => updateField('targetCost', e.target.value)} placeholder="请输入目标成本" />
+              </div>
+              <div>
+                <label className={labelClass}>目标利润率 (%)</label>
+                <input type="number" className={inputClass} value={form.targetProfitRate}
+                  onChange={e => updateField('targetProfitRate', e.target.value)} placeholder="请输入目标利润率" />
+              </div>
+            </div>
+          </div>
+
+          {/* 第三组：人员与地址 */}
+          <div className="border-t border-slate-700/50 pt-4">
+            <h3 className="text-sm text-cyan-400 font-semibold mb-3">👥 人员与地址</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>实际项目负责人</label>
+                <input type="text" className={inputClass} value={form.actualProjectLeader}
+                  onChange={e => updateField('actualProjectLeader', e.target.value)} placeholder="请输入实际项目负责人" />
+              </div>
+              <div></div>
+              <div className="col-span-2">
+                <label className={labelClass}>项目地址</label>
+                <input type="text" className={inputClass} value={form.projectAddress}
+                  onChange={e => updateField('projectAddress', e.target.value)} placeholder="请输入项目地址" />
+              </div>
+              <div className="col-span-2">
+                <label className={labelClass}>项目人员组成</label>
+                <textarea className={inputClass} rows={2} value={form.projectTeam}
+                  onChange={e => updateField('projectTeam', e.target.value)}
+                  placeholder="请输入人员姓名，用逗号分隔，如：张三, 李四, 王五" />
+              </div>
+            </div>
+          </div>
+
+          {/* 第四组：分类与客户 */}
+          <div className="border-t border-slate-700/50 pt-4">
+            <h3 className="text-sm text-cyan-400 font-semibold mb-3">🏢 分类与客户</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>业务类型 <span className="text-red-400">*</span></label>
+                <select className={inputClass} value={form.businessType}
+                  onChange={e => updateField('businessType', e.target.value)}>
+                  <option value="">请选择</option>
+                  {BUSINESS_TYPES.map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>客户 <span className="text-red-400">*</span></label>
+                <select className={inputClass} value={form.clientId}
+                  onChange={e => updateField('clientId', e.target.value)}
+                  disabled={clientsLoading}>
+                  <option value="">请选择</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>{c.client_name}</option>
+                  ))}
+                </select>
+                {clientsLoading && (
+                  <p className="text-xs text-slate-500 mt-1">加载客户列表中...</p>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className={labelClass}>备注</label>
             <textarea className={inputClass} rows={3} value={form.remark}
@@ -733,6 +913,52 @@ function ProjectDetailDrawer({
                 <div className={fieldClass}>
                   <span className={fieldLabelClass}>关联任务数</span>
                   <span className={fieldValueClass}>{detail.taskCount ?? 0}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>服务范围</span>
+                  <span className={fieldValueClass}>{detail.serviceScope || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>服务内容</span>
+                  <span className={fieldValueClass}>{detail.serviceContent || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>付款条款</span>
+                  <span className={fieldValueClass}>{detail.paymentTerms || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>计划开始时间</span>
+                  <span className={fieldValueClass}>{formatDate(detail.plannedStartDate)}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>目标成本</span>
+                  <span className={fieldValueClass}>{detail.targetCost != null ? `¥${formatMoney(detail.targetCost)}` : '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>目标利润率</span>
+                  <span className={fieldValueClass}>{detail.targetProfitRate != null ? `${detail.targetProfitRate}%` : '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>实际项目负责人</span>
+                  <span className={fieldValueClass}>{detail.actualProjectLeader || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目地址</span>
+                  <span className={fieldValueClass}>{detail.projectAddress || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>项目人员组成</span>
+                  <span className={fieldValueClass}>
+                    {Array.isArray(detail.projectTeam) ? detail.projectTeam.join(', ') : (detail.projectTeam || '-')}
+                  </span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>业务类型</span>
+                  <span className={fieldValueClass}>{detail.businessType || '-'}</span>
+                </div>
+                <div className={fieldClass}>
+                  <span className={fieldLabelClass}>客户</span>
+                  <span className={fieldValueClass}>{detail.clientName || (detail.clientId ? `ID: ${detail.clientId}` : '-')}</span>
                 </div>
                 <div className="pt-2.5">
                   <span className={fieldLabelClass}>备注</span>
