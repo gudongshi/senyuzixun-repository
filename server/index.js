@@ -1581,6 +1581,17 @@ const FIELD_MAP_TO_DB = {
   currentProgress: '当前进度',
   lastWeeklyReportAt: '最近周报日期',
   remark: '备注',
+  serviceScope: '服务范围',
+  serviceContent: '服务内容',
+  paymentTerms: '付款条款',
+  plannedStartDate: '计划开始时间',
+  targetCost: '目标成本',
+  targetProfitRate: '目标利润率',
+  actualProjectLeader: '实际项目负责人',
+  projectAddress: '项目地址',
+  projectTeam: '项目人员组成',
+  clientId: '客户ID',
+  businessType: '业务类型',
 };
 
 // 字段映射：中文数据库字段 → 英文响应
@@ -1601,6 +1612,17 @@ const FIELD_MAP_FROM_DB = {
   '当前进度': 'currentProgress',
   '最近周报日期': 'lastWeeklyReportAt',
   '备注': 'remark',
+  '服务范围': 'serviceScope',
+  '服务内容': 'serviceContent',
+  '付款条款': 'paymentTerms',
+  '计划开始时间': 'plannedStartDate',
+  '目标成本': 'targetCost',
+  '目标利润率': 'targetProfitRate',
+  '实际项目负责人': 'actualProjectLeader',
+  '项目地址': 'projectAddress',
+  '项目人员组成': 'projectTeam',
+  '客户ID': 'clientId',
+  '业务类型': 'businessType',
 };
 
 // 将请求体英文字段映射为中文字段（写入 DB）
