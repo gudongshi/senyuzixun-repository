@@ -58,6 +58,54 @@ interface WeeklyReport {
   createdAt: string;
 }
 
+interface WeeklyReportFull {
+  id: number;
+  projectId: number;
+  businessType: string | null;
+  reportDate: string;
+  weekNumber: number | null;
+  reportType: string;
+  createdBy: string | null;
+  currentProgress: number | null;
+  weeklySummary: string;
+  issuesEncountered: string | null;
+  nextWeekPlan: string | null;
+  riskSelfAssessment: string | null;
+  monthlyCompletedValue: number | null;
+  cumulativeCompletedValue: number | null;
+  monthlyInvoicedAmount: number | null;
+  cumulativeInvoicedAmount: number | null;
+  monthlyReceivedAmount: number | null;
+  cumulativeReceivedAmount: number | null;
+  contractAmount: number | null;
+  supplementalAmount: number | null;
+  monthlyDirectCost: number | null;
+  monthlyDeptCost: number | null;
+  monthlyCompanyCost: number | null;
+  cumulativeDirectCost: number | null;
+  cumulativeDeptCost: number | null;
+  cumulativeCompanyCost: number | null;
+  monthlyExternalPayment: number | null;
+  cumulativeExternalPayment: number | null;
+  monthlyTax: number | null;
+  cumulativeTax: number | null;
+  contractSettlementAmount: number | null;
+  documentFee: number | null;
+  depositReceived: number | null;
+  depositReturned: number | null;
+  progressNodes: any | null;
+  externalPaymentRatio: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface WeeklyReportPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
 interface AIAnalysis {
   riskScore: number;
   riskLevel: string;
@@ -1338,6 +1386,606 @@ function ProjectDetailDrawer({
 }
 
 // ============================================================
+// 业务类型常量（用于周报动态字段）
+// ============================================================
+const ENGINEERING_TYPES = ['全过程咨询', '工程咨询', '项目管理', '工程监理', '综合咨询'];
+const BIDDING_TYPES = ['招标代理', '政府采购'];
+const CONSULTING_TYPES = ['造价咨询', '造价鉴定'];
+
+// ============================================================
+// WeeklyReportFormModal 子组件（新建/编辑/查看周报）
+// ============================================================
+function WeeklyReportFormModal({
+  open, mode, report, projectId, projectBusinessType, onClose, onSuccess
+}: {
+  open: boolean;
+  mode: 'create' | 'edit' | 'view';
+  report: WeeklyReportFull | null;
+  projectId: number;
+  projectBusinessType: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    reportDate: new Date().toISOString().split('T')[0],
+    reportType: 'weekly',
+    currentProgress: '',
+    weeklySummary: '',
+    issuesEncountered: '',
+    nextWeekPlan: '',
+    riskSelfAssessment: '低',
+    weekNumber: '',
+    monthlyCompletedValue: '',
+    cumulativeCompletedValue: '',
+    monthlyInvoicedAmount: '',
+    cumulativeInvoicedAmount: '',
+    monthlyReceivedAmount: '',
+    cumulativeReceivedAmount: '',
+    contractAmount: '',
+    supplementalAmount: '',
+    monthlyExternalPayment: '',
+    cumulativeExternalPayment: '',
+    contractSettlementAmount: '',
+    documentFee: '',
+    depositReceived: '',
+    depositReturned: '',
+    progressNodes: '',
+    externalPaymentRatio: '',
+    // 财务字段（只读展示）
+    monthlyDirectCost: '',
+    monthlyDeptCost: '',
+    monthlyCompanyCost: '',
+    cumulativeDirectCost: '',
+    cumulativeDeptCost: '',
+    cumulativeCompanyCost: '',
+    monthlyTax: '',
+    cumulativeTax: '',
+  });
+
+  const isView = mode === 'view';
+  const isEdit = mode === 'edit';
+  const isMonthly = form.reportType === 'monthly';
+  const isEngineering = ENGINEERING_TYPES.includes(projectBusinessType);
+  const isBidding = BIDDING_TYPES.includes(projectBusinessType);
+  const isConsulting = CONSULTING_TYPES.includes(projectBusinessType);
+
+  useEffect(() => {
+    if (open) {
+      if (report) {
+        console.log('📋 周报弹窗回填数据:', report);
+        setForm({
+          reportDate: report.reportDate || '',
+          reportType: report.reportType || 'weekly',
+          currentProgress: report.currentProgress?.toString() || '',
+          weeklySummary: report.weeklySummary || '',
+          issuesEncountered: report.issuesEncountered || '',
+          nextWeekPlan: report.nextWeekPlan || '',
+          riskSelfAssessment: report.riskSelfAssessment || '低',
+          weekNumber: report.weekNumber?.toString() || '',
+          monthlyCompletedValue: report.monthlyCompletedValue?.toString() || '',
+          cumulativeCompletedValue: report.cumulativeCompletedValue?.toString() || '',
+          monthlyInvoicedAmount: report.monthlyInvoicedAmount?.toString() || '',
+          cumulativeInvoicedAmount: report.cumulativeInvoicedAmount?.toString() || '',
+          monthlyReceivedAmount: report.monthlyReceivedAmount?.toString() || '',
+          cumulativeReceivedAmount: report.cumulativeReceivedAmount?.toString() || '',
+          contractAmount: report.contractAmount?.toString() || '',
+          supplementalAmount: report.supplementalAmount?.toString() || '',
+          monthlyExternalPayment: report.monthlyExternalPayment?.toString() || '',
+          cumulativeExternalPayment: report.cumulativeExternalPayment?.toString() || '',
+          contractSettlementAmount: report.contractSettlementAmount?.toString() || '',
+          documentFee: report.documentFee?.toString() || '',
+          depositReceived: report.depositReceived?.toString() || '',
+          depositReturned: report.depositReturned?.toString() || '',
+          progressNodes: report.progressNodes ? (typeof report.progressNodes === 'string' ? report.progressNodes : JSON.stringify(report.progressNodes)) : '',
+          externalPaymentRatio: report.externalPaymentRatio?.toString() || '',
+          monthlyDirectCost: report.monthlyDirectCost?.toString() || '',
+          monthlyDeptCost: report.monthlyDeptCost?.toString() || '',
+          monthlyCompanyCost: report.monthlyCompanyCost?.toString() || '',
+          cumulativeDirectCost: report.cumulativeDirectCost?.toString() || '',
+          cumulativeDeptCost: report.cumulativeDeptCost?.toString() || '',
+          cumulativeCompanyCost: report.cumulativeCompanyCost?.toString() || '',
+          monthlyTax: report.monthlyTax?.toString() || '',
+          cumulativeTax: report.cumulativeTax?.toString() || '',
+        });
+      } else {
+        setForm({
+          reportDate: new Date().toISOString().split('T')[0],
+          reportType: 'weekly',
+          currentProgress: '',
+          weeklySummary: '',
+          issuesEncountered: '',
+          nextWeekPlan: '',
+          riskSelfAssessment: '低',
+          weekNumber: '',
+          monthlyCompletedValue: '',
+          cumulativeCompletedValue: '',
+          monthlyInvoicedAmount: '',
+          cumulativeInvoicedAmount: '',
+          monthlyReceivedAmount: '',
+          cumulativeReceivedAmount: '',
+          contractAmount: '',
+          supplementalAmount: '',
+          monthlyExternalPayment: '',
+          cumulativeExternalPayment: '',
+          contractSettlementAmount: '',
+          documentFee: '',
+          depositReceived: '',
+          depositReturned: '',
+          progressNodes: '',
+          externalPaymentRatio: '',
+          monthlyDirectCost: '',
+          monthlyDeptCost: '',
+          monthlyCompanyCost: '',
+          cumulativeDirectCost: '',
+          cumulativeDeptCost: '',
+          cumulativeCompanyCost: '',
+          monthlyTax: '',
+          cumulativeTax: '',
+        });
+      }
+    }
+  }, [open, report]);
+
+  if (!open) return null;
+
+  const title = isView ? '周报详情' : isEdit ? '编辑周报' : '新建周报';
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!form.weeklySummary) {
+      toast.error('请填写本周总结');
+      return;
+    }
+    setLoading(true);
+    try {
+      const body: Record<string, unknown> = {
+        projectId,
+        businessType: projectBusinessType,
+        reportDate: form.reportDate,
+        reportType: form.reportType,
+        createdBy: 'user',
+        currentProgress: form.currentProgress ? parseFloat(form.currentProgress) : null,
+        weeklySummary: form.weeklySummary,
+        issuesEncountered: form.issuesEncountered || null,
+        nextWeekPlan: form.nextWeekPlan || null,
+        riskSelfAssessment: form.riskSelfAssessment || null,
+      };
+
+      if (form.reportType === 'monthly') {
+        body.weekNumber = form.weekNumber ? parseInt(form.weekNumber) : null;
+        body.monthlyCompletedValue = form.monthlyCompletedValue ? parseFloat(form.monthlyCompletedValue) : null;
+        body.cumulativeCompletedValue = form.cumulativeCompletedValue ? parseFloat(form.cumulativeCompletedValue) : null;
+        body.monthlyInvoicedAmount = form.monthlyInvoicedAmount ? parseFloat(form.monthlyInvoicedAmount) : null;
+        body.cumulativeInvoicedAmount = form.cumulativeInvoicedAmount ? parseFloat(form.cumulativeInvoicedAmount) : null;
+        body.monthlyReceivedAmount = form.monthlyReceivedAmount ? parseFloat(form.monthlyReceivedAmount) : null;
+        body.cumulativeReceivedAmount = form.cumulativeReceivedAmount ? parseFloat(form.cumulativeReceivedAmount) : null;
+
+        if (isEngineering || isConsulting) {
+          body.contractAmount = form.contractAmount ? parseFloat(form.contractAmount) : null;
+          body.supplementalAmount = form.supplementalAmount ? parseFloat(form.supplementalAmount) : null;
+          body.monthlyExternalPayment = form.monthlyExternalPayment ? parseFloat(form.monthlyExternalPayment) : null;
+          body.cumulativeExternalPayment = form.cumulativeExternalPayment ? parseFloat(form.cumulativeExternalPayment) : null;
+        }
+        if (isBidding) {
+          body.contractSettlementAmount = form.contractSettlementAmount ? parseFloat(form.contractSettlementAmount) : null;
+          body.documentFee = form.documentFee ? parseFloat(form.documentFee) : null;
+          body.depositReceived = form.depositReceived ? parseFloat(form.depositReceived) : null;
+          body.depositReturned = form.depositReturned ? parseFloat(form.depositReturned) : null;
+          body.progressNodes = form.progressNodes || null;
+        }
+        if (isConsulting) {
+          body.externalPaymentRatio = form.externalPaymentRatio ? parseFloat(form.externalPaymentRatio) : null;
+        }
+      }
+
+      console.log('📤 提交周报表单:', body);
+
+      const url = isEdit ? `/api/weekly-reports/${report!.id}` : '/api/weekly-reports';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const resp = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await resp.json();
+      if (!resp.ok || !result.success) throw new Error(result.error || '操作失败');
+
+      toast.success(isEdit ? '周报更新成功' : '周报创建成功');
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || '操作失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const update = (f: string, v: string) => setForm(p => ({ ...p, [f]: v }));
+  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+  const readOnlyClass = "w-full bg-slate-700/20 border border-slate-600/50 rounded-lg px-3 py-2 text-slate-400 text-sm cursor-not-allowed";
+  const labelClass = "block text-sm text-slate-400 mb-1";
+  const sectionClass = "border-t border-slate-700/50 pt-4";
+  const sectionTitleClass = "text-sm text-cyan-400 font-semibold mb-3";
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-10 overflow-y-auto">
+      <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-3xl mx-4 shadow-2xl my-10">
+        <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
+          <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
+        </div>
+
+        <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="p-6 space-y-4">
+          {/* 基础字段 */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>周报日期 <span className="text-red-400">*</span></label>
+              <input type="date" className={isView ? readOnlyClass : inputClass} value={form.reportDate}
+                onChange={e => update('reportDate', e.target.value)} disabled={isView} />
+            </div>
+            <div>
+              <label className={labelClass}>周报类型 <span className="text-red-400">*</span></label>
+              <div className="flex gap-4 pt-2">
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
+                  <input type="radio" value="weekly" checked={form.reportType === 'weekly'}
+                    onChange={e => update('reportType', e.target.value)} disabled={isView || isEdit} />
+                  周报
+                </label>
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
+                  <input type="radio" value="monthly" checked={form.reportType === 'monthly'}
+                    onChange={e => update('reportType', e.target.value)} disabled={isView || isEdit} />
+                  月报
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className={labelClass}>当前进度 (%)</label>
+              <input type="number" className={isView ? readOnlyClass : inputClass} min="0" max="100"
+                value={form.currentProgress} onChange={e => update('currentProgress', e.target.value)}
+                disabled={isView} placeholder="0-100" />
+            </div>
+            <div>
+              <label className={labelClass}>风险自评</label>
+              <select className={isView ? readOnlyClass : inputClass} value={form.riskSelfAssessment}
+                onChange={e => update('riskSelfAssessment', e.target.value)} disabled={isView}>
+                {RISK_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>本周总结 <span className="text-red-400">*</span></label>
+            <textarea className={isView ? readOnlyClass : inputClass} rows={3} value={form.weeklySummary}
+              onChange={e => update('weeklySummary', e.target.value)} disabled={isView} placeholder="请描述本周完成的主要工作" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>遇到的问题</label>
+              <textarea className={isView ? readOnlyClass : inputClass} rows={2} value={form.issuesEncountered}
+                onChange={e => update('issuesEncountered', e.target.value)} disabled={isView} placeholder="请描述遇到的问题" />
+            </div>
+            <div>
+              <label className={labelClass}>下周计划</label>
+              <textarea className={isView ? readOnlyClass : inputClass} rows={2} value={form.nextWeekPlan}
+                onChange={e => update('nextWeekPlan', e.target.value)} disabled={isView} placeholder="请描述下周计划" />
+            </div>
+          </div>
+
+          {/* 月报字段 */}
+          {isMonthly && (
+            <>
+              <div className={sectionClass}>
+                <h3 className={sectionTitleClass}>📊 月报产值数据</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className={labelClass}>本月完成产值</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyCompletedValue} onChange={e => update('monthlyCompletedValue', e.target.value)} disabled={isView} /></div>
+                  <div><label className={labelClass}>累计完成产值</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.cumulativeCompletedValue} onChange={e => update('cumulativeCompletedValue', e.target.value)} disabled={isView} /></div>
+                  <div><label className={labelClass}>本月开票金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyInvoicedAmount} onChange={e => update('monthlyInvoicedAmount', e.target.value)} disabled={isView} /></div>
+                  <div><label className={labelClass}>累计开票额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.cumulativeInvoicedAmount} onChange={e => update('cumulativeInvoicedAmount', e.target.value)} disabled={isView} /></div>
+                  <div><label className={labelClass}>本月回款金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyReceivedAmount} onChange={e => update('monthlyReceivedAmount', e.target.value)} disabled={isView} /></div>
+                  <div><label className={labelClass}>累计回款额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.cumulativeReceivedAmount} onChange={e => update('cumulativeReceivedAmount', e.target.value)} disabled={isView} /></div>
+                </div>
+              </div>
+
+              {/* 工程咨询/项目管理专用 */}
+              {(isEngineering || isConsulting) && (
+                <div className={sectionClass}>
+                  <h3 className={sectionTitleClass}>{isEngineering ? '🏗️ 工程咨询/项目管理' : '📐 造价咨询'}专用字段</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className={labelClass}>合同额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.contractAmount} onChange={e => update('contractAmount', e.target.value)} disabled={isView} /></div>
+                    <div><label className={labelClass}>补充协议金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.supplementalAmount} onChange={e => update('supplementalAmount', e.target.value)} disabled={isView} /></div>
+                    <div><label className={labelClass}>本月外部委托付款</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyExternalPayment} onChange={e => update('monthlyExternalPayment', e.target.value)} disabled={isView} /></div>
+                    <div><label className={labelClass}>累计外部委托付款</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.cumulativeExternalPayment} onChange={e => update('cumulativeExternalPayment', e.target.value)} disabled={isView} /></div>
+                    {isConsulting && (
+                      <div><label className={labelClass}>外部委托应付款比例 (%)</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.externalPaymentRatio} onChange={e => update('externalPaymentRatio', e.target.value)} disabled={isView} /></div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 招标代理专用 */}
+              {isBidding && (
+                <div className={sectionClass}>
+                  <h3 className={sectionTitleClass}>📋 招标代理专用字段</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className={labelClass}>合同结算金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.contractSettlementAmount} onChange={e => update('contractSettlementAmount', e.target.value)} disabled={isView} placeholder="中标代理费" /></div>
+                    <div><label className={labelClass}>文件费</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.documentFee} onChange={e => update('documentFee', e.target.value)} disabled={isView} /></div>
+                    <div><label className={labelClass}>实收保证金</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.depositReceived} onChange={e => update('depositReceived', e.target.value)} disabled={isView} /></div>
+                    <div><label className={labelClass}>实退保证金</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.depositReturned} onChange={e => update('depositReturned', e.target.value)} disabled={isView} /></div>
+                    <div className="col-span-2">
+                      <label className={labelClass}>进度节点</label>
+                      <textarea className={isView ? readOnlyClass : inputClass} rows={2} value={form.progressNodes} onChange={e => update('progressNodes', e.target.value)} disabled={isView} placeholder="JSON 格式，如：{&quot;node1&quot;: &quot;完成&quot;}" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 财务字段（只读） */}
+              <div className={sectionClass}>
+                <h3 className={sectionTitleClass}>🏦 财务字段 <span className="text-xs text-amber-400 font-normal">（财务部维护，不可编辑）</span></h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className={labelClass}>本月直接成本</label><input type="number" className={readOnlyClass} value={form.monthlyDirectCost} readOnly disabled /></div>
+                  <div><label className={labelClass}>本月部门管理成本</label><input type="number" className={readOnlyClass} value={form.monthlyDeptCost} readOnly disabled /></div>
+                  <div><label className={labelClass}>本月公司分摊成本</label><input type="number" className={readOnlyClass} value={form.monthlyCompanyCost} readOnly disabled /></div>
+                  <div><label className={labelClass}>累计直接成本</label><input type="number" className={readOnlyClass} value={form.cumulativeDirectCost} readOnly disabled /></div>
+                  <div><label className={labelClass}>累计部门管理成本</label><input type="number" className={readOnlyClass} value={form.cumulativeDeptCost} readOnly disabled /></div>
+                  <div><label className={labelClass}>累计公司分摊成本</label><input type="number" className={readOnlyClass} value={form.cumulativeCompanyCost} readOnly disabled /></div>
+                  <div><label className={labelClass}>本月税金</label><input type="number" className={readOnlyClass} value={form.monthlyTax} readOnly disabled /></div>
+                  <div><label className={labelClass}>累计税金</label><input type="number" className={readOnlyClass} value={form.cumulativeTax} readOnly disabled /></div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {!isView && (
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
+              <button type="button" onClick={onClose} className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
+              <button type="submit" disabled={loading}
+                className="px-5 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2">
+                {loading && <Loader2 className="size-4 animate-spin" />}
+                {isEdit ? '保存修改' : '提交周报'}
+              </button>
+            </div>
+          )}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// WeeklyReportManager 子组件（周报管理区块）
+// ============================================================
+function WeeklyReportManager({
+  projects, user
+}: {
+  projects: Project[];
+  user: UserInfo | null;
+}) {
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [reports, setReports] = useState<WeeklyReportFull[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsPage, setReportsPage] = useState(1);
+  const [reportsPagination, setReportsPagination] = useState<WeeklyReportPagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportModalMode, setReportModalMode] = useState<'create' | 'edit' | 'view'>('create');
+  const [editingReport, setEditingReport] = useState<WeeklyReportFull | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingReport, setDeletingReport] = useState<WeeklyReportFull | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
+
+  const selectedProject = projects.find(p => p.id.toString() === selectedProjectId);
+  const projectBusinessType = selectedProject?.businessType || '';
+
+  const fetchReports = useCallback(async (page = 1) => {
+    if (!selectedProjectId) return;
+    setReportsLoading(true);
+    try {
+      console.log(`📋 GET /api/weekly-reports - projectId=${selectedProjectId} page=${page}`);
+      const resp = await fetch(`/api/weekly-reports?projectId=${selectedProjectId}&page=${page}&limit=20`);
+      const result = await resp.json();
+      if (result.success) {
+        setReports(result.data || []);
+        setReportsPagination(result.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
+        console.log(`✅ 周报列表返回 ${result.data?.length || 0} 条`);
+      }
+    } catch (err: any) {
+      console.error('❌ 获取周报列表失败:', err);
+    } finally {
+      setReportsLoading(false);
+    }
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      setReportsPage(1);
+      fetchReports(1);
+    }
+  }, [selectedProjectId, fetchReports]);
+
+  const handleCreate = () => {
+    setEditingReport(null);
+    setReportModalMode('create');
+    setReportModalOpen(true);
+  };
+
+  const handleView = (report: WeeklyReportFull) => {
+    setEditingReport(report);
+    setReportModalMode('view');
+    setReportModalOpen(true);
+  };
+
+  const handleEdit = (report: WeeklyReportFull) => {
+    setEditingReport(report);
+    setReportModalMode('edit');
+    setReportModalOpen(true);
+  };
+
+  const handleDeleteClick = (report: WeeklyReportFull) => {
+    setDeletingReport(report);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingReport) return;
+    setDeleting(true);
+    try {
+      console.log(`📋 DELETE /api/weekly-reports/${deletingReport.id}`);
+      const resp = await fetch(`/api/weekly-reports/${deletingReport.id}`, { method: 'DELETE' });
+      const result = await resp.json();
+      if (!resp.ok || !result.success) throw new Error(result.error || '删除失败');
+      console.log('✅ 周报已删除:', deletingReport.id);
+      toast.success('周报已删除');
+      setDeleteConfirmOpen(false);
+      setDeletingReport(null);
+      fetchReports(reportsPage);
+    } catch (err: any) {
+      toast.error(err.message || '删除失败');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const inputClass = "bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+
+  return (
+    <div className="px-6 pb-4">
+      <div className="bg-slate-800/60 border border-blue-900/30 rounded-2xl overflow-hidden backdrop-blur-sm">
+        {/* Header */}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-blue-900/10 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <FileText className="size-5 text-cyan-400" />
+            <h2 className="text-base font-bold text-cyan-400">周报管理</h2>
+          </div>
+          <ChevronRight size={18} className={`text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+        </button>
+
+        {!collapsed && (
+          <div className="border-t border-blue-900/30 px-5 py-4 space-y-4">
+            {/* 项目选择器 */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 max-w-sm">
+                <select className={inputClass} value={selectedProjectId}
+                  onChange={e => setSelectedProjectId(e.target.value)}>
+                  <option value="">请选择项目</option>
+                  {projects.filter(p => p.projectStatus !== '已删除').map(p => (
+                    <option key={p.id} value={p.id}>{p.projectName || p.contractNumber}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedProjectId && (
+                <button onClick={handleCreate}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all text-sm">
+                  <Plus size={16} /> 新建周报
+                </button>
+              )}
+            </div>
+
+            {/* 周报列表 */}
+            {selectedProjectId && (
+              reportsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="size-6 text-cyan-400 animate-spin" />
+                </div>
+              ) : reports.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-sm">暂无周报记录</div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-blue-900/30 bg-slate-800/80">
+                          <th className="text-left px-4 py-2.5 text-slate-400 text-xs font-medium">报告日期</th>
+                          <th className="text-left px-4 py-2.5 text-slate-400 text-xs font-medium">类型</th>
+                          <th className="text-left px-4 py-2.5 text-slate-400 text-xs font-medium">进度</th>
+                          <th className="text-left px-4 py-2.5 text-slate-400 text-xs font-medium">本周总结</th>
+                          <th className="text-right px-4 py-2.5 text-slate-400 text-xs font-medium">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reports.map(r => (
+                          <tr key={r.id} className="border-b border-slate-700/30 hover:bg-blue-900/10 transition-colors">
+                            <td className="px-4 py-2.5 text-slate-200 text-sm">{r.reportDate}</td>
+                            <td className="px-4 py-2.5">
+                              <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-purple-400 border border-purple-500/30' : 'bg-cyan-900/20 text-cyan-400 border border-cyan-500/30'}`}>
+                                {r.reportType === 'monthly' ? '月报' : '周报'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-slate-300 text-sm">{r.currentProgress ?? '-'}%</td>
+                            <td className="px-4 py-2.5 text-slate-400 text-sm max-w-[200px] truncate">{r.weeklySummary || '-'}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center justify-end gap-1">
+                                <button onClick={() => handleView(r)} className="p-1 rounded text-cyan-400 hover:bg-cyan-500/20" title="查看"><Eye size={14} /></button>
+                                <button onClick={() => handleEdit(r)} className="p-1 rounded text-blue-400 hover:bg-blue-500/20" title="编辑"><Edit size={14} /></button>
+                                <button onClick={() => handleDeleteClick(r)} className="p-1 rounded text-red-400 hover:bg-red-500/20" title="删除"><Trash2 size={14} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {reportsPagination.totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-slate-500 text-xs">共 {reportsPagination.total} 条</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => { setReportsPage(reportsPagination.page - 1); fetchReports(reportsPagination.page - 1); }}
+                          disabled={reportsPagination.page <= 1}
+                          className="p-1 rounded border border-slate-600 text-slate-400 hover:text-slate-200 disabled:opacity-30"><ChevronLeft size={14} /></button>
+                        <span className="text-slate-400 text-xs px-1">{reportsPagination.page}</span>
+                        <button onClick={() => { setReportsPage(reportsPagination.page + 1); fetchReports(reportsPagination.page + 1); }}
+                          disabled={reportsPagination.page >= reportsPagination.totalPages}
+                          className="p-1 rounded border border-slate-600 text-slate-400 hover:text-slate-200 disabled:opacity-30"><ChevronRight size={14} /></button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 周报弹窗 */}
+      <WeeklyReportFormModal
+        open={reportModalOpen}
+        mode={reportModalMode}
+        report={editingReport}
+        projectId={parseInt(selectedProjectId) || 0}
+        projectBusinessType={projectBusinessType}
+        onClose={() => { setReportModalOpen(false); setEditingReport(null); }}
+        onSuccess={() => fetchReports(reportsPage)}
+      />
+
+      {/* 删除确认 */}
+      {deleteConfirmOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-red-500/30 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="size-10 rounded-full bg-red-900/30 flex items-center justify-center"><AlertTriangle className="size-5 text-red-400" /></div>
+              <h3 className="text-lg font-semibold text-red-400">确认删除</h3>
+            </div>
+            <p className="text-slate-300 text-sm mb-6">确定要删除「{deletingReport?.reportDate}」的周报记录吗？此操作不可撤销。</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => { setDeleteConfirmOpen(false); setDeletingReport(null); }} disabled={deleting}
+                className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors disabled:opacity-50">取消</button>
+              <button onClick={handleDeleteConfirm} disabled={deleting}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50 flex items-center gap-2">
+                {deleting && <Loader2 className="size-4 animate-spin" />}确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // 主页面组件 ProjectManager
 // ============================================================
 export default function ProjectManager() {
@@ -1584,6 +2232,11 @@ export default function ProjectManager() {
           </button>
         </div>
       </div>
+
+      {/* ============================================================ */}
+      {/* Weekly Report Manager */}
+      {/* ============================================================ */}
+      <WeeklyReportManager projects={projects} user={user} />
 
       {/* ============================================================ */}
       {/* Project Table */}
