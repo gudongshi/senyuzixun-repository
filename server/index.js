@@ -2361,6 +2361,514 @@ app.delete('/api/clients/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// 周报/财务接口 — 字段映射
+// ============================================================
+const WEEKLY_REPORT_FIELD_MAP_TO_DB = {
+  projectId: 'project_id',
+  businessType: 'business_type',
+  reportDate: 'report_date',
+  weekNumber: 'week_number',
+  reportType: 'report_type',
+  createdBy: 'created_by',
+  currentProgress: 'current_progress',
+  weeklySummary: 'weekly_summary',
+  issuesEncountered: 'issues_encountered',
+  nextWeekPlan: 'next_week_plan',
+  riskSelfAssessment: 'risk_self_assessment',
+  monthlyCompletedValue: 'monthly_completed_value',
+  cumulativeCompletedValue: 'cumulative_completed_value',
+  monthlyInvoicedAmount: 'monthly_invoiced_amount',
+  cumulativeInvoicedAmount: 'cumulative_invoiced_amount',
+  monthlyReceivedAmount: 'monthly_received_amount',
+  cumulativeReceivedAmount: 'cumulative_received_amount',
+  contractAmount: 'contract_amount',
+  supplementalAmount: 'supplemental_amount',
+  monthlyDirectCost: 'monthly_direct_cost',
+  monthlyDeptCost: 'monthly_dept_cost',
+  monthlyCompanyCost: 'monthly_company_cost',
+  cumulativeDirectCost: 'cumulative_direct_cost',
+  cumulativeDeptCost: 'cumulative_dept_cost',
+  cumulativeCompanyCost: 'cumulative_company_cost',
+  monthlyExternalPayment: 'monthly_external_payment',
+  cumulativeExternalPayment: 'cumulative_external_payment',
+  monthlyTax: 'monthly_tax',
+  cumulativeTax: 'cumulative_tax',
+  contractSettlementAmount: 'contract_settlement_amount',
+  documentFee: 'document_fee',
+  depositReceived: 'deposit_received',
+  depositReturned: 'deposit_returned',
+  progressNodes: 'progress_nodes',
+  externalPaymentRatio: 'external_payment_ratio',
+};
+
+const WEEKLY_REPORT_FIELD_MAP_FROM_DB = {
+  project_id: 'projectId',
+  business_type: 'businessType',
+  report_date: 'reportDate',
+  week_number: 'weekNumber',
+  report_type: 'reportType',
+  created_by: 'createdBy',
+  current_progress: 'currentProgress',
+  weekly_summary: 'weeklySummary',
+  issues_encountered: 'issuesEncountered',
+  next_week_plan: 'nextWeekPlan',
+  risk_self_assessment: 'riskSelfAssessment',
+  monthly_completed_value: 'monthlyCompletedValue',
+  cumulative_completed_value: 'cumulativeCompletedValue',
+  monthly_invoiced_amount: 'monthlyInvoicedAmount',
+  cumulative_invoiced_amount: 'cumulativeInvoicedAmount',
+  monthly_received_amount: 'monthlyReceivedAmount',
+  cumulative_received_amount: 'cumulativeReceivedAmount',
+  contract_amount: 'contractAmount',
+  supplemental_amount: 'supplementalAmount',
+  monthly_direct_cost: 'monthlyDirectCost',
+  monthly_dept_cost: 'monthlyDeptCost',
+  monthly_company_cost: 'monthlyCompanyCost',
+  cumulative_direct_cost: 'cumulativeDirectCost',
+  cumulative_dept_cost: 'cumulativeDeptCost',
+  cumulative_company_cost: 'cumulativeCompanyCost',
+  monthly_external_payment: 'monthlyExternalPayment',
+  cumulative_external_payment: 'cumulativeExternalPayment',
+  monthly_tax: 'monthlyTax',
+  cumulative_tax: 'cumulativeTax',
+  contract_settlement_amount: 'contractSettlementAmount',
+  document_fee: 'documentFee',
+  deposit_received: 'depositReceived',
+  deposit_returned: 'depositReturned',
+  progress_nodes: 'progressNodes',
+  external_payment_ratio: 'externalPaymentRatio',
+};
+
+// 财务专用字段（仅财务接口可更新）
+const FINANCIAL_FIELDS = [
+  'monthlyDirectCost', 'monthlyDeptCost', 'monthlyCompanyCost',
+  'cumulativeDirectCost', 'cumulativeDeptCost', 'cumulativeCompanyCost',
+  'monthlyTax', 'cumulativeTax',
+];
+
+// 周报请求 → 数据库记录
+function mapWeeklyReportToDb(body) {
+  const record = {};
+  for (const [enKey, dbKey] of Object.entries(WEEKLY_REPORT_FIELD_MAP_TO_DB)) {
+    if (body[enKey] !== undefined) {
+      record[dbKey] = body[enKey];
+    }
+  }
+  return record;
+}
+
+// 数据库记录 → 周报响应
+function mapWeeklyReportFromDb(dbRecord) {
+  if (!dbRecord) return null;
+  const result = { id: dbRecord.id };
+  for (const [dbKey, enKey] of Object.entries(WEEKLY_REPORT_FIELD_MAP_FROM_DB)) {
+    result[enKey] = dbRecord[dbKey] !== undefined ? dbRecord[dbKey] : null;
+  }
+  result.createdAt = dbRecord.created_at;
+  result.updatedAt = dbRecord.updated_at;
+  return result;
+}
+
+// ============================================================
+// 接口 1：POST /api/weekly-reports - 提交周报/月报
+// ============================================================
+app.post('/api/weekly-reports', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 POST /api/weekly-reports - 请求体:', JSON.stringify(req.body, null, 2));
+
+    const { projectId, businessType, reportDate, reportType, createdBy, weeklySummary } = req.body;
+
+    // 必填字段校验
+    const missing = [];
+    if (!projectId) missing.push('projectId');
+    if (!businessType) missing.push('businessType');
+    if (!reportDate) missing.push('reportDate');
+    if (!reportType) missing.push('reportType');
+    if (!createdBy) missing.push('createdBy');
+    if (!weeklySummary) missing.push('weeklySummary');
+
+    if (missing.length > 0) {
+      console.warn('⚠️ 缺少必填字段:', missing.join(', '));
+      return res.status(400).json({ success: false, error: `缺少必填字段: ${missing.join(', ')}` });
+    }
+
+    if (!['weekly', 'monthly'].includes(reportType)) {
+      return res.status(400).json({ success: false, error: 'reportType 必须为 weekly 或 monthly' });
+    }
+
+    // 冲突检查：同一项目同一日期只能有一条记录
+    const { data: existing, error: checkError } = await supabase
+      .from('weekly_reports')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('report_date', reportDate)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
+
+    if (existing) {
+      console.warn(`⚠️ 周报冲突: projectId=${projectId}, reportDate=${reportDate}`);
+      return res.status(409).json({ success: false, error: '该项目在该日期已有周报记录，请勿重复提交' });
+    }
+
+    // 月报校验：reportType 为 monthly 时，校验所有字段
+    if (reportType === 'monthly') {
+      const monthlyFields = [
+        'monthlyCompletedValue', 'cumulativeCompletedValue',
+        'monthlyInvoicedAmount', 'cumulativeInvoicedAmount',
+        'monthlyReceivedAmount', 'cumulativeReceivedAmount',
+      ];
+      const missingMonthly = monthlyFields.filter(f => req.body[f] === undefined || req.body[f] === null);
+      if (missingMonthly.length > 0) {
+        console.warn('⚠️ 月报缺少字段:', missingMonthly.join(', '));
+        return res.status(400).json({
+          success: false,
+          error: `月报缺少必填字段: ${missingMonthly.join(', ')}`,
+        });
+      }
+    }
+
+    const record = mapWeeklyReportToDb(req.body);
+
+    const { data, error } = await supabase
+      .from('weekly_reports')
+      .insert(record)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 创建周报失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 周报创建成功:', data.id, '项目ID:', projectId);
+    res.status(201).json({ success: true, data: mapWeeklyReportFromDb(data) });
+  } catch (err) {
+    console.error('❌ 创建周报异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 接口 2：GET /api/weekly-reports - 获取某项目所有周报
+// ============================================================
+app.get('/api/weekly-reports', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    if (!projectId) {
+      return res.status(400).json({ success: false, error: '缺少 projectId 参数' });
+    }
+
+    console.log(`📋 GET /api/weekly-reports - projectId=${projectId} page=${page} limit=${limit}`);
+
+    const { data, error, count } = await supabase
+      .from('weekly_reports')
+      .select('*', { count: 'exact' })
+      .eq('project_id', projectId)
+      .order('report_date', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('❌ 获取周报列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 周报列表返回 ${(data || []).length} 条记录，共 ${count || 0} 条`);
+    res.json({
+      success: true,
+      data: (data || []).map(mapWeeklyReportFromDb),
+      pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) },
+    });
+  } catch (err) {
+    console.error('❌ 获取周报列表异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 接口 3：GET /api/weekly-reports/:id - 获取单条周报详情
+// ============================================================
+app.get('/api/weekly-reports/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 GET /api/weekly-reports/${id}`);
+
+    const { data, error } = await supabase
+      .from('weekly_reports')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '周报不存在' });
+      }
+      console.error('❌ 获取周报详情失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 周报详情返回:', data.id);
+    res.json({ success: true, data: mapWeeklyReportFromDb(data) });
+  } catch (err) {
+    console.error('❌ 获取周报详情异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 接口 4：PUT /api/weekly-reports/:id - 更新周报（非财务字段）
+// ============================================================
+app.put('/api/weekly-reports/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 PUT /api/weekly-reports/${id} - 请求体:`, JSON.stringify(req.body, null, 2));
+
+    // 先检查记录是否存在
+    const { data: existing, error: findError } = await supabase
+      .from('weekly_reports')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '周报不存在' });
+      }
+      throw findError;
+    }
+
+    // 校验填报人身份
+    if (req.body.createdBy && req.body.createdBy !== existing.created_by) {
+      return res.status(403).json({ success: false, error: '仅允许填报人修改' });
+    }
+
+    // 过滤掉财务字段
+    const safeBody = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      if (!FINANCIAL_FIELDS.includes(key)) {
+        safeBody[key] = value;
+      }
+    }
+
+    const record = mapWeeklyReportToDb(safeBody);
+
+    if (Object.keys(record).length === 0) {
+      return res.status(400).json({ success: false, error: '没有需要更新的字段' });
+    }
+
+    const { data, error } = await supabase
+      .from('weekly_reports')
+      .update(record)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新周报失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 周报更新成功:', data.id);
+    res.json({ success: true, data: mapWeeklyReportFromDb(data) });
+  } catch (err) {
+    console.error('❌ 更新周报异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 接口 5：DELETE /api/weekly-reports/:id - 删除周报
+// ============================================================
+app.delete('/api/weekly-reports/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 DELETE /api/weekly-reports/${id}`);
+
+    // 先检查记录是否存在
+    const { data: existing, error: findError } = await supabase
+      .from('weekly_reports')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (findError) {
+      if (findError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: '周报不存在' });
+      }
+      throw findError;
+    }
+
+    // 仅允许填报人删除
+    const createdBy = req.query.createdBy || req.body.createdBy;
+    if (createdBy && createdBy !== existing.created_by) {
+      return res.status(403).json({ success: false, error: '仅允许填报人删除' });
+    }
+
+    const { error } = await supabase
+      .from('weekly_reports')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除周报失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 周报已删除:', id);
+    res.json({ success: true, message: '周报已删除' });
+  } catch (err) {
+    console.error('❌ 删除周报异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 接口 6：GET /api/weekly-reports/financial/pending - 财务待填列表
+// ============================================================
+app.get('/api/weekly-reports/financial/pending', authMiddleware, async (req, res) => {
+  try {
+    // 权限校验：仅 manager 角色
+    if (!req.user || !req.user.roles || !req.user.roles.manager) {
+      console.warn('⛔ 财务待填列表权限不足:', req.user?.name);
+      return res.status(403).json({ success: false, error: '权限不足，仅项目经理以上可访问' });
+    }
+
+    console.log('📋 GET /api/weekly-reports/financial/pending - 查询财务待填列表');
+
+    const { data, error } = await supabase
+      .from('weekly_reports')
+      .select('*')
+      .eq('report_type', 'monthly');
+
+    if (error) {
+      console.error('❌ 获取财务待填列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    // 筛选财务字段为空的记录
+    const pending = (data || []).filter(r => {
+      const financialNull = FINANCIAL_FIELDS.map(f => {
+        const dbKey = WEEKLY_REPORT_FIELD_MAP_TO_DB[f];
+        return dbKey;
+      });
+      return financialNull.some(key => r[key] === null || r[key] === undefined);
+    });
+
+    // 获取关联的项目名称
+    const projectIds = [...new Set(pending.map(r => r.project_id).filter(Boolean))];
+    const projectNameMap = {};
+    if (projectIds.length > 0) {
+      const { data: projects } = await supabase
+        .from('projects')
+        .select('id, 项目名称')
+        .in('id', projectIds);
+      (projects || []).forEach(p => {
+        projectNameMap[p.id] = p['项目名称'] || '未知项目';
+      });
+    }
+
+    const result = pending.map(r => {
+      const pendingFields = FINANCIAL_FIELDS.filter(f => {
+        const dbKey = WEEKLY_REPORT_FIELD_MAP_TO_DB[f];
+        return r[dbKey] === null || r[dbKey] === undefined;
+      });
+      return {
+        id: r.id,
+        projectId: r.project_id,
+        projectName: projectNameMap[r.project_id] || '未知项目',
+        businessType: r.business_type,
+        reportMonth: r.report_date,
+        pendingFields,
+      };
+    });
+
+    console.log(`✅ 财务待填列表返回 ${result.length} 条记录`);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取财务待填列表异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 接口 7：PUT /api/weekly-reports/financial/batch - 财务批量更新
+// ============================================================
+app.put('/api/weekly-reports/financial/batch', authMiddleware, async (req, res) => {
+  try {
+    // 权限校验：仅 manager 角色
+    if (!req.user || !req.user.roles || !req.user.roles.manager) {
+      console.warn('⛔ 财务批量更新权限不足:', req.user?.name);
+      return res.status(403).json({ success: false, error: '权限不足，仅项目经理以上可访问' });
+    }
+
+    const { records } = req.body;
+    if (!records || !Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ success: false, error: '缺少 records 参数或格式不正确' });
+    }
+
+    console.log(`📋 PUT /api/weekly-reports/financial/batch - 批量更新 ${records.length} 条记录`);
+
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+
+    for (const record of records) {
+      try {
+        const { id, ...fields } = record;
+        if (!id) {
+          failCount++;
+          errors.push({ id: null, error: '缺少 id' });
+          continue;
+        }
+
+        // 仅提取财务字段
+        const updateData = {};
+        for (const [key, value] of Object.entries(fields)) {
+          if (FINANCIAL_FIELDS.includes(key)) {
+            const dbKey = WEEKLY_REPORT_FIELD_MAP_TO_DB[key];
+            updateData[dbKey] = value;
+          }
+        }
+
+        if (Object.keys(updateData).length === 0) {
+          failCount++;
+          errors.push({ id, error: '没有可更新的财务字段' });
+          continue;
+        }
+
+        const { error } = await supabase
+          .from('weekly_reports')
+          .update(updateData)
+          .eq('id', id);
+
+        if (error) {
+          failCount++;
+          errors.push({ id, error: error.message });
+        } else {
+          successCount++;
+        }
+      } catch (err) {
+        failCount++;
+        errors.push({ id: record.id, error: err.message });
+      }
+    }
+
+    console.log(`✅ 财务批量更新完成: 成功=${successCount}, 失败=${failCount}`);
+    res.json({
+      success: true,
+      data: { successCount, failCount, total: records.length, errors: errors.length > 0 ? errors : undefined },
+    });
+  } catch (err) {
+    console.error('❌ 财务批量更新异常:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 统计接口：项目总览 KPI
 // ============================================================
 app.get('/api/stats/projects-overview', async (req, res) => {
