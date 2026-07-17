@@ -3334,6 +3334,36 @@ app.post('/api/ai/projects-overview', authMiddleware, async (req, res) => {
 // ============================================================
 // 启动服务器
 // ============================================================
+// ============================================================
+// 钉钉消息发送函数
+// ============================================================
+async function sendDingTalkMessage(message) {
+  try {
+    const webhookUrl = process.env.DINGTALK_WEBHOOK_URL;
+    if (!webhookUrl) {
+      console.warn('⚠️ DINGTALK_WEBHOOK_URL 未配置，跳过发送');
+      return { success: false, error: 'webhook未配置' };
+    }
+    const response = await axios.post(webhookUrl, {
+      msgtype: 'markdown',
+      markdown: {
+        title: '📋 周报提交提醒',
+        text: message,
+      },
+    });
+    if (response.data.errcode === 0) {
+      console.log('✅ 钉钉消息发送成功');
+      return { success: true };
+    } else {
+      console.error('❌ 钉钉消息发送失败:', response.data);
+      return { success: false, error: response.data.errmsg };
+    }
+  } catch (err) {
+    console.error('❌ 钉钉消息发送异常:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
   console.log(`✅ 钉钉 AppKey: ${DINGTALK_APP_KEY.slice(0, 8)}...`);
@@ -3444,4 +3474,47 @@ cron.schedule('30 8 * * *', async () => {
   }
 
   console.log('✅ 定时任务全部完成');
+});
+
+// ============================================================
+// 周报提交提醒（每周五 16:00）
+// ============================================================
+cron.schedule('0 16 * * 5', async () => {
+  console.log('⏰ 定时任务启动：周报提交提醒');
+  try {
+    // 获取所有在施项目（排除已删除和已结项）
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('id, 项目名称, 项目负责人, 实际项目负责人')
+      .in('项目状态', ['进行中', '暂停', '规划中']);
+
+    if (error) throw error;
+
+    if (!projects || projects.length === 0) {
+      console.log('📋 没有在施项目，跳过提醒');
+      return;
+    }
+
+    // 构建消息
+    const projectList = projects.map(p => {
+      const leader = p['实际项目负责人'] || p['项目负责人'] || '未指定';
+      return `- **${p['项目名称']}**（负责人：${leader}）`;
+    }).join('\n');
+
+    const message = `## 📋 周报提交提醒
+
+各位项目负责人，请于今日下班前提交本周项目周报。
+
+**在施项目列表：**
+${projectList}
+
+**提交入口：** [点击进入项目管理后台](https://dashboard.senyuzixun.com/project-manager)
+
+⏰ 提醒时间：${new Date().toLocaleString('zh-CN')}`;
+
+    await sendDingTalkMessage(message);
+    console.log('✅ 周报提醒已发送');
+  } catch (err) {
+    console.error('❌ 周报提醒定时任务失败:', err);
+  }
 });
