@@ -3454,6 +3454,98 @@ app.post('/api/ai/projects-overview', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// AI 接口：人员负荷率分析
+// ============================================================
+app.post('/api/ai/workload-analysis', authMiddleware, async (req, res) => {
+  try {
+    const { loadRate, projectCount, taskCount, businessPersonnel } = req.body;
+    console.log(`📋 POST /api/ai/workload-analysis - 人员负荷率AI分析, loadRate=${loadRate}%, projectCount=${projectCount}, taskCount=${taskCount}, businessPersonnel=${businessPersonnel}`);
+
+    // 查询项目风险分布
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('ai_analysis_result')
+      .neq('项目状态', '已删除');
+
+    if (projectError) throw projectError;
+
+    let highRiskProjects = 0;
+    let mediumRiskProjects = 0;
+    let lowRiskProjects = 0;
+
+    (projects || []).forEach(p => {
+      const ai = p.ai_analysis_result;
+      if (ai && typeof ai === 'object') {
+        const level = ai.riskLevel || '';
+        if (level === '高风险' || level === '极高风险') highRiskProjects++;
+        else if (level === '中风险') mediumRiskProjects++;
+        else if (level === '低风险') lowRiskProjects++;
+      }
+    });
+
+    console.log(`📊 项目风险分布: 高风险=${highRiskProjects}, 中风险=${mediumRiskProjects}, 低风险=${lowRiskProjects}`);
+
+    // 查询任务状态分布
+    const { data: tasks, error: taskError } = await supabase
+      .from('tasks')
+      .select('状态');
+
+    if (taskError) throw taskError;
+
+    let inProgressTasks = 0;
+    let completedTasks = 0;
+    let notStartedTasks = 0;
+
+    (tasks || []).forEach(t => {
+      const status = t['状态'] || '';
+      if (status === '进行中') inProgressTasks++;
+      else if (status === '已完成' || status === '完成') completedTasks++;
+      else if (status === '未开始') notStartedTasks++;
+    });
+
+    console.log(`📊 任务状态分布: 进行中=${inProgressTasks}, 已完成=${completedTasks}, 未开始=${notStartedTasks}`);
+
+    // 构造 Prompt
+    const prompt = `你是一位人力资源与项目管理专家。请根据以下公司人员负荷数据，分析当前的人力资源配置状况，并以 JSON 格式返回结果。
+
+数据：
+- 人员负荷率：${loadRate || 0}%
+- 进行中项目数：${projectCount || 0}
+- 进行中任务数：${taskCount || 0}
+- 业务部门人数：${businessPersonnel || 0}
+- 项目风险分布：高风险 ${highRiskProjects} 个，中风险 ${mediumRiskProjects} 个，低风险 ${lowRiskProjects} 个
+- 任务状态分布：进行中 ${inProgressTasks} 个，已完成 ${completedTasks} 个，未开始 ${notStartedTasks} 个
+
+请返回以下 JSON 格式的分析结果：
+{
+  "summary": "整体人员负荷状况总结（一句话）",
+  "findings": ["发现1", "发现2", "发现3"],
+  "suggestions": ["建议1", "建议2", "建议3"]
+}
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    // 调用 AI
+    let aiAnalysis;
+    try {
+      aiAnalysis = await callAI(prompt);
+      console.log(`✅ 人员负荷率AI分析完成: ${aiAnalysis.summary?.slice(0, 50)}...`);
+    } catch (aiErr) {
+      console.error('❌ 人员负荷率AI分析失败:', aiErr.message);
+      aiAnalysis = {
+        summary: 'AI 分析暂时不可用，请稍后重试',
+        findings: [],
+        suggestions: []
+      };
+    }
+
+    res.json({ success: true, data: aiAnalysis });
+  } catch (err) {
+    console.error('❌ 人员负荷率AI分析异常:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 // ============================================================

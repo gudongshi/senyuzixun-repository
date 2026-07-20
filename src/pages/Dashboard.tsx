@@ -598,6 +598,15 @@ export default function Dashboard() {
   const [monthlyNewTasks, setMonthlyNewTasks] = useState<number>(156);
   const [taskCategories, setTaskCategories] = useState<{ name: string; value: number }[]>(mockData.taskHeatmap);
   const [rankingData, setRankingData] = useState<{ name: string; score: number; completed: number }[]>(mockData.rankings);
+  const [workloadData, setWorkloadData] = useState<{
+    loadRate: number;
+    projectCount: number;
+    taskCount: number;
+    businessPersonnel: number;
+  } | null>(null);
+
+  // ---- 自动 AI 分析跟踪（避免重复触发）----
+  const autoAnalyzedRef = useRef<Set<number>>(new Set());
 
   // ---- 任务 A：项目总表状态 ----
   const [projects, setProjects] = useState<Project[]>([]);
@@ -973,6 +982,43 @@ export default function Dashboard() {
   }, [fetchProjectStats, fetchProjects]);
 
   // ============================================================
+  // 自动触发未分析项目的 AI 分析（后台异步，不阻塞 UI）
+  // ============================================================
+  useEffect(() => {
+    if (projects.length === 0) return;
+
+    const unanalyzed = projects.filter(p => {
+      const ai = (p as any).ai_analysis_result;
+      return !ai || !ai.riskLevel;
+    });
+
+    if (unanalyzed.length === 0) return;
+
+    console.log(`📋 发现 ${unanalyzed.length} 个未分析项目，开始后台异步 AI 分析...`);
+
+    unanalyzed.forEach((p, index) => {
+      setTimeout(() => {
+        if (autoAnalyzedRef.current.has(p.id)) return;
+        autoAnalyzedRef.current.add(p.id);
+
+        console.log(`📋 自动触发项目 AI 分析: id=${p.id}, name=${p.projectName}`);
+        fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' })
+          .then(res => res.json())
+          .then(result => {
+            if (result.success) {
+              console.log(`✅ 项目 ${p.id} AI 分析完成: ${result.data?.riskLevel}`);
+            } else {
+              console.warn(`⚠️ 项目 ${p.id} AI 分析失败: ${result.error}`);
+            }
+          })
+          .catch(err => {
+            console.error(`❌ 项目 ${p.id} AI 分析异常:`, err.message);
+          });
+      }, index * 500); // 间隔 500ms 避免限流
+    });
+  }, [projects]);
+
+  // ============================================================
   // Supabase Realtime 订阅 projects 表变更
   // ============================================================
   useEffect(() => {
@@ -1070,10 +1116,17 @@ export default function Dashboard() {
       .then(res => res.json())
       .then(result => {
         if (result.success) {
-          console.log(`✅ 人员负荷率: ${result.data.loadRate}%`);
+          const d = result.data;
+          console.log(`✅ 人员负荷率: ${d.loadRate}%`);
+          setWorkloadData({
+            loadRate: d.loadRate,
+            projectCount: d.projectCount,
+            taskCount: d.taskCount,
+            businessPersonnel: d.businessPersonnel,
+          });
           setKpis(prev => prev.map(kpi => {
             if (kpi.key === 'load') {
-              return { ...kpi, value: `${result.data.loadRate}%` };
+              return { ...kpi, value: `${d.loadRate}%` };
             }
             return kpi;
           }));
@@ -1434,7 +1487,37 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {overallRisk && (
+          {overallRisk && (() => {
+            // 动态计算悬浮窗内容
+            const highRiskProjectNames = projects
+              .filter(p => {
+                const ai = (p as any).ai_analysis_result;
+                if (!ai || typeof ai !== 'object') return false;
+                const level = ai.riskLevel || '';
+                return level === '高风险' || level === '极高风险';
+              })
+              .slice(0, 5)
+              .map(p => p.projectName || '未知项目');
+
+            const projectStatusCounts = {
+              inProgress: projects.filter(p => p.projectStatus === '进行中').length,
+              completed: projects.filter(p => p.projectStatus === '已结项').length,
+              paused: projects.filter(p => p.projectStatus === '暂停').length,
+            };
+
+            const highRiskTaskTooltip = overallRisk.highRiskTasks > 0
+              ? `点击查看前${Math.min(overallRisk.highRiskTasks, 5)}个高风险任务`
+              : '暂无高风险任务';
+
+            const taskBreakdownTooltip = `总任务数：${overallRisk.totalTasks}\n- 高风险：${overallRisk.highRiskTasks}`;
+
+            const highRiskProjectTooltip = highRiskProjectNames.length > 0
+              ? `点击查看前${highRiskProjectNames.length}个高风险项目：\n${highRiskProjectNames.map((n, i) => `- ${n}`).join('\n')}`
+              : '暂无高风险项目';
+
+            const projectBreakdownTooltip = `总项目数：${overallRisk.totalProjects}\n- 进行中：${projectStatusCounts.inProgress}\n- 已结项：${projectStatusCounts.completed}\n- 暂停：${projectStatusCounts.paused}`;
+
+            return (
             <div style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
@@ -1446,31 +1529,32 @@ export default function Dashboard() {
               border: '1px solid rgba(0, 242, 255, 0.15)',
             }}>
               {/* 高风险任务数 */}
-              <div onClick={() => handleRiskClick('task', 'high')} title="点击查看高风险任务列表" style={{ cursor: 'pointer' }}>
+              <div onClick={() => handleRiskClick('task', 'high')} title={highRiskTaskTooltip} style={{ cursor: 'pointer' }}>
                 <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
                   高风险任务数：{overallRisk.highRiskTasks}
                 </span>
               </div>
               {/* 高风险项目数 */}
-              <div onClick={() => handleRiskClick('project', 'high')} title="点击查看高风险项目列表" style={{ cursor: 'pointer' }}>
+              <div onClick={() => handleRiskClick('project', 'high')} title={highRiskProjectTooltip} style={{ cursor: 'pointer' }}>
                 <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
                   高风险项目数：{overallRisk.highRiskProjects}
                 </span>
               </div>
               {/* 总任务数 */}
-              <div onClick={() => handleRiskClick('task', 'all')} title="点击查看全部任务" style={{ cursor: 'pointer' }}>
+              <div onClick={() => handleRiskClick('task', 'all')} title={taskBreakdownTooltip} style={{ cursor: 'pointer' }}>
                 <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
                   总任务数：{overallRisk.totalTasks}
                 </span>
               </div>
               {/* 总项目数 */}
-              <div onClick={() => handleRiskClick('project', 'all')} title="点击查看全部项目" style={{ cursor: 'pointer' }}>
+              <div onClick={() => handleRiskClick('project', 'all')} title={projectBreakdownTooltip} style={{ cursor: 'pointer' }}>
                 <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
                   总项目数：{overallRisk.totalProjects}
                 </span>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           <div ref={centralChartRef} className="w-full h-96 mb-5"></div>
 
@@ -1570,7 +1654,7 @@ export default function Dashboard() {
         </div>
 
         <div className="p-6 space-y-6">
-          <AIAnalysisContent target={selectedTarget} />
+          <AIAnalysisContent target={selectedTarget} workloadData={workloadData} />
         </div>
       </div>
 
@@ -2029,95 +2113,12 @@ function MonthlyTasksAnalysis() {
 // ============================================================
 // AI Analysis Content Component
 // ============================================================
-function AIAnalysisContent({ target }: { target: string }) {
+function AIAnalysisContent({ target, workloadData }: { target: string; workloadData: { loadRate: number; projectCount: number; taskCount: number; businessPersonnel: number } | null }) {
   const analyses: Record<string, JSX.Element> = {
-    '进行中项目数': (
-      <>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> 风险分析
-          </h3>
-          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">高风险项目</span>
-              <span className="text-red-400 font-bold text-base">3 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">中风险项目</span>
-              <span className="text-amber-400 font-bold text-base">5 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-slate-300 text-sm">低风险项目</span>
-              <span className="text-emerald-400 font-bold text-base">16 个</span>
-            </div>
-          </div>
-        </div>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> 进度分析
-          </h3>
-          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">平均进度</span>
-              <span className="text-cyan-300 font-bold text-base">72.5%</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">延期项目</span>
-              <span className="text-amber-400 font-bold text-base">4 个</span>
-            </div>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-slate-300 text-sm">提前项目</span>
-              <span className="text-emerald-400 font-bold text-base">8 个</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> AI 建议
-          </h3>
-          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
-            💡 建议优先关注「智慧园区项目」的进度延迟问题，已滞后关键路径 15%。
-            <br/><br/>
-            可考虑增加 2-3 名后端开发人员支援，预计可在 2 周内追回进度。
-          </div>
-        </div>
-      </>
-    ),
+    '进行中项目数': <ProjectsOverviewAnalysis />,
     '本月新增任务': <MonthlyTasksAnalysis />,
     '整体风险指数': <OverallRiskAnalysis />,
-    '人员负荷率': (
-      <>
-        <div className="mb-6">
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> 负荷分布
-          </h3>
-          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 mb-4">
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">高负荷 (&gt;90%)</span>
-              <span className="text-red-400 font-bold text-base">8 人</span>
-            </div>
-            <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
-              <span className="text-slate-300 text-sm">中等负荷 (70-90%)</span>
-              <span className="text-amber-400 font-bold text-base">15 人</span>
-            </div>
-            <div className="flex justify-between items-center py-3">
-              <span className="text-slate-300 text-sm">正常负荷 (&lt;70%)</span>
-              <span className="text-emerald-400 font-bold text-base">21 人</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
-            <span className="text-blue-500">◆</span> AI 建议
-          </h3>
-          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
-            💡 当前人员负荷率 78% 处于健康区间，但部分成员负荷过高。
-            <br/><br/>
-            建议对高负荷人员进行任务重新分配，避免长期加班导致效率下降。
-          </div>
-        </div>
-      </>
-    )
+    '人员负荷率': <WorkloadAnalysis data={workloadData} />,
   };
 
   // Default analysis for person names — use real API data
@@ -2126,4 +2127,323 @@ function AIAnalysisContent({ target }: { target: string }) {
   }
 
   return analyses[target];
+}
+
+// ============================================================
+// Workload Analysis Component (real API data)
+// ============================================================
+function WorkloadAnalysis({ data }: { data: { loadRate: number; projectCount: number; taskCount: number; businessPersonnel: number } | null }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [aiData, setAiData] = useState<{
+    summary: string;
+    findings: string[];
+    suggestions: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!data) {
+      setLoading(false);
+      setError('负荷数据暂未加载，请稍后重试');
+      return;
+    }
+
+    console.log(`📋 人员负荷率AI分析: loadRate=${data.loadRate}%`);
+    fetch('/api/ai/workload-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          console.log(`✅ 人员负荷率AI分析完成: ${result.data.summary?.slice(0, 50)}...`);
+          setAiData(result.data);
+        } else {
+          setError(result.error || '分析失败');
+        }
+      })
+      .catch(err => setError(err.message || '网络错误'))
+      .finally(() => setLoading(false));
+  }, [data]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="text-cyan-400 text-lg animate-pulse mb-3">⏳ AI 正在分析人员负荷...</div>
+        <div className="text-slate-500 text-sm">正在汇总项目与任务数据</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> 负荷分析
+          </h3>
+          <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 text-center">
+            <div className="text-red-400 text-lg mb-2">⚠️ 分析失败</div>
+            <div className="text-slate-400 text-sm">{error}</div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 请稍后重试，或联系管理员检查服务状态。
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!aiData) return null;
+
+  return (
+    <>
+      {/* 关键指标 */}
+      {data && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> 负荷指标
+          </h3>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+              <div className="text-2xl font-bold text-cyan-300">{data.loadRate}%</div>
+              <div className="text-xs text-slate-400 mt-1">人员负荷率</div>
+            </div>
+            <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+              <div className="text-2xl font-bold text-cyan-300">{data.projectCount}</div>
+              <div className="text-xs text-slate-400 mt-1">进行中项目</div>
+            </div>
+            <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+              <div className="text-2xl font-bold text-cyan-300">{data.taskCount}</div>
+              <div className="text-xs text-slate-400 mt-1">进行中任务</div>
+            </div>
+            <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+              <div className="text-2xl font-bold text-cyan-300">{data.businessPersonnel}</div>
+              <div className="text-xs text-slate-400 mt-1">业务人数</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI 综合评估 */}
+      {aiData.summary && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 综合评估
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 {aiData.summary}
+          </div>
+        </div>
+      )}
+
+      {/* AI 发现 */}
+      {aiData.findings.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 发现
+          </h3>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 space-y-2">
+            {aiData.findings.map((f, i) => (
+              <div key={i} className="text-sm text-slate-300 flex items-start gap-2">
+                <span className="text-cyan-400 mt-0.5">🔍</span> {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI 建议 */}
+      {aiData.suggestions.length > 0 && (
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            {aiData.suggestions.map((s, i) => (
+              <div key={i} className={i > 0 ? 'mt-3' : ''}>
+                💡 {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============================================================
+// Projects Overview Analysis Component (real API data)
+// ============================================================
+function ProjectsOverviewAnalysis() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{
+    stats: {
+      total: number;
+      inProgress: number;
+      completed: number;
+      paused: number;
+      planning: number;
+      totalContractAmount: number;
+      avgProgress: number;
+      categoryCounts: Record<string, number>;
+      overdueProjects: number;
+      paymentRate: number;
+    };
+    aiAnalysis: { summary: string; keyFindings: string[]; suggestions: string[] };
+  } | null>(null);
+
+  useEffect(() => {
+    console.log('📋 进行中项目数AI分析...');
+    fetch('/api/ai/projects-overview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          console.log(`✅ 项目经营分析完成: ${result.data.aiAnalysis?.summary?.slice(0, 50)}...`);
+          setData(result.data);
+        } else {
+          setError(result.error || '分析失败');
+        }
+      })
+      .catch(err => setError(err.message || '网络错误'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="text-cyan-400 text-lg animate-pulse mb-3">⏳ AI 正在分析项目经营状况...</div>
+        <div className="text-slate-500 text-sm">正在汇总全量项目数据</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> 项目概览
+          </h3>
+          <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 text-center">
+            <div className="text-red-400 text-lg mb-2">⚠️ 分析失败</div>
+            <div className="text-slate-400 text-sm">{error}</div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 请稍后重试，或联系管理员检查服务状态。
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!data) return null;
+
+  const { stats, aiAnalysis } = data;
+
+  return (
+    <>
+      {/* 项目概览统计 */}
+      <div className="mb-6">
+        <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+          <span className="text-blue-500">◆</span> 项目概览
+        </h3>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-cyan-300">{stats.total}</div>
+            <div className="text-xs text-slate-400 mt-1">总项目数</div>
+          </div>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-emerald-400">{stats.inProgress}</div>
+            <div className="text-xs text-slate-400 mt-1">进行中</div>
+          </div>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-cyan-300">{stats.avgProgress}%</div>
+            <div className="text-xs text-slate-400 mt-1">平均进度</div>
+          </div>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-amber-400">{stats.overdueProjects}</div>
+            <div className="text-xs text-slate-400 mt-1">超期项目</div>
+          </div>
+        </div>
+        <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5">
+          <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
+            <span className="text-slate-300 text-sm">已结项</span>
+            <span className="text-blue-400 font-bold text-base">{stats.completed} 个</span>
+          </div>
+          <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
+            <span className="text-slate-300 text-sm">暂停</span>
+            <span className="text-amber-400 font-bold text-base">{stats.paused} 个</span>
+          </div>
+          <div className="flex justify-between items-center py-3 border-b border-slate-600/50">
+            <span className="text-slate-300 text-sm">规划中</span>
+            <span className="text-slate-400 font-bold text-base">{stats.planning} 个</span>
+          </div>
+          <div className="flex justify-between items-center py-3">
+            <span className="text-slate-300 text-sm">回款率</span>
+            <span className="text-emerald-400 font-bold text-base">{stats.paymentRate}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* AI 综合评估 */}
+      {aiAnalysis.summary && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 经营评估
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            💡 {aiAnalysis.summary}
+          </div>
+        </div>
+      )}
+
+      {/* AI 发现 */}
+      {aiAnalysis.keyFindings && aiAnalysis.keyFindings.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 发现
+          </h3>
+          <div className="bg-slate-700/50 border border-blue-800/40 rounded-xl p-5 space-y-2">
+            {aiAnalysis.keyFindings.map((f, i) => (
+              <div key={i} className="text-sm text-slate-300 flex items-start gap-2">
+                <span className="text-cyan-400 mt-0.5">🔍</span> {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI 建议 */}
+      {aiAnalysis.suggestions && aiAnalysis.suggestions.length > 0 && (
+        <div>
+          <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+            <span className="text-blue-500">◆</span> AI 建议
+          </h3>
+          <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5 text-base text-slate-100 leading-relaxed shadow-lg">
+            {aiAnalysis.suggestions.map((s, i) => (
+              <div key={i} className={i > 0 ? 'mt-3' : ''}>
+                💡 {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
