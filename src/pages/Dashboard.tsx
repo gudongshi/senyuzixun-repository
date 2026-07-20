@@ -46,10 +46,10 @@ const mockData = {
   ],
   weeklyReport: 87.5,
   riskAlerts: [
-    { level: 'high', project: '智慧园区项目', issue: '进度延迟 15%' },
-    { level: 'medium', project: '数字化转型项目', issue: '预算超支 8%' },
-    { level: 'high', project: '云平台迁移', issue: '关键人员离职' },
-    { level: 'medium', project: '数据中台建设', issue: '需求变更频繁' }
+    { type: 'project' as const, id: 0, name: '智慧园区项目', issue: '进度延迟 15%', level: 'high' },
+    { type: 'project' as const, id: 0, name: '数字化转型项目', issue: '预算超支 8%', level: 'medium' },
+    { type: 'project' as const, id: 0, name: '云平台迁移', issue: '关键人员离职', level: 'high' },
+    { type: 'project' as const, id: 0, name: '数据中台建设', issue: '需求变更频繁', level: 'medium' }
   ]
 };
 
@@ -119,6 +119,14 @@ interface Pagination {
   limit: number;
   total: number;
   totalPages: number;
+}
+
+interface RiskAlert {
+  type: 'task' | 'project';
+  id: number;
+  name: string;
+  issue: string;
+  level: string;
 }
 
 // ============================================================
@@ -577,8 +585,16 @@ export default function Dashboard() {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [overallRisk, setOverallRisk] = useState<{ score: number; level: string; totalTasks: number; highRiskCount: number; lastUpdated: string } | null>(null);
-  const [riskAlerts, setRiskAlerts] = useState<{ project: string; issue: string; level: string }[]>([]);
+  const [overallRisk, setOverallRisk] = useState<{
+  score: number;
+  level: string;
+  totalTasks: number;
+  highRiskTasks: number;
+  totalProjects: number;
+  highRiskProjects: number;
+  lastUpdated: string;
+} | null>(null);
+  const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([]);
   const [monthlyNewTasks, setMonthlyNewTasks] = useState<number>(156);
   const [taskCategories, setTaskCategories] = useState<{ name: string; value: number }[]>(mockData.taskHeatmap);
   const [rankingData, setRankingData] = useState<{ name: string; score: number; completed: number }[]>(mockData.rankings);
@@ -1078,10 +1094,18 @@ export default function Dashboard() {
       .then(res => res.json())
       .then(result => {
         if (result.success && result.data) {
-          setOverallRisk(result.data);
+          const d = result.data;
+          setOverallRisk({
+            score: d.score ?? 0,
+            level: d.level ?? '未知',
+            totalTasks: d.totalTasks ?? 0,
+            highRiskTasks: d.highRiskCount ?? 0,
+            totalProjects: d.totalProjects ?? 0,
+            highRiskProjects: d.highRiskProjects ?? 0,
+            lastUpdated: d.lastUpdated ?? '',
+          });
           setKpis(prev => prev.map(kpi => {
             if (kpi.key === 'risk') {
-              const d = result.data;
               return { ...kpi, value: `风险评分：${d.score}（${d.level}）` };
             }
             return kpi;
@@ -1127,10 +1151,18 @@ export default function Dashboard() {
         .then(res => res.json())
         .then(result => {
           if (result.success && result.data) {
-            setOverallRisk(result.data);
+            const d = result.data;
+            setOverallRisk({
+              score: d.score ?? 0,
+              level: d.level ?? '未知',
+              totalTasks: d.totalTasks ?? 0,
+              highRiskTasks: d.highRiskCount ?? 0,
+              totalProjects: d.totalProjects ?? 0,
+              highRiskProjects: d.highRiskProjects ?? 0,
+              lastUpdated: d.lastUpdated ?? '',
+            });
             setKpis(prev => prev.map(kpi => {
               if (kpi.key === 'risk') {
-                const d = result.data;
                 return { ...kpi, value: `风险评分：${d.score}（${d.level}）` };
               }
               return kpi;
@@ -1178,6 +1210,31 @@ export default function Dashboard() {
   const handleRefreshProjects = () => {
     console.log('[Dashboard] 手动刷新项目列表');
     fetchProjects(projectPageRef.current);
+  };
+
+  const handleRiskClick = (type: 'task' | 'project', filter: 'high' | 'all') => {
+    if (type === 'task') {
+      console.log(`📋 点击任务: ${filter}`);
+      // TODO: 打开任务总表并应用筛选
+    } else {
+      console.log(`📋 点击项目: ${filter}`);
+      // TODO: 打开项目总表并应用筛选
+    }
+  };
+
+  const handleAlertClick = (alert: RiskAlert) => {
+    if (alert.type === 'task') {
+      console.log(`📋 打开任务详情: ${alert.id}`);
+      // TODO: 打开任务详情抽屉
+    } else {
+      console.log(`📋 打开项目详情: ${alert.id}`);
+      // 通过 id 查找项目并打开详情抽屉
+      const proj = projects.find(p => p.id === alert.id);
+      if (proj) {
+        setSelectedProject(proj);
+        setProjectDrawerOpen(true);
+      }
+    }
   };
 
   const formatDateTime = (date: Date) => {
@@ -1379,22 +1436,39 @@ export default function Dashboard() {
 
           {overallRisk && (
             <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              gap: '24px',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '8px 16px',
               marginBottom: '16px',
               padding: '10px 16px',
               background: 'rgba(0, 242, 255, 0.05)',
               borderRadius: '10px',
               border: '1px solid rgba(0, 242, 255, 0.15)',
             }}>
-              <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
-                高风险任务数：{overallRisk.highRiskCount}
-              </span>
-              <span style={{ color: '#94a3b8', fontSize: '13px' }}>|</span>
-              <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
-                总任务数：{overallRisk.totalTasks}
-              </span>
+              {/* 高风险任务数 */}
+              <div onClick={() => handleRiskClick('task', 'high')} title="点击查看高风险任务列表" style={{ cursor: 'pointer' }}>
+                <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
+                  高风险任务数：{overallRisk.highRiskTasks}
+                </span>
+              </div>
+              {/* 高风险项目数 */}
+              <div onClick={() => handleRiskClick('project', 'high')} title="点击查看高风险项目列表" style={{ cursor: 'pointer' }}>
+                <span style={{ color: '#f87171', fontSize: '13px', fontWeight: '600' }}>
+                  高风险项目数：{overallRisk.highRiskProjects}
+                </span>
+              </div>
+              {/* 总任务数 */}
+              <div onClick={() => handleRiskClick('task', 'all')} title="点击查看全部任务" style={{ cursor: 'pointer' }}>
+                <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
+                  总任务数：{overallRisk.totalTasks}
+                </span>
+              </div>
+              {/* 总项目数 */}
+              <div onClick={() => handleRiskClick('project', 'all')} title="点击查看全部项目" style={{ cursor: 'pointer' }}>
+                <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
+                  总项目数：{overallRisk.totalProjects}
+                </span>
+              </div>
             </div>
           )}
 
@@ -1410,9 +1484,14 @@ export default function Dashboard() {
                 {riskAlerts.length > 0 ? [...riskAlerts, ...riskAlerts].map((alert, idx) => (
                   <div
                     key={idx}
-                    className="flex-shrink-0 bg-red-900/20 rounded-lg px-4 py-2 mr-3 text-sm text-red-300 whitespace-nowrap"
+                    onClick={() => handleAlertClick(alert)}
+                    className="flex-shrink-0 bg-red-900/20 rounded-lg px-4 py-2 mr-3 text-sm text-red-300 whitespace-nowrap cursor-pointer hover:bg-red-900/40 transition-colors"
+                    title={`点击查看${alert.type === 'task' ? '任务' : '项目'}详情: ${alert.name}`}
                   >
-                    {alert.level === 'high' ? '🔴' : '🟡'} {alert.project} - {alert.issue}
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400 mr-1.5">
+                      [{alert.type === 'task' ? '任务' : '项目'}]
+                    </span>
+                    {alert.level === 'high' ? '🔴' : '🟡'} {alert.name} - {alert.issue}
                   </div>
                 )) : (
                   <div className="flex-shrink-0 text-slate-400 px-4 py-2">暂无风险预警</div>

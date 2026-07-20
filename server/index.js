@@ -1051,17 +1051,54 @@ app.post('/api/risk-analysis', async (req, res) => {
   }
 });
 
-// 获取整体风险指数
+// 获取整体风险指数（含项目统计）
 app.get('/api/overall-risk', async (req, res) => {
-  const { data, error } = await supabase
-    .from('system_config')
-    .select('value')
-    .eq('key', 'overall_risk_index')
-    .single();
-  if (error) {
-    return res.status(500).json({ success: false, error: error.message });
+  try {
+    console.log('📋 GET /api/overall-risk - 获取整体风险指数及项目统计');
+
+    const { data: configData, error: configError } = await supabase
+      .from('system_config')
+      .select('value')
+      .eq('key', 'overall_risk_index')
+      .single();
+
+    if (configError) {
+      console.error('❌ 获取整体风险指数失败:', configError.message);
+      return res.status(500).json({ success: false, error: configError.message });
+    }
+
+    // 查询项目统计
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('项目状态, ai_analysis_result')
+      .neq('项目状态', '已删除');
+
+    if (projectError) {
+      console.error('❌ 查询项目统计失败:', projectError.message);
+      return res.status(500).json({ success: false, error: projectError.message });
+    }
+
+    const totalProjects = (projects || []).length;
+    const highRiskProjects = (projects || []).filter(p => {
+      const aiResult = p.ai_analysis_result;
+      if (!aiResult || typeof aiResult !== 'object') return false;
+      const riskLevel = aiResult.riskLevel || '';
+      return riskLevel === '高风险' || riskLevel === '极高风险';
+    }).length;
+
+    const result = {
+      ...configData.value,
+      totalProjects,
+      highRiskProjects,
+    };
+
+    console.log(`✅ 整体风险指数: 评分=${configData.value?.score || 0}, 等级=${configData.value?.level || '未知'}, 总任务=${configData.value?.totalTasks || 0}, 高风险任务=${configData.value?.highRiskCount || 0}, 总项目=${totalProjects}, 高风险项目=${highRiskProjects}`);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ 获取整体风险指数异常:', err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
-  res.json({ success: true, data: data.value });
 });
 
 app.get('/api/health', (req, res) => {
@@ -1097,33 +1134,73 @@ app.get('/api/task-progress', authMiddleware, async (req, res) => {
   }
 });
 
-// 获取所有任务的风险预警（用于实时风险滚动条）
+// 获取所有任务和项目的风险预警（用于实时风险滚动条）
 app.get('/api/risk-alerts', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    console.log('📋 GET /api/risk-alerts - 获取风险预警（含任务+项目）');
+
+    // 查询任务预警
+    const { data: tasks, error: taskError } = await supabase
       .from('tasks')
-      .select('risk_alerts, 任务名称')
+      .select('id, risk_alerts, 任务名称')
       .not('risk_alerts', 'eq', '{}')
       .not('risk_alerts', 'is', null);
-    if (error) throw error;
-    // 收集所有预警并去重
+
+    if (taskError) throw taskError;
+
+    // 查询项目预警
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('id, 项目名称, ai_analysis_result')
+      .neq('项目状态', '已删除');
+
+    if (projectError) throw projectError;
+
     const allAlerts = [];
-    const seen = new Set();
-    data.forEach(task => {
+
+    // 处理任务预警
+    (tasks || []).forEach(task => {
       if (task.risk_alerts && Array.isArray(task.risk_alerts)) {
         task.risk_alerts.forEach(alert => {
-          const key = alert.trim();
-          if (!seen.has(key)) {
-            seen.add(key);
-            allAlerts.push({
-              project: task['任务名称'] || '未知任务',
-              issue: alert,
-              level: 'high'
-            });
-          }
+          allAlerts.push({
+            type: 'task',
+            id: task.id,
+            name: task['任务名称'] || '未知任务',
+            issue: alert,
+            level: 'high',
+          });
         });
       }
     });
+
+    // 处理项目预警
+    (projects || []).forEach(project => {
+      const aiResult = project.ai_analysis_result;
+      if (aiResult && typeof aiResult === 'object') {
+        const riskAlerts = aiResult.riskAlerts;
+        if (riskAlerts && Array.isArray(riskAlerts)) {
+          riskAlerts.forEach(alert => {
+            allAlerts.push({
+              type: 'project',
+              id: project.id,
+              name: project['项目名称'] || '未知项目',
+              issue: alert,
+              level: 'high',
+            });
+          });
+        }
+      }
+    });
+
+    const taskAlertCount = (tasks || []).reduce((sum, t) =>
+      sum + (Array.isArray(t.risk_alerts) ? t.risk_alerts.length : 0), 0);
+    const projectAlertCount = (projects || []).reduce((sum, p) => {
+      const ai = p.ai_analysis_result;
+      return sum + (ai && Array.isArray(ai.riskAlerts) ? ai.riskAlerts.length : 0);
+    }, 0);
+
+    console.log(`✅ 风险预警返回 ${taskAlertCount} 条任务预警 + ${projectAlertCount} 条项目预警`);
+
     res.json({ success: true, data: allAlerts });
   } catch (err) {
     console.error('❌ 获取风险预警失败:', err);
