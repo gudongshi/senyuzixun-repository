@@ -130,6 +130,16 @@ interface RiskAlert {
   level: string;
 }
 
+interface HighRiskTask {
+  id: number;
+  taskName: string;
+  project: string;
+  responsible: string;
+  riskLevel: string;
+  progress: number;
+  status: string;
+}
+
 // ============================================================
 // 工具函数（与 ProjectManager.tsx 保持一致）
 // ============================================================
@@ -619,6 +629,9 @@ export default function Dashboard() {
   const [highRiskProjectsData, setHighRiskProjectsData] = useState<Project[]>([]);
   const [highRiskAIAnalysis, setHighRiskAIAnalysis] = useState<{ summary: string; keyFindings: string[]; suggestions: string[] } | null>(null);
   const [highRiskAnalysisLoading, setHighRiskAnalysisLoading] = useState(false);
+  const [highRiskTaskDrawerOpen, setHighRiskTaskDrawerOpen] = useState(false);
+  const [highRiskTasks, setHighRiskTasks] = useState<HighRiskTask[]>([]);
+  const [highRiskTasksLoading, setHighRiskTasksLoading] = useState(false);
   const projectPageRef = useRef(1);
 
   // ============================================================
@@ -1270,10 +1283,43 @@ export default function Dashboard() {
     fetchProjects(projectPageRef.current);
   };
 
-  const handleRiskClick = (type: 'task' | 'project', filter: 'high' | 'all') => {
+  const fetchHighRiskTasks = async () => {
+    setHighRiskTasksLoading(true);
+    try {
+      console.log('📋 查询高风险任务列表...');
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('id, 任务名称, 所属项目, 责任人, 风险等级, "当前进度(%)", 状态')
+        .in('风险等级', ['高风险', '极高风险']);
+      if (error) throw error;
+      const tasks: HighRiskTask[] = (data || []).map((t: any) => ({
+        id: t.id,
+        taskName: t['任务名称'] || '未知任务',
+        project: t['所属项目'] || '',
+        responsible: t['责任人'] || '',
+        riskLevel: t['风险等级'] || '高风险',
+        progress: parseFloat(t['当前进度(%)']) || 0,
+        status: t['状态'] || '未开始',
+      }));
+      console.log(`✅ 高风险任务: ${tasks.length} 个`);
+      setHighRiskTasks(tasks);
+    } catch (err: any) {
+      console.error('❌ 查询高风险任务失败:', err?.message || err);
+      setHighRiskTasks([]);
+    } finally {
+      setHighRiskTasksLoading(false);
+    }
+  };
+
+  const handleRiskClick = async (type: 'task' | 'project', filter: 'high' | 'all') => {
     if (type === 'task') {
       console.log(`📋 点击任务: ${filter}`);
-      toast.info('任务列表筛选功能开发中');
+      if (filter === 'high') {
+        await fetchHighRiskTasks();
+        setHighRiskTaskDrawerOpen(true);
+      } else {
+        toast.info('全部任务列表功能开发中');
+      }
       return;
     }
 
@@ -1286,18 +1332,42 @@ export default function Dashboard() {
     });
 
     if (filter === 'high') {
-      if (highRiskProjectsList.length === 0) {
-        if (overallRisk?.highRiskProjects && overallRisk.highRiskProjects > 0) {
-          toast.info('高风险项目正在分析中，请稍后刷新');
-        } else {
-          toast.info('暂无高风险项目');
+      // 情况1：有已分析的高风险项目
+      if (highRiskProjectsList.length > 0) {
+        setHighRiskProjectsData(highRiskProjectsList);
+        setHighRiskDrawerOpen(true);
+        triggerHighRiskAIAnalysis(highRiskProjectsList);
+        return;
+      }
+
+      // 情况2：overallRisk 显示有高风险项目，但 projects 中尚未有分析结果（正在分析中）
+      if (overallRisk?.highRiskProjects && overallRisk.highRiskProjects > 0) {
+        setHighRiskProjectsData([]);
+        setHighRiskAIAnalysis(null);
+        setHighRiskAnalysisLoading(false);
+        setHighRiskDrawerOpen(true);
+        // 后台触发未分析项目的 AI 分析
+        const unanalyzedProjects = projects.filter(p => {
+          const ai = (p as any).ai_analysis_result;
+          return !ai || !ai.riskLevel;
+        });
+        if (unanalyzedProjects.length > 0) {
+          console.log(`📋 触发 ${unanalyzedProjects.length} 个未分析项目的 AI 分析...`);
+          for (const p of unanalyzedProjects) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' }).catch(() => {});
+          }
+          // 延迟后刷新项目列表
+          setTimeout(() => {
+            fetchProjects(projectPageRef.current);
+          }, 3000);
         }
         return;
       }
-      setHighRiskProjectsData(highRiskProjectsList);
-      setHighRiskDrawerOpen(true);
-      // 触发 AI 综合诊断
-      triggerHighRiskAIAnalysis(highRiskProjectsList);
+
+      // 情况3：无高风险项目
+      toast.info('暂无高风险项目');
+      return;
     } else {
       // 总项目数：查找第一个项目
       if (projects.length === 0) {
@@ -1777,7 +1847,16 @@ export default function Dashboard() {
                 <span className="w-1 h-4 bg-red-500 rounded-sm"></span>
                 高风险项目列表
               </h3>
-              {highRiskProjectsData.map((proj) => {
+              {highRiskProjectsData.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Loader2 className="size-8 text-cyan-400 animate-spin mb-3" />
+                  <p className="text-slate-400 text-sm">AI 分析正在生成中，请稍后刷新</p>
+                  <p className="text-slate-500 text-xs mt-1">
+                    系统正在后台分析 {overallRisk?.highRiskProjects ?? 0} 个高风险项目
+                  </p>
+                </div>
+              ) : (
+                highRiskProjectsData.map((proj) => {
                 const ai = (proj as any).ai_analysis_result;
                 const riskAlerts = ai?.riskAlerts && Array.isArray(ai.riskAlerts) ? ai.riskAlerts : [];
                 return (
@@ -1822,7 +1901,8 @@ export default function Dashboard() {
                     )}
                   </div>
                 );
-              })}
+              })
+              )}
 
               {/* AI 综合分析区域 */}
               <div className="border-t border-slate-700/50 pt-4">
@@ -1873,6 +1953,82 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============================================================ */}
+      {/* 高风险任务列表抽屉 */}
+      {/* ============================================================ */}
+      {highRiskTaskDrawerOpen && (
+        <>
+          {/* Overlay */}
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40" onClick={() => setHighRiskTaskDrawerOpen(false)} />
+
+          {/* Drawer */}
+          <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-l-2 border-red-500 z-50 shadow-2xl shadow-red-900/50 overflow-y-auto">
+            {/* Header */}
+            <div className="flex justify-between items-center p-6 border-b border-red-500/30 bg-slate-800/50 sticky top-0 backdrop-blur-md z-10">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-red-400">
+                  高风险任务列表
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  共 {highRiskTasks.length} 个高风险任务
+                </p>
+              </div>
+              <button onClick={() => setHighRiskTaskDrawerOpen(false)}
+                className="w-10 h-10 rounded-full border-2 border-red-500/50 text-red-400 hover:bg-red-500/20 hover:border-red-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
+                <X size={22} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              {highRiskTasksLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="size-8 text-cyan-400 animate-spin" />
+                  <span className="ml-3 text-slate-400 text-sm">加载高风险任务...</span>
+                </div>
+              ) : highRiskTasks.length === 0 ? (
+                <div className="text-center py-20">
+                  <Bot className="size-12 mx-auto mb-3 text-slate-600" />
+                  <p className="text-slate-400 text-sm">暂无高风险任务</p>
+                </div>
+              ) : (
+                highRiskTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className="bg-slate-800/40 border border-red-900/30 rounded-xl p-4 hover:bg-red-900/10 hover:border-red-500/40 transition-all duration-300"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-cyan-400 font-semibold text-sm truncate flex-1 mr-2">
+                        {task.taskName}
+                      </h4>
+                      <span className={`px-2 py-0.5 rounded text-xs border ${getRiskColor(task.riskLevel)}`}>
+                        {task.riskLevel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-slate-500 mb-2">
+                      <span>所属项目: {task.project || '-'}</span>
+                      <span>负责人: {task.responsible || '-'}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                      <span className={`px-2 py-0.5 rounded border ${getStatusColor(task.status)}`}>
+                        {task.status}
+                      </span>
+                      <span>当前进度: {task.progress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-600/50 rounded-full h-1.5 mt-2">
+                      <div
+                        className="bg-gradient-to-r from-red-500 to-red-400 h-1.5 rounded-full transition-all"
+                        style={{ width: `${task.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </>
