@@ -1344,23 +1344,52 @@ export default function Dashboard() {
       if (overallRisk?.highRiskProjects && overallRisk.highRiskProjects > 0) {
         setHighRiskProjectsData([]);
         setHighRiskAIAnalysis(null);
-        setHighRiskAnalysisLoading(false);
+        setHighRiskAnalysisLoading(true);  // 立即显示加载状态
         setHighRiskDrawerOpen(true);
+
         // 后台触发未分析项目的 AI 分析
         const unanalyzedProjects = projects.filter(p => {
           const ai = (p as any).ai_analysis_result;
           return !ai || !ai.riskLevel;
         });
+
         if (unanalyzedProjects.length > 0) {
           console.log(`📋 触发 ${unanalyzedProjects.length} 个未分析项目的 AI 分析...`);
           for (const p of unanalyzedProjects) {
             await new Promise(resolve => setTimeout(resolve, 500));
             fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' }).catch(() => {});
           }
-          // 延迟后刷新项目列表
-          setTimeout(() => {
-            fetchProjects(projectPageRef.current);
+          // 等待 3 秒后刷新项目列表，然后触发综合诊断
+          setTimeout(async () => {
+            await fetchProjects(projectPageRef.current);
+            // 重新获取高风险项目列表（从 projects ref 获取最新数据）
+            const refreshedHighRiskProjects = projects.filter(p => {
+              const ai = (p as any).ai_analysis_result;
+              if (!ai || typeof ai !== 'object') return false;
+              const level = ai.riskLevel || '';
+              return level === '高风险' || level === '极高风险';
+            });
+            if (refreshedHighRiskProjects.length > 0) {
+              setHighRiskProjectsData(refreshedHighRiskProjects);
+              await triggerHighRiskAIAnalysis(refreshedHighRiskProjects);
+            } else {
+              setHighRiskAnalysisLoading(false);
+            }
           }, 3000);
+        } else {
+          // 有数据但没分析结果（理论不会发生），直接分析
+          const highRiskList = projects.filter(p => {
+            const ai = (p as any).ai_analysis_result;
+            if (!ai || typeof ai !== 'object') return false;
+            const level = ai.riskLevel || '';
+            return level === '高风险' || level === '极高风险';
+          });
+          if (highRiskList.length > 0) {
+            setHighRiskProjectsData(highRiskList);
+            await triggerHighRiskAIAnalysis(highRiskList);
+          } else {
+            setHighRiskAnalysisLoading(false);
+          }
         }
         return;
       }
