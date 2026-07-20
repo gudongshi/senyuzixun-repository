@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { toast } from 'sonner';
 
 // ============================================================
 // Mock Data（降级数据，API 失败时使用）
@@ -1268,11 +1269,38 @@ export default function Dashboard() {
   const handleRiskClick = (type: 'task' | 'project', filter: 'high' | 'all') => {
     if (type === 'task') {
       console.log(`📋 点击任务: ${filter}`);
-      // TODO: 打开任务总表并应用筛选
-    } else {
-      console.log(`📋 点击项目: ${filter}`);
-      // TODO: 打开项目总表并应用筛选
+      toast.info('任务列表筛选功能开发中');
+      return;
     }
+
+    console.log(`📋 点击项目: ${filter}`);
+    let targetProject: Project | null = null;
+
+    if (filter === 'high') {
+      // 查找第一个高风险项目
+      targetProject = projects.find(p => {
+        const ai = (p as any).ai_analysis_result;
+        if (!ai || typeof ai !== 'object') return false;
+        const level = ai.riskLevel || '';
+        return level === '高风险' || level === '极高风险';
+      });
+      if (!targetProject) {
+        console.warn('⚠️ 暂无高风险项目');
+        toast.info('暂无高风险项目');
+        return;
+      }
+    } else {
+      // 查找第一个项目
+      targetProject = projects.length > 0 ? projects[0] : null;
+      if (!targetProject) {
+        console.warn('⚠️ 暂无项目数据');
+        toast.info('暂无项目数据');
+        return;
+      }
+    }
+
+    setSelectedProject(targetProject);
+    setProjectDrawerOpen(true);
   };
 
   const handleAlertClick = (alert: RiskAlert) => {
@@ -1488,16 +1516,18 @@ export default function Dashboard() {
           </div>
 
           {overallRisk && (() => {
-            // 动态计算悬浮窗内容
-            const highRiskProjectNames = projects
-              .filter(p => {
-                const ai = (p as any).ai_analysis_result;
-                if (!ai || typeof ai !== 'object') return false;
-                const level = ai.riskLevel || '';
-                return level === '高风险' || level === '极高风险';
-              })
-              .slice(0, 5)
-              .map(p => p.projectName || '未知项目');
+            // 动态计算悬浮窗内容 - 修复数据不一致
+            const highRiskProjectsFromProjects = projects.filter(p => {
+              const ai = (p as any).ai_analysis_result;
+              if (!ai || typeof ai !== 'object') return false;
+              const level = ai.riskLevel || '';
+              return level === '高风险' || level === '极高风险';
+            });
+
+            // 优先使用 projects 筛选结果，如果为空但 overallRisk 有数据，则显示提示
+            const highRiskProjectNames = highRiskProjectsFromProjects.length > 0
+              ? highRiskProjectsFromProjects.slice(0, 5).map(p => p.projectName || '未知项目')
+              : (overallRisk.highRiskProjects > 0 ? ['有 ' + overallRisk.highRiskProjects + ' 个高风险项目，请点击查看详情'] : []);
 
             const projectStatusCounts = {
               inProgress: projects.filter(p => p.projectStatus === '进行中').length,
@@ -1511,9 +1541,9 @@ export default function Dashboard() {
 
             const taskBreakdownTooltip = `总任务数：${overallRisk.totalTasks}\n- 高风险：${overallRisk.highRiskTasks}`;
 
-            const highRiskProjectTooltip = highRiskProjectNames.length > 0
-              ? `点击查看前${highRiskProjectNames.length}个高风险项目：\n${highRiskProjectNames.map((n, i) => `- ${n}`).join('\n')}`
-              : '暂无高风险项目';
+            const highRiskProjectTooltip = highRiskProjectsFromProjects.length > 0
+              ? `点击查看前${Math.min(highRiskProjectsFromProjects.length, 5)}个高风险项目：\n${highRiskProjectNames.map((n, i) => `- ${n}`).join('\n')}`
+              : (overallRisk.highRiskProjects > 0 ? `有 ${overallRisk.highRiskProjects} 个高风险项目，点击查看详情` : '暂无高风险项目');
 
             const projectBreakdownTooltip = `总项目数：${overallRisk.totalProjects}\n- 进行中：${projectStatusCounts.inProgress}\n- 已结项：${projectStatusCounts.completed}\n- 暂停：${projectStatusCounts.paused}`;
 
