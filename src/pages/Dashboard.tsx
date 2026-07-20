@@ -1047,6 +1047,25 @@ export default function Dashboard() {
       .catch(err => console.error('获取用户排名失败:', err));
   }, []);
 
+  // Fetch workload（人员负荷率）
+  useEffect(() => {
+    console.log('📋 获取人员负荷率...');
+    fetch('/api/stats/workload')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          console.log(`✅ 人员负荷率: ${result.data.loadRate}%`);
+          setKpis(prev => prev.map(kpi => {
+            if (kpi.key === 'load') {
+              return { ...kpi, value: `${result.data.loadRate}%` };
+            }
+            return kpi;
+          }));
+        }
+      })
+      .catch(err => console.error('❌ 获取人员负荷率失败:', err));
+  }, []);
+
   // Update time
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);

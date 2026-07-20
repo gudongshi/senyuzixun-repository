@@ -2991,6 +2991,67 @@ app.get('/api/stats/projects-category', async (req, res) => {
 });
 
 // ============================================================
+// 统计接口：人员负荷率
+// ============================================================
+app.get('/api/stats/workload', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 GET /api/stats/workload - 计算人员负荷率');
+
+    // 查询进行中项目数
+    const { count: projectCount, error: projectError } = await supabase
+      .from('projects')
+      .select('*', { count: 'exact', head: true })
+      .eq('项目状态', '进行中');
+
+    if (projectError) throw projectError;
+
+    // 查询进行中任务数（状态为"进行中"或"未开始"）
+    const { count: taskCount, error: taskError } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .in('状态', ['进行中', '未开始']);
+
+    if (taskError) throw taskError;
+
+    // 读取业务部门人数配置
+    let businessPersonnel = 15; // 降级默认值
+    const { data: configData, error: configError } = await supabase
+      .from('system_config')
+      .select('value')
+      .eq('key', 'business_personnel_count')
+      .maybeSingle();
+
+    if (!configError && configData && configData.value) {
+      const count = typeof configData.value === 'object'
+        ? (configData.value.count || configData.value.businessPersonnel || 15)
+        : (parseInt(configData.value) || 15);
+      businessPersonnel = count;
+    }
+
+    const weightedLoad = (projectCount || 0) * 1.0 + (taskCount || 0) * 0.1;
+    const loadRate = businessPersonnel > 0
+      ? Math.round((weightedLoad / businessPersonnel) * 100)
+      : 0;
+
+    console.log(`✅ 人员负荷率: ${loadRate}%, 项目数: ${projectCount || 0}, 任务数: ${taskCount || 0}, 业务人数: ${businessPersonnel}`);
+
+    res.json({
+      success: true,
+      data: {
+        loadRate,
+        projectCount: projectCount || 0,
+        taskCount: taskCount || 0,
+        businessPersonnel,
+        weightedLoad,
+      },
+    });
+  } catch (err) {
+    console.error('❌ 获取人员负荷率失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 周报接口：提交周报
 // ============================================================
 app.post('/api/projects/:id/weekly-report', authMiddleware, async (req, res) => {
