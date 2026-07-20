@@ -615,6 +615,10 @@ export default function Dashboard() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
+  const [highRiskDrawerOpen, setHighRiskDrawerOpen] = useState(false);
+  const [highRiskProjectsData, setHighRiskProjectsData] = useState<Project[]>([]);
+  const [highRiskAIAnalysis, setHighRiskAIAnalysis] = useState<{ summary: string; keyFindings: string[]; suggestions: string[] } | null>(null);
+  const [highRiskAnalysisLoading, setHighRiskAnalysisLoading] = useState(false);
   const projectPageRef = useRef(1);
 
   // ============================================================
@@ -1273,34 +1277,36 @@ export default function Dashboard() {
       return;
     }
 
-    console.log(`📋 点击项目: ${filter}`);
-    let targetProject: Project | null = null;
+    // 收集高风险项目
+    const highRiskProjectsList = projects.filter(p => {
+      const ai = (p as any).ai_analysis_result;
+      if (!ai || typeof ai !== 'object') return false;
+      const level = ai.riskLevel || '';
+      return level === '高风险' || level === '极高风险';
+    });
 
     if (filter === 'high') {
-      // 查找第一个高风险项目
-      targetProject = projects.find(p => {
-        const ai = (p as any).ai_analysis_result;
-        if (!ai || typeof ai !== 'object') return false;
-        const level = ai.riskLevel || '';
-        return level === '高风险' || level === '极高风险';
-      });
-      if (!targetProject) {
-        console.warn('⚠️ 暂无高风险项目');
-        toast.info('暂无高风险项目');
+      if (highRiskProjectsList.length === 0) {
+        if (overallRisk?.highRiskProjects && overallRisk.highRiskProjects > 0) {
+          toast.info('高风险项目正在分析中，请稍后刷新');
+        } else {
+          toast.info('暂无高风险项目');
+        }
         return;
       }
+      setHighRiskProjectsData(highRiskProjectsList);
+      setHighRiskDrawerOpen(true);
+      // 触发 AI 综合诊断
+      triggerHighRiskAIAnalysis(highRiskProjectsList);
     } else {
-      // 查找第一个项目
-      targetProject = projects.length > 0 ? projects[0] : null;
-      if (!targetProject) {
-        console.warn('⚠️ 暂无项目数据');
+      // 总项目数：查找第一个项目
+      if (projects.length === 0) {
         toast.info('暂无项目数据');
         return;
       }
+      setSelectedProject(projects[0]);
+      setProjectDrawerOpen(true);
     }
-
-    setSelectedProject(targetProject);
-    setProjectDrawerOpen(true);
   };
 
   const handleAlertClick = (alert: RiskAlert) => {
@@ -1315,6 +1321,41 @@ export default function Dashboard() {
         setSelectedProject(proj);
         setProjectDrawerOpen(true);
       }
+    }
+  };
+
+  const triggerHighRiskAIAnalysis = async (highRiskProjects: Project[]) => {
+    setHighRiskAnalysisLoading(true);
+    setHighRiskAIAnalysis(null);
+    try {
+      const payload = highRiskProjects.map(p => {
+        const ai = (p as any).ai_analysis_result;
+        return {
+          id: p.id,
+          name: p.projectName,
+          contractNumber: p.contractNumber,
+          riskLevel: ai?.riskLevel || '高风险',
+          analysisSummary: ai?.analysisSummary || '',
+          riskAlerts: ai?.riskAlerts || [],
+        };
+      });
+      console.log(`📋 触发高风险项目综合诊断: ${payload.length} 个项目`);
+      const resp = await fetch('/api/ai/high-risk-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projects: payload }),
+      });
+      const result = await resp.json();
+      if (result.success) {
+        console.log(`✅ 高风险项目综合诊断完成: ${result.data.summary?.slice(0, 50)}...`);
+        setHighRiskAIAnalysis(result.data);
+      } else {
+        console.warn('⚠️ 高风险项目综合诊断失败:', result.error);
+      }
+    } catch (err: any) {
+      console.error('❌ 高风险项目综合分析失败:', err?.message || err);
+    } finally {
+      setHighRiskAnalysisLoading(false);
     }
   };
 
@@ -1541,9 +1582,15 @@ export default function Dashboard() {
 
             const taskBreakdownTooltip = `总任务数：${overallRisk.totalTasks}\n- 高风险：${overallRisk.highRiskTasks}`;
 
-            const highRiskProjectTooltip = highRiskProjectsFromProjects.length > 0
-              ? `点击查看前${Math.min(highRiskProjectsFromProjects.length, 5)}个高风险项目：\n${highRiskProjectNames.map((n, i) => `- ${n}`).join('\n')}`
-              : (overallRisk.highRiskProjects > 0 ? `有 ${overallRisk.highRiskProjects} 个高风险项目，点击查看详情` : '暂无高风险项目');
+            const highRiskProjectTooltip = (() => {
+              if (highRiskProjectsFromProjects.length > 0) {
+                return `点击查看前${Math.min(highRiskProjectsFromProjects.length, 5)}个高风险项目：\n${highRiskProjectNames.map((n, i) => `- ${n}`).join('\n')}`;
+              }
+              if (overallRisk.highRiskProjects > 0) {
+                return `有 ${overallRisk.highRiskProjects} 个高风险项目正在分析中，请稍后刷新查看详情`;
+              }
+              return '暂无高风险项目';
+            })();
 
             const projectBreakdownTooltip = `总项目数：${overallRisk.totalProjects}\n- 进行中：${projectStatusCounts.inProgress}\n- 已结项：${projectStatusCounts.completed}\n- 暂停：${projectStatusCounts.paused}`;
 
@@ -1696,6 +1743,140 @@ export default function Dashboard() {
         project={selectedProject}
         onClose={() => setProjectDrawerOpen(false)}
       />
+
+      {/* ============================================================ */}
+      {/* 高风险项目诊断抽屉 */}
+      {/* ============================================================ */}
+      {highRiskDrawerOpen && (
+        <>
+          {/* Overlay */}
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40" onClick={() => setHighRiskDrawerOpen(false)} />
+
+          {/* Drawer */}
+          <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-l-2 border-red-500 z-50 shadow-2xl shadow-red-900/50 overflow-y-auto">
+            {/* Header */}
+            <div className="flex justify-between items-center p-6 border-b border-red-500/30 bg-slate-800/50 sticky top-0 backdrop-blur-md z-10">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-red-400">
+                  高风险项目诊断报告
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  共 {highRiskProjectsData.length} 个高风险项目
+                </p>
+              </div>
+              <button onClick={() => setHighRiskDrawerOpen(false)}
+                className="w-10 h-10 rounded-full border-2 border-red-500/50 text-red-400 hover:bg-red-500/20 hover:border-red-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
+                <X size={22} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              {/* 项目列表 */}
+              <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                <span className="w-1 h-4 bg-red-500 rounded-sm"></span>
+                高风险项目列表
+              </h3>
+              {highRiskProjectsData.map((proj) => {
+                const ai = (proj as any).ai_analysis_result;
+                const riskAlerts = ai?.riskAlerts && Array.isArray(ai.riskAlerts) ? ai.riskAlerts : [];
+                return (
+                  <div
+                    key={proj.id}
+                    onClick={() => {
+                      setSelectedProject(proj);
+                      setProjectDrawerOpen(true);
+                    }}
+                    className="bg-slate-800/40 border border-red-900/30 rounded-xl p-4 cursor-pointer hover:bg-red-900/10 hover:border-red-500/40 transition-all duration-300"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-cyan-400 font-semibold text-sm truncate flex-1 mr-2">
+                        {proj.projectName || '未知项目'}
+                      </h4>
+                      <span className={`px-2 py-0.5 rounded text-xs border ${getRiskColor(ai?.riskLevel || '高风险')}`}>
+                        {ai?.riskLevel || '高风险'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-slate-500 mb-2">
+                      <span>合同编号: {proj.contractNumber || '-'}</span>
+                      <span>负责人: {proj.projectLeader || '-'}</span>
+                    </div>
+                    {ai?.analysisSummary && (
+                      <div className="mb-2">
+                        <span className="text-red-400 text-xs">高风险理由：</span>
+                        <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">{ai.analysisSummary}</p>
+                      </div>
+                    )}
+                    {riskAlerts.length > 0 && (
+                      <div>
+                        <span className="text-amber-400 text-xs">主要预警：</span>
+                        <ul className="mt-1 space-y-0.5">
+                          {riskAlerts.slice(0, 2).map((alert: string, i: number) => (
+                            <li key={i} className="text-amber-300/80 text-xs flex items-start gap-1">
+                              <span className="text-amber-400 mt-0.5 shrink-0">⚠️</span>
+                              <span className="line-clamp-1">{alert}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* AI 综合分析区域 */}
+              <div className="border-t border-slate-700/50 pt-4">
+                <h3 className="text-sm font-semibold text-cyan-300 mb-3 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-cyan-500 rounded-sm"></span>
+                  AI 综合诊断
+                </h3>
+                {highRiskAnalysisLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="size-8 text-cyan-400 animate-spin" />
+                    <span className="ml-3 text-slate-400 text-sm">AI 正在分析高风险项目...</span>
+                  </div>
+                ) : highRiskAIAnalysis ? (
+                  <div className="space-y-4">
+                    {highRiskAIAnalysis.summary && (
+                      <div className="bg-gradient-to-br from-red-900/30 to-red-800/20 border-l-4 border-red-400 rounded-r-xl p-5">
+                        <p className="text-slate-200 text-sm leading-relaxed">💡 {highRiskAIAnalysis.summary}</p>
+                      </div>
+                    )}
+                    {highRiskAIAnalysis.keyFindings && highRiskAIAnalysis.keyFindings.length > 0 && (
+                      <div className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
+                        <h4 className="text-cyan-400 text-sm font-semibold mb-3">关键发现</h4>
+                        <ul className="space-y-2">
+                          {highRiskAIAnalysis.keyFindings.map((f, i) => (
+                            <li key={i} className="text-slate-300 text-sm flex items-start gap-2">
+                              <span className="text-cyan-400 mt-0.5">🔍</span> {f}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {highRiskAIAnalysis.suggestions && highRiskAIAnalysis.suggestions.length > 0 && (
+                      <div className="bg-slate-800/40 border border-green-900/30 rounded-xl p-5">
+                        <h4 className="text-emerald-400 text-sm font-semibold mb-3">处理建议</h4>
+                        <ul className="space-y-2">
+                          {highRiskAIAnalysis.suggestions.map((s, i) => (
+                            <li key={i} className="text-slate-300 text-sm flex items-start gap-2">
+                              <span className="text-emerald-400 mt-0.5">💡</span> {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-500 text-sm">
+                    AI 诊断尚未开始，请稍候...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

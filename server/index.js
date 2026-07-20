@@ -3546,6 +3546,71 @@ app.post('/api/ai/workload-analysis', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// AI 接口：高风险项目综合诊断
+// ============================================================
+app.post('/api/ai/high-risk-analysis', authMiddleware, async (req, res) => {
+  try {
+    const { projects } = req.body;
+    console.log(`📋 POST /api/ai/high-risk-analysis - 高风险项目综合诊断, 项目数=${(projects || []).length}`);
+
+    if (!projects || !Array.isArray(projects) || projects.length === 0) {
+      console.warn('⚠️ 请求中无高风险项目数据');
+      return res.status(400).json({ success: false, error: '缺少高风险项目数据' });
+    }
+
+    // 构建项目详情列表
+    const projectDetails = projects.map((p, i) => {
+      const alerts = (p.riskAlerts && Array.isArray(p.riskAlerts))
+        ? p.riskAlerts.join('、')
+        : '无';
+      return `${i + 1}. ${p.name || '未知项目'}
+   - 合同编号：${p.contractNumber || '无'}
+   - 风险等级：${p.riskLevel || '未知'}
+   - AI分析摘要：${p.analysisSummary || '无'}
+   - 风险预警：${alerts}`;
+    }).join('\n\n');
+
+    // 构造 Prompt
+    const prompt = `你是一位项目风险管理专家。请对以下所有高风险项目进行综合诊断分析，以 JSON 格式返回结果。
+
+高风险项目列表：
+${projectDetails}
+
+请分析：
+1. 这些高风险项目的共性问题是什么
+2. 整体风险趋势
+3. 按优先级给出处理建议
+
+请返回以下 JSON 格式：
+{
+  "summary": "综合诊断总结（概述整体情况）",
+  "keyFindings": ["关键发现1", "关键发现2", "关键发现3"],
+  "suggestions": ["优先处理建议1", "建议2", "建议3"]
+}
+请务必只返回纯 JSON，不要包含其他解释文字。`;
+
+    // 调用 AI
+    let aiAnalysis;
+    try {
+      aiAnalysis = await callAI(prompt);
+      console.log(`✅ 高风险项目综合诊断完成: ${aiAnalysis.summary?.slice(0, 50)}...`);
+    } catch (aiErr) {
+      console.error('❌ 高风险项目综合诊断 AI 调用失败:', aiErr.message);
+      aiAnalysis = {
+        summary: 'AI 分析暂时不可用，请稍后重试',
+        keyFindings: [],
+        suggestions: []
+      };
+    }
+
+    res.json({ success: true, data: aiAnalysis });
+  } catch (err) {
+    console.error('❌ 高风险项目综合诊断失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 // ============================================================
