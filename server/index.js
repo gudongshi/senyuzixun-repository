@@ -1558,7 +1558,7 @@ app.post('/api/ai/monthly-tasks-analysis', async (req, res) => {
 // ============================================================
 
 // 钉钉同步占位函数（后续任务 2.5 完善）
-function syncProjectToDingTalk(projectData) {
+async function syncProjectToDingTalk(projectData) {
   console.log('📤 准备同步到钉钉AI表格:', projectData.contract_number || projectData['合同编号']);
   return { success: true, message: '模拟同步成功' };
 }
