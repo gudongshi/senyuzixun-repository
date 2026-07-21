@@ -1037,6 +1037,36 @@ export default function Dashboard() {
   }, [projects]);
 
   // ============================================================
+  // 高风险项目抽屉：projects 更新后自动触发综合诊断
+  // ============================================================
+  useEffect(() => {
+    if (!highRiskDrawerOpen || !highRiskAnalysisLoading) return;
+    if (highRiskProjectsData.length > 0) return;
+
+    const refreshedHighRiskProjects = projects.filter(p => {
+      const ai = (p as any).ai_analysis_result;
+      if (!ai || typeof ai !== 'object') return false;
+      const level = ai.riskLevel || '';
+      return level === '高风险' || level === '极高风险';
+    });
+
+    if (refreshedHighRiskProjects.length > 0) {
+      console.log(`📋 检测到 ${refreshedHighRiskProjects.length} 个高风险项目，触发综合诊断...`);
+      setHighRiskProjectsData(refreshedHighRiskProjects);
+      triggerHighRiskAIAnalysis(refreshedHighRiskProjects);
+    } else {
+      // 筛选不到高风险项目，结束加载状态
+      if (overallRisk?.highRiskProjects && overallRisk.highRiskProjects > 0) {
+        console.log('⏳ 高风险项目正在分析中，请稍后手动刷新...');
+        toast.info('高风险项目正在分析中，请稍后手动刷新页面查看');
+      } else {
+        console.log('📋 暂无高风险项目');
+      }
+      setHighRiskAnalysisLoading(false);
+    }
+  }, [projects, highRiskDrawerOpen, highRiskAnalysisLoading]);
+
+  // ============================================================
   // Supabase Realtime 订阅 projects 表变更
   // ============================================================
   useEffect(() => {
@@ -1344,7 +1374,7 @@ export default function Dashboard() {
       if (overallRisk?.highRiskProjects && overallRisk.highRiskProjects > 0) {
         setHighRiskProjectsData([]);
         setHighRiskAIAnalysis(null);
-        setHighRiskAnalysisLoading(true);  // 立即显示加载状态
+        setHighRiskAnalysisLoading(true);
         setHighRiskDrawerOpen(true);
 
         // 后台触发未分析项目的 AI 分析
@@ -1355,29 +1385,21 @@ export default function Dashboard() {
 
         if (unanalyzedProjects.length > 0) {
           console.log(`📋 触发 ${unanalyzedProjects.length} 个未分析项目的 AI 分析...`);
-          for (const p of unanalyzedProjects) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-            fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' }).catch(() => {});
-          }
-          // 等待 3 秒后刷新项目列表，然后触发综合诊断
-          setTimeout(async () => {
-            await fetchProjects(projectPageRef.current);
-            // 重新获取高风险项目列表（从 projects ref 获取最新数据）
-            const refreshedHighRiskProjects = projects.filter(p => {
-              const ai = (p as any).ai_analysis_result;
-              if (!ai || typeof ai !== 'object') return false;
-              const level = ai.riskLevel || '';
-              return level === '高风险' || level === '极高风险';
-            });
-            if (refreshedHighRiskProjects.length > 0) {
-              setHighRiskProjectsData(refreshedHighRiskProjects);
-              await triggerHighRiskAIAnalysis(refreshedHighRiskProjects);
-            } else {
-              setHighRiskAnalysisLoading(false);
+          // 使用立即执行的异步函数，不阻塞
+          (async () => {
+            for (const p of unanalyzedProjects) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+              fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' }).catch(() => {});
             }
-          }, 3000);
+            // 所有分析触发完成后，刷新项目列表
+            await fetchProjects(projectPageRef.current);
+            // useEffect 会自动响应 projects 变化并触发综合诊断
+          })().catch(err => {
+            console.error('❌ 后台 AI 分析触发失败:', err);
+            setHighRiskAnalysisLoading(false);
+          });
         } else {
-          // 有数据但没分析结果（理论不会发生），直接分析
+          // 如果没有未分析的项目，但 overallRisk 显示有高风险项目，直接触发诊断
           const highRiskList = projects.filter(p => {
             const ai = (p as any).ai_analysis_result;
             if (!ai || typeof ai !== 'object') return false;
@@ -1386,9 +1408,10 @@ export default function Dashboard() {
           });
           if (highRiskList.length > 0) {
             setHighRiskProjectsData(highRiskList);
-            await triggerHighRiskAIAnalysis(highRiskList);
+            triggerHighRiskAIAnalysis(highRiskList);
           } else {
             setHighRiskAnalysisLoading(false);
+            toast.info('暂无高风险项目');
           }
         }
         return;
