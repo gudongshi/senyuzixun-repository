@@ -1917,6 +1917,10 @@ export default function Dashboard() {
                   <div
                     key={proj.id}
                     onClick={() => {
+                      console.log(`📋 从高风险诊断跳转到项目详情: ${proj.projectName}`);
+                      // 先关闭高风险诊断抽屉
+                      setHighRiskDrawerOpen(false);
+                      // 再打开项目详情抽屉
                       setSelectedProject(proj);
                       setProjectDrawerOpen(true);
                     }}
