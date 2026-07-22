@@ -349,6 +349,8 @@ const ALLOWED_USERS_DASHBOARD = [
   "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
   "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
   "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
+  "JiPii1oD0VBcPc3eo4Nn3VPAiEiE", // 徐钢
+  "JiPii1oD0VBcNGwSILSZyXvwiEiE", // 张劲
 ];
 
 // 项目管理后台访问白名单（项目操作人员）
@@ -357,6 +359,8 @@ const ALLOWED_USERS_MANAGER = [
   "iPKWiSGfv7mKA0shWMre4AiSAiEiE", // 孙静（企业）
   "ckkeeeBa4sBOISXHkd9QZAiEiE",   // 尹萍（企业）
   "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
+  "JiPii1oD0VBcPc3eo4Nn3VPAiEiE", // 徐钢
+  "JiPii1oD0VBcNGwSILSZyXvwiEiE", // 张劲
 ];
 
 // 合并所有授权用户（用于快速判断是否完全无权限）
