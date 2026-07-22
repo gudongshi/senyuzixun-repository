@@ -952,39 +952,38 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       }
     }
 
-    // 异步触发风险分析（不阻塞响应）
+    // 同步触发风险分析（await 等待完成，确保数据库中风险信息已更新）
     if (taskId) {
-      (async () => {
-        try {
-          const { data: task } = await supabase
-            .from('tasks')
+      try {
+        console.log(`🤖 开始任务 AI 分析: taskId=${taskId}`);
+        const { data: task } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('id', taskId)
+          .single();
+        if (task) {
+          const { data: milestones } = await supabase
+            .from('task_milestones')
             .select('*')
-            .eq('id', taskId)
-            .single();
-          if (task) {
-            const { data: milestones } = await supabase
-              .from('task_milestones')
-              .select('*')
-              .eq('task_id', taskId);
-            task.milestones = milestones;
-            const result = await callRiskAnalysis(task);
-            await supabase
-              .from('tasks')
-              .update({
-                risk_score: result.riskScore,
-                '风险等级': result.riskLevel,
-                risk_alerts: result.riskAlerts,
-                risk_analysis_updated_at: new Date().toISOString()
-              })
-              .eq('id', taskId);
-            console.log(`✅ 风险分析完成，任务 ${taskId} 风险等级: ${result.riskLevel}`);
-            // 更新整体风险指数
-            await updateOverallRiskIndex();
-          }
-        } catch (err) {
-          console.error(`❌ 异步风险分析失败 (task ${taskId}):`, err);
+            .eq('task_id', taskId);
+          task.milestones = milestones;
+          const result = await callRiskAnalysis(task);
+          await supabase
+            .from('tasks')
+            .update({
+              risk_score: result.riskScore,
+              '风险等级': result.riskLevel,
+              risk_alerts: result.riskAlerts,
+              risk_analysis_updated_at: new Date().toISOString()
+            })
+            .eq('id', taskId);
+          console.log(`✅ 任务 AI 分析完成: taskId=${taskId}, 风险等级=${result.riskLevel}`);
+          // 更新整体风险指数
+          await updateOverallRiskIndex();
         }
-      })();
+      } catch (err) {
+        console.error(`❌ 任务 AI 分析失败 (task ${taskId}):`, err.message);
+      }
     }
 
     console.log('✅ Supabase 操作成功');
