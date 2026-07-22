@@ -705,15 +705,20 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
     if (data.source === 'weekly_report') {
       console.log('📋 检测到周报推送，进入周报处理分支');
 
+      // 读取所属组织，决定操作哪个任务表
+      const organization = cleanField(data['所属组织']) || '森宇';
+      const tasksTableName = organization === '风控中心' ? 'tasks_center' : 'tasks';
+      console.log(`📋 接收到任务数据，所属组织: ${organization}，目标表: ${tasksTableName}`);
+
       const taskName = cleanField(data['任务名称'] || data.taskName);
       if (!taskName) {
         console.warn('⚠️ 周报未找到任务名称字段，跳过处理');
         return res.status(200).json({ success: true, message: 'Weekly report ignored: no task name' });
       }
 
-      // 查找 tasks 表获取任务 id
+      // 查找任务表获取任务 id
       const { data: taskRecord, error: taskLookupError } = await supabase
-        .from('tasks')
+        .from(tasksTableName)
         .select('id')
         .eq('任务名称', taskName)
         .maybeSingle();
@@ -775,10 +780,10 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
 
       console.log(`✅ 周报进度记录已插入: ${taskName}`);
 
-      // 可选：同步更新 tasks 表的当前进度(%)
+      // 可选：同步更新任务表的当前进度(%)
       if (progressValue !== null) {
         const { error: progressUpdateError } = await supabase
-          .from('tasks')
+          .from(tasksTableName)
           .update({ '当前进度(%)': progressValue })
           .eq('id', taskId);
 
@@ -790,10 +795,10 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       }
 
       // 同步触发 AI 风险分析（await 等待完成，确保数据库风险信息已更新）
-      console.log(`🤖 开始任务 AI 分析: taskId=${taskId}`);
+      console.log(`🤖 开始任务 AI 分析: taskId=${taskId}, 目标表=${tasksTableName}`);
       try {
         const { data: task } = await supabase
-          .from('tasks')
+          .from(tasksTableName)
           .select('*')
           .eq('id', taskId)
           .single();
@@ -805,7 +810,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           task.milestones = milestones;
           const result = await callRiskAnalysis(task);
           await supabase
-            .from('tasks')
+            .from(tasksTableName)
             .update({
               risk_score: result.riskScore,
               '风险等级': result.riskLevel,
@@ -837,6 +842,11 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
     let responsible = cleanField(data['责任人']) || '';
     const riskLevel = cleanField(data['风险等级']) || '';
     const remark = cleanField(data['备注']) || '';
+
+    // 读取所属组织，决定操作哪个任务表
+    const organization = cleanField(data['所属组织']) || '森宇';
+    const tasksTableName = organization === '风控中心' ? 'tasks_center' : 'tasks';
+    console.log(`📋 接收到任务数据，所属组织: ${organization}，目标表: ${tasksTableName}`);
 
     const planStart = parseDate(data['计划开始时间']);
     const planEnd = parseDate(data['计划结束时间']);
@@ -884,7 +894,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
 
     // --- 查询或插入任务 ---
     const { data: existing, error: selectError } = await supabase
-      .from('tasks')
+      .from(tasksTableName)
       .select('id')
       .eq('任务名称', taskName)
       .maybeSingle();
@@ -898,7 +908,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
     let error;
     if (existing) {
       const { error: updateError } = await supabase
-        .from('tasks')
+        .from(tasksTableName)
         .update(record)
         .eq('任务名称', taskName);
       error = updateError;
@@ -906,7 +916,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       console.log(`📝 更新现有任务: ${taskName}`);
     } else {
       const { data: inserted, error: insertError } = await supabase
-        .from('tasks')
+        .from(tasksTableName)
         .insert(record)
         .select('id');
       error = insertError;
@@ -990,9 +1000,9 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
     // 同步触发风险分析（await 等待完成，确保数据库中风险信息已更新）
     if (taskId) {
       try {
-        console.log(`🤖 开始任务 AI 分析: taskId=${taskId}`);
+        console.log(`🤖 开始任务 AI 分析: taskId=${taskId}, 目标表=${tasksTableName}`);
         const { data: task } = await supabase
-          .from('tasks')
+          .from(tasksTableName)
           .select('*')
           .eq('id', taskId)
           .single();
@@ -1004,7 +1014,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           task.milestones = milestones;
           const result = await callRiskAnalysis(task);
           await supabase
-            .from('tasks')
+            .from(tasksTableName)
             .update({
               risk_score: result.riskScore,
               '风险等级': result.riskLevel,
@@ -1021,7 +1031,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       }
     }
 
-    console.log('✅ Supabase 操作成功');
+    console.log(`✅ 任务已写入 ${tasksTableName}`);
     res.status(200).json({ success: true, message: 'Synced' });
   } catch (err) {
     console.error('❌ 处理异常:', err.stack || err);
