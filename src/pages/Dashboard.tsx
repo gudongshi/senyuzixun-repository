@@ -1341,6 +1341,20 @@ export default function Dashboard() {
     }
   };
 
+  const fetchHighRiskProjects = async () => {
+    try {
+      const resp = await fetch('/api/projects/high-risk');
+      const result = await resp.json();
+      if (result.success) {
+        return result.data;
+      }
+      return [];
+    } catch (err) {
+      console.error('❌ 获取高风险项目失败:', err);
+      return [];
+    }
+  };
+
   const handleRiskClick = async (type: 'task' | 'project', filter: 'high' | 'all') => {
     if (type === 'task') {
       console.log(`📋 点击任务: ${filter}`);
@@ -1377,42 +1391,30 @@ export default function Dashboard() {
         setHighRiskAnalysisLoading(true);
         setHighRiskDrawerOpen(true);
 
-        // 后台触发未分析项目的 AI 分析
-        const unanalyzedProjects = projects.filter(p => {
-          const ai = (p as any).ai_analysis_result;
-          return !ai || !ai.riskLevel;
-        });
-
-        if (unanalyzedProjects.length > 0) {
-          console.log(`📋 触发 ${unanalyzedProjects.length} 个未分析项目的 AI 分析...`);
-          // 使用立即执行的异步函数，不阻塞
-          (async () => {
-            for (const p of unanalyzedProjects) {
-              await new Promise(resolve => setTimeout(resolve, 500));
+        // 直接获取高风险项目列表
+        const highRiskList = await fetchHighRiskProjects();
+        if (highRiskList.length > 0) {
+          setHighRiskProjectsData(highRiskList);
+          // 如果有未分析的项目（缺少 ai_analysis_result 或 riskLevel），触发后台分析
+          const unanalyzed = highRiskList.filter(p => !(p as any).aiAnalysisResult?.riskLevel);
+          if (unanalyzed.length > 0) {
+            console.log(`📋 有 ${unanalyzed.length} 个高风险项目尚未分析，触发后台分析...`);
+            for (const p of unanalyzed) {
+              await new Promise(r => setTimeout(r, 500));
               fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' }).catch(() => {});
             }
-            // 所有分析触发完成后，刷新项目列表
-            await fetchProjects(projectPageRef.current);
-            // useEffect 会自动响应 projects 变化并触发综合诊断
-          })().catch(err => {
-            console.error('❌ 后台 AI 分析触发失败:', err);
-            setHighRiskAnalysisLoading(false);
-          });
-        } else {
-          // 如果没有未分析的项目，但 overallRisk 显示有高风险项目，直接触发诊断
-          const highRiskList = projects.filter(p => {
-            const ai = (p as any).ai_analysis_result;
-            if (!ai || typeof ai !== 'object') return false;
-            const level = ai.riskLevel || '';
-            return level === '高风险' || level === '极高风险';
-          });
-          if (highRiskList.length > 0) {
-            setHighRiskProjectsData(highRiskList);
-            triggerHighRiskAIAnalysis(highRiskList);
+            // 延迟后重新获取
+            await new Promise(r => setTimeout(r, 3000));
+            const updatedList = await fetchHighRiskProjects();
+            setHighRiskProjectsData(updatedList);
+            await triggerHighRiskAIAnalysis(updatedList);
           } else {
-            setHighRiskAnalysisLoading(false);
-            toast.info('暂无高风险项目');
+            // 全部已分析，直接触发综合诊断
+            await triggerHighRiskAIAnalysis(highRiskList);
           }
+        } else {
+          toast.info('暂无高风险项目');
+          setHighRiskAnalysisLoading(false);
         }
         return;
       }

@@ -1704,6 +1704,7 @@ const FIELD_MAP_FROM_DB = {
   '业务类型': 'businessType',
   '项目实施状态': 'implementationStatus',
   '项目工期': 'projectDuration',
+  'ai_analysis_result': 'aiAnalysisResult',
 };
 
 // 将请求体英文字段映射为中文字段（写入 DB）
@@ -1724,6 +1725,7 @@ function mapDbToResponse(dbRecord) {
   for (const [cnKey, enKey] of Object.entries(FIELD_MAP_FROM_DB)) {
     result[enKey] = dbRecord[cnKey] !== undefined ? dbRecord[cnKey] : null;
   }
+  result.aiAnalysisResult = dbRecord.ai_analysis_result;
   result.createdAt = dbRecord.created_at;
   result.updatedAt = dbRecord.updated_at;
   return result;
@@ -1992,6 +1994,38 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ 获取项目列表失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// GET /api/projects/high-risk - 获取高风险项目列表
+// ============================================================
+app.get('/api/projects/high-risk', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 GET /api/projects/high-risk - 查询高风险项目');
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .neq('项目状态', '已删除')
+      .order('项目名称');
+
+    if (error) throw error;
+
+    // 筛选高风险项目
+    const highRisk = (data || []).filter(p => {
+      const ai = p.ai_analysis_result;
+      if (!ai || typeof ai !== 'object') return false;
+      const level = ai.riskLevel || '';
+      return level === '高风险' || level === '极高风险';
+    });
+
+    // 映射为英文响应
+    const mapped = highRisk.map(p => mapDbToResponse(p));
+    console.log(`✅ 高风险项目: ${mapped.length} 个`);
+    res.json({ success: true, data: mapped });
+  } catch (err) {
+    console.error('❌ 获取高风险项目失败:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
