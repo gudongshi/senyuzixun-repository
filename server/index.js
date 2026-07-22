@@ -789,6 +789,37 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
         }
       }
 
+      // 同步触发 AI 风险分析（await 等待完成，确保数据库风险信息已更新）
+      console.log(`🤖 开始任务 AI 分析: taskId=${taskId}`);
+      try {
+        const { data: task } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('id', taskId)
+          .single();
+        if (task) {
+          const { data: milestones } = await supabase
+            .from('task_milestones')
+            .select('*')
+            .eq('task_id', taskId);
+          task.milestones = milestones;
+          const result = await callRiskAnalysis(task);
+          await supabase
+            .from('tasks')
+            .update({
+              risk_score: result.riskScore,
+              '风险等级': result.riskLevel,
+              risk_alerts: result.riskAlerts,
+              risk_analysis_updated_at: new Date().toISOString()
+            })
+            .eq('id', taskId);
+          console.log(`✅ 任务 AI 分析完成: taskId=${taskId}, 风险等级=${result.riskLevel}`);
+          await updateOverallRiskIndex();
+        }
+      } catch (err) {
+        console.error(`❌ 任务 AI 分析失败 (task ${taskId}):`, err.message);
+      }
+
       return res.status(200).json({ success: true, message: 'Weekly report synced' });
     }
 
