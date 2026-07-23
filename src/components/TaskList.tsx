@@ -1,6 +1,7 @@
 import { useRealtimeTasks } from '../hooks/useRealtimeTasks';
 import { useTaskMilestones } from '../hooks/useTaskMilestones';
 import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw } from 'lucide-react';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import HoverChartCard from './HoverChartCard';
 
@@ -212,6 +213,13 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     setPagination({ page: 1, total: 0, totalPages: 0 });
   };
 
+  const handleRefresh = () => {
+    console.log('🔄 手动刷新任务列表');
+    if (useApiData) {
+      fetchFilteredTasks();
+    }
+  };
+
   if (loading && tasks.length === 0) {
     return <div className="text-center py-8 text-slate-400">加载任务中...</div>;
   }
@@ -230,27 +238,39 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
   return (
     <>
       <div className="mt-6 bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5">
-        <h3 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
-          <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
-          任务总表（实时同步）
+        <h3 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
+            任务总表（实时同步）
+          </div>
+          <div className="flex items-center gap-2">
+            {/* 组织切换 */}
+            <select
+              value={organization}
+              onChange={(e) => setOrganization(e.target.value as '森宇' | '风控中心')}
+              className="bg-slate-700 border border-cyan-500/30 text-cyan-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+            >
+              <option value="森宇">森宇</option>
+              <option value="风控中心">风控中心</option>
+            </select>
+            {/* 刷新按钮 */}
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 text-xs hover:bg-cyan-500/10 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              刷新
+            </button>
+          </div>
         </h3>
 
         {/* ============================================================ */}
         {/* 筛选面板 */}
         {/* ============================================================ */}
         <div className="mb-4 space-y-2">
-          {/* 第一行：组织切换 + 搜索框 */}
+          {/* 筛选控件行 */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* 组织切换 */}
-            <select
-              value={organization}
-              onChange={(e) => setOrganization(e.target.value as '森宇' | '风控中心')}
-              className="bg-slate-700 border border-blue-800/50 text-cyan-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
-            >
-              <option value="森宇">森宇</option>
-              <option value="风控中心">风控中心</option>
-            </select>
-
             {/* 任务名称搜索 */}
             <input
               type="text"
