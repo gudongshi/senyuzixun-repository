@@ -648,22 +648,35 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
         const extractArray = (key) => {
           console.log(`🔍 extractArray 开始: key=${key}`);
 
-          // 方法1：直接查找 key 的完整值（含外层引号）
+          // 方法1：直接查找 key 的完整值（含外层引号，支持转义字符）
           const regex1 = new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`);
           const match1 = rawBody.match(regex1);
           if (match1) {
             console.log(`✅ 方法1匹配到: ${match1[1].slice(0, 100)}`);
-            try {
-              const str = match1[1];
-              if (str.trim().startsWith('[')) {
-                const parsed = JSON.parse(str);
-                if (Array.isArray(parsed)) {
-                  console.log(`✅ 方法1解析成功: ${parsed.length} 条`);
-                  return parsed;
-                }
+            const str = match1[1];
+
+            // 如果字符串以 [ 开头或包含数组内容，尝试提取数组部分
+            if (str.trim().startsWith('[') || str.trim().startsWith('"')) {
+              // 如果 str 以 " 开头，说明被额外包裹，先去掉外层引号
+              let arrayStr = str;
+              if (str.trim().startsWith('"')) {
+                arrayStr = str.trim().slice(1, -1);
               }
-            } catch (e) {
-              console.log(`❌ 方法1解析失败: ${e.message}`);
+              // 提取从 [ 到匹配的 ] 的内容（贪婪匹配到最后一个 ]）
+              const arrayMatch = arrayStr.match(/^(\[[\s\S]*\])/);
+              if (arrayMatch) {
+                try {
+                  const parsed = JSON.parse(arrayMatch[1]);
+                  if (Array.isArray(parsed)) {
+                    console.log(`✅ 数组内容解析成功: ${parsed.length} 条`);
+                    return parsed;
+                  }
+                } catch (e) {
+                  console.log(`❌ 数组内容解析失败: ${e.message}`);
+                }
+              } else {
+                console.log(`❌ 未提取到数组内容`);
+              }
             }
           } else {
             console.log(`❌ 方法1未匹配`);
@@ -674,17 +687,21 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           const match2 = rawBody.match(regex2);
           if (match2) {
             console.log(`✅ 方法2匹配到: ${match2[1].slice(0, 100)}`);
-            try {
-              const str = match2[1];
-              if (str.trim().startsWith('[') || str.trim().startsWith('"')) {
-                const parsed = JSON.parse(str);
+            const str = match2[1];
+            // 提取数组部分
+            const arrayMatch = str.match(/^(\[[\s\S]*\])/);
+            if (arrayMatch) {
+              try {
+                const parsed = JSON.parse(arrayMatch[1]);
                 if (Array.isArray(parsed)) {
-                  console.log(`✅ 方法2解析成功: ${parsed.length} 条`);
+                  console.log(`✅ 方法2数组解析成功: ${parsed.length} 条`);
                   return parsed;
                 }
+              } catch (e) {
+                console.log(`❌ 方法2数组解析失败: ${e.message}`);
               }
-            } catch (e) {
-              console.log(`❌ 方法2解析失败: ${e.message}`);
+            } else {
+              console.log(`❌ 方法2未提取到数组`);
             }
           } else {
             console.log(`❌ 方法2未匹配`);
@@ -700,16 +717,17 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
             if (substr.startsWith('"')) {
               // 去掉外层引号
               const inner = substr.slice(1, -1);
-              try {
-                if (inner.trim().startsWith('[')) {
-                  const parsed = JSON.parse(inner);
+              const arrayMatch = inner.match(/^(\[[\s\S]*\])/);
+              if (arrayMatch) {
+                try {
+                  const parsed = JSON.parse(arrayMatch[1]);
                   if (Array.isArray(parsed)) {
-                    console.log(`✅ 方法3解析成功: ${parsed.length} 条`);
+                    console.log(`✅ 方法3数组解析成功: ${parsed.length} 条`);
                     return parsed;
                   }
+                } catch (e) {
+                  console.log(`❌ 方法3数组解析失败: ${e.message}`);
                 }
-              } catch (e) {
-                console.log(`❌ 方法3解析失败: ${e.message}`);
               }
             }
           } else {
