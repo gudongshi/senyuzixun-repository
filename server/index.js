@@ -664,6 +664,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           '状态': extract('状态'),
           '责任人': extract('责任人'),
           '风险等级': extract('风险等级'),
+          '所属组织': extract('所属组织'),
           '备注': extract('备注'),
           '里程碑明细': extractArray('里程碑明细'),
           source: extract('source'),
