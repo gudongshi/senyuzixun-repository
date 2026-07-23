@@ -1016,23 +1016,32 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
 
     console.log(`🔍 任务操作完成: taskId=${taskId}, tasksTableName=${tasksTableName}`);
 
-    // --- 里程碑处理（含计划进度和实际日期，使用本地时区） ---
-    // 如果里程碑是字符串，尝试解析为数组（兼容钉钉连接流的双重编码）
+    // --- 里程碑处理（兼容森宇和风控中心格式） ---
     let milestones = data['里程碑明细'];
+
+    // 如果里程碑是字符串，尝试手动解析（风控中心格式）
     if (typeof milestones === 'string') {
       console.log(`🔍 里程碑是字符串，尝试解析: ${milestones.slice(0, 100)}...`);
-      try {
-        const parsed = JSON.parse(milestones);
-        if (Array.isArray(parsed)) {
-          milestones = parsed;
-          console.log(`✅ 从字符串解析里程碑成功: ${milestones.length} 条`);
+      // 去掉外层引号和转义，提取数组内容
+      let cleanStr = milestones.replace(/^"|"$/g, '').replace(/\\/g, '');
+      const arrayMatch = cleanStr.match(/^(\[[\s\S]*\])/);
+      if (arrayMatch) {
+        try {
+          const parsed = JSON.parse(arrayMatch[1]);
+          if (Array.isArray(parsed)) {
+            milestones = parsed;
+            console.log(`✅ 手动解析里程碑成功: ${milestones.length} 条`);
+          }
+        } catch (e) {
+          console.log(`❌ 手动解析里程碑失败: ${e.message}`);
         }
-      } catch (e) {
-        console.log(`⚠️ 解析里程碑字符串失败: ${e.message}`);
+      } else {
+        console.log(`❌ 未找到数组格式`);
       }
     } else {
       console.log(`📋 里程碑类型: ${typeof milestones}，长度: ${milestones?.length || 0}`);
     }
+
     if (milestones && Array.isArray(milestones)) {
       console.log(`📋 里程碑内容: ${JSON.stringify(milestones)}`);
     }
