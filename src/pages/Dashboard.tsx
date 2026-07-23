@@ -632,6 +632,8 @@ export default function Dashboard() {
   const [highRiskTaskDrawerOpen, setHighRiskTaskDrawerOpen] = useState(false);
   const [highRiskTasks, setHighRiskTasks] = useState<HighRiskTask[]>([]);
   const [highRiskTasksLoading, setHighRiskTasksLoading] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const projectPageRef = useRef(1);
 
   // ============================================================
@@ -1448,6 +1450,13 @@ export default function Dashboard() {
     }
   };
 
+  const handlePersonTaskClick = (taskId: number) => {
+    console.log(`📋 从个人效能面板跳转到任务详情: taskId=${taskId}`);
+    setAiPanelOpen(false);
+    setSelectedTaskId(taskId);
+    setTaskDrawerOpen(true);
+  };
+
   const triggerHighRiskAIAnalysis = async (highRiskProjects: Project[]) => {
     setHighRiskAnalysisLoading(true);
     setHighRiskAIAnalysis(null);
@@ -1855,7 +1864,7 @@ export default function Dashboard() {
         </div>
 
         <div className="p-6 space-y-6">
-          <AIAnalysisContent target={selectedTarget} workloadData={workloadData} />
+          <AIAnalysisContent target={selectedTarget} workloadData={workloadData} onTaskClick={handlePersonTaskClick} />
         </div>
       </div>
 
@@ -2098,12 +2107,13 @@ export default function Dashboard() {
 // ============================================================
 // Person Analysis Component (real API data)
 // ============================================================
-function PersonAnalysis({ target }: { target: string }) {
+function PersonAnalysis({ target, onTaskClick }: { target: string; onTaskClick?: (taskId: number) => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<{
     stats: { totalTasks: number; completedTasks: number; avgProgress: number; categoryDistribution: Record<string, number>; delayedTasks: number; onTimeDeliveryRate: number };
     aiAnalysis: { summary: string; strengths: string[]; weaknesses: string[]; suggestions: string[] };
+    tasks: { id: number; taskName: string; project: string; progress: number; status: string; riskLevel: string }[];
   } | null>(null);
 
   useEffect(() => {
@@ -2146,7 +2156,7 @@ function PersonAnalysis({ target }: { target: string }) {
 
   if (!data) return null;
 
-  const { stats, aiAnalysis } = data;
+  const { stats, aiAnalysis, tasks } = data;
 
   return (
     <>
@@ -2173,6 +2183,67 @@ function PersonAnalysis({ target }: { target: string }) {
             <div className="text-xs text-slate-400 mt-1">准时交付率</div>
           </div>
         </div>
+      </div>
+
+      {/* 任务列表 */}
+      <div className="mb-6">
+        <h3 className="text-lg font-bold text-cyan-300 mb-4 flex items-center gap-2">
+          <span className="text-blue-500">◆</span> 任务列表
+        </h3>
+        {tasks && tasks.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-600/50 text-slate-400 text-xs">
+                  <th className="py-2 px-3 font-medium">任务名称</th>
+                  <th className="py-2 px-3 font-medium">所属项目</th>
+                  <th className="py-2 px-3 font-medium">当前进度</th>
+                  <th className="py-2 px-3 font-medium">状态</th>
+                  <th className="py-2 px-3 font-medium">风险等级</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((task) => (
+                  <tr
+                    key={task.id}
+                    className="border-b border-slate-700/30 hover:bg-slate-700/30 cursor-pointer transition-colors"
+                    onClick={() => onTaskClick?.(task.id)}
+                  >
+                    <td className="py-2 px-3 text-cyan-300 font-medium max-w-[200px] truncate">
+                      {task.taskName}
+                    </td>
+                    <td className="py-2 px-3 text-slate-300">{task.project || '-'}</td>
+                    <td className="py-2 px-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-300 text-xs">{task.progress}%</span>
+                        <div className="w-16 bg-slate-600/50 rounded-full h-1.5">
+                          <div
+                            className="bg-gradient-to-r from-cyan-500 to-cyan-400 h-1.5 rounded-full"
+                            style={{ width: `${Math.min(task.progress, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-0.5 rounded text-xs border ${getStatusColor(task.status)}`}>
+                        {task.status}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-0.5 rounded text-xs border ${getRiskColor(task.riskLevel)}`}>
+                        {task.riskLevel || '-'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bg-slate-700/30 border border-slate-600/30 rounded-xl p-8 text-center">
+            <p className="text-slate-400 text-sm">该用户暂无任务</p>
+          </div>
+        )}
       </div>
 
       {/* AI 综合评估 */}
@@ -2538,7 +2609,7 @@ function MonthlyTasksAnalysis() {
 // ============================================================
 // AI Analysis Content Component
 // ============================================================
-function AIAnalysisContent({ target, workloadData }: { target: string; workloadData: { loadRate: number; projectCount: number; taskCount: number; businessPersonnel: number } | null }) {
+function AIAnalysisContent({ target, workloadData, onTaskClick }: { target: string; workloadData: { loadRate: number; projectCount: number; taskCount: number; businessPersonnel: number } | null; onTaskClick?: (taskId: number) => void }) {
   const analyses: Record<string, JSX.Element> = {
     '进行中项目数': <ProjectsOverviewAnalysis />,
     '本月新增任务': <MonthlyTasksAnalysis />,
@@ -2548,7 +2619,7 @@ function AIAnalysisContent({ target, workloadData }: { target: string; workloadD
 
   // Default analysis for person names — use real API data
   if (!analyses[target]) {
-    return <PersonAnalysis target={target} />;
+    return <PersonAnalysis target={target} onTaskClick={onTaskClick} />;
   }
 
   return analyses[target];

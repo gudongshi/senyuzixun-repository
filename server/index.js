@@ -1382,7 +1382,8 @@ app.post('/api/ai/user-analysis', async (req, res) => {
             strengths: [],
             weaknesses: [],
             suggestions: []
-          }
+          },
+          tasks: []
         }
       });
     }
@@ -1432,6 +1433,17 @@ app.post('/api/ai/user-analysis', async (req, res) => {
 
     console.log(`📊 统计完成: 总任务=${totalTasks}, 已完成=${completedTasks}, 平均进度=${avgProgress}%, 延迟=${delayedTasks}, 准时率=${onTimeDeliveryRate}%`);
 
+    // 构造任务明细列表
+    const taskList = tasks.map(task => ({
+      id: task.id,
+      taskName: task['任务名称'] || '',
+      project: task['所属项目'] || '',
+      progress: parseFloat(task['当前进度(%)']) || 0,
+      status: task['状态'] || '未开始',
+      riskLevel: task['风险等级'] || ''
+    }));
+    console.log(`📋 用户 ${userName} 共有 ${taskList.length} 个任务`);
+
     // 构造 Prompt 并调用 AI
     const prompt = `你是一位项目效能分析专家。请根据以下数据，分析该员工的效能表现：
 - 总任务数：${totalTasks}
@@ -1463,7 +1475,7 @@ app.post('/api/ai/user-analysis', async (req, res) => {
       };
     }
 
-    res.json({ success: true, data: { stats, aiAnalysis } });
+    res.json({ success: true, data: { stats, aiAnalysis, tasks: taskList } });
   } catch (err) {
     console.error('❌ 用户效能分析失败:', err);
     res.status(500).json({ success: false, error: err.message });
