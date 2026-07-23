@@ -646,34 +646,37 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           return match ? match[1] : '';
         };
         const extractArray = (key) => {
-          // 先尝试匹配以 [ 开头的数组格式
-          const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
-          const match = rawBody.match(regex);
-          if (match) {
+          // 1. 首先尝试匹配数组格式（以 [ 开头）
+          const arrayRegex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
+          const arrayMatch = rawBody.match(arrayRegex);
+          if (arrayMatch) {
             try {
-              const parsed = JSON.parse(match[1]);
+              const parsed = JSON.parse(arrayMatch[1]);
               if (Array.isArray(parsed)) return parsed;
+              // 如果解析后是字符串但看起来像数组，再解析一次
               if (typeof parsed === 'string' && parsed.trim().startsWith('[')) {
-                try {
-                  const nested = JSON.parse(parsed);
-                  if (Array.isArray(nested)) return nested;
-                } catch (e) {}
+                const nested = JSON.parse(parsed);
+                if (Array.isArray(nested)) return nested;
               }
             } catch (e) {}
           }
 
-          // 如果没有匹配到数组格式，尝试匹配字符串格式（以 " 开头和结尾）
-          const stringRegex = new RegExp(`"${key}":\\s*"([^"]*)"`);
+          // 2. 如果没有匹配到数组格式，尝试匹配字符串格式（以 " 开头，可能包含转义字符）
+          // 使用正则匹配 JSON 字符串，支持转义字符
+          const stringRegex = new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`);
           const stringMatch = rawBody.match(stringRegex);
           if (stringMatch) {
             try {
               const str = stringMatch[1];
+              // 尝试解析 JSON 字符串（可能包含转义）
               if (str.trim().startsWith('[')) {
                 const parsed = JSON.parse(str);
                 if (Array.isArray(parsed)) return parsed;
               }
             } catch (e) {}
           }
+
+          // 3. 如果上述都失败，返回空数组
           return [];
         };
 
