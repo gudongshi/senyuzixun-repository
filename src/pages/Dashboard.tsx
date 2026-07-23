@@ -1,4 +1,5 @@
 import TaskList from '../components/TaskList';
+import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2 } from 'lucide-react';
@@ -166,98 +167,6 @@ function getRiskColor(level: string) {
 function formatMoney(amount: number | null) {
   if (amount === null || amount === undefined) return '-';
   return amount.toLocaleString('zh-CN');
-}
-
-// ============================================================
-// 简化版任务详情抽屉（Dashboard 专用）
-// 展示任务基本信息，不含编辑/删除
-// ============================================================
-function TaskDetailDrawerSimple({ taskId, open, onClose }: { taskId: number | null; open: boolean; onClose: () => void }) {
-  const [task, setTask] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (open && taskId) {
-      setLoading(true);
-      setTask(null);
-      fetch(`/api/tasks/${taskId}`)
-        .then(r => r.json())
-        .then(result => {
-          if (result.success) {
-            setTask(result.data);
-            console.log(`✅ 任务详情加载成功: ${result.data['任务名称']}`);
-          } else {
-            console.error(`⚠️ 任务详情加载失败: ${result.error}`);
-          }
-        })
-        .catch(err => console.error('❌ 加载任务详情失败:', err))
-        .finally(() => setLoading(false));
-    }
-  }, [open, taskId]);
-
-  if (!open) return null;
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40" onClick={onClose} />
-      <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-l-2 border-cyan-400 z-50 shadow-2xl shadow-blue-900/50 overflow-y-auto">
-        <div className="flex justify-between items-center p-6 border-b border-cyan-500/30 bg-slate-800/50 sticky top-0 backdrop-blur-md z-10">
-          <h2 className="text-xl font-bold text-cyan-400 truncate">
-            {loading ? '加载中...' : (task?.['任务名称'] || '任务详情')}
-          </h2>
-          <button onClick={onClose} className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
-            <X size={22} />
-          </button>
-        </div>
-        <div className="p-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="size-8 text-cyan-400 animate-spin" />
-            </div>
-          ) : task ? (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-sm">当前进度</span>
-                <span className="text-cyan-300 font-semibold">{task['当前进度(%)'] || 0}%</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-sm">状态</span>
-                <span className={`px-2 py-0.5 rounded text-xs border ${getStatusColor(task['状态'] || '')}`}>
-                  {task['状态'] || '未开始'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-sm">责任人</span>
-                <span className="text-slate-200">{task['责任人'] || '-'}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-sm">风险等级</span>
-                <span className={`px-2 py-0.5 rounded text-xs border ${getRiskColor(task['风险等级'] || '')}`}>
-                  {task['风险等级'] || '未评估'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-sm">所属项目</span>
-                <span className="text-slate-200">{task['所属项目'] || '-'}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-sm">计划时间</span>
-                <span className="text-slate-200">{task['计划开始时间'] || '-'} → {task['计划结束时间'] || '-'}</span>
-              </div>
-              {task['备注'] && (
-                <div>
-                  <span className="text-slate-400 text-sm">备注</span>
-                  <p className="text-slate-300 text-sm mt-1">{task['备注']}</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-20 text-slate-500">任务不存在</div>
-          )}
-        </div>
-      </div>
-    </>
-  );
 }
 
 // ============================================================
@@ -726,6 +635,7 @@ export default function Dashboard() {
   const [highRiskTasksLoading, setHighRiskTasksLoading] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [selectedTaskForDrawer, setSelectedTaskForDrawer] = useState<any>(null);
   const projectPageRef = useRef(1);
 
   // ============================================================
@@ -1542,11 +1452,28 @@ export default function Dashboard() {
     }
   };
 
-  const handlePersonTaskClick = (taskId: number) => {
+  const handleTaskListTaskClick = (task: any) => {
+    console.log(`📋 打开任务详情: ${task['任务名称']}`);
+    setSelectedTaskForDrawer(task);
+    setTaskDrawerOpen(true);
+  };
+
+  const handlePersonTaskClick = async (taskId: number) => {
     console.log(`📋 从个人效能面板跳转到任务详情: taskId=${taskId}`);
     setAiPanelOpen(false);
-    setSelectedTaskId(taskId);
-    setTaskDrawerOpen(true);
+    try {
+      const resp = await fetch(`/api/tasks/${taskId}`);
+      const result = await resp.json();
+      if (result.success) {
+        console.log(`✅ 任务详情加载成功: ${result.data['任务名称']}`);
+        setSelectedTaskForDrawer(result.data);
+        setTaskDrawerOpen(true);
+      } else {
+        console.error(`⚠️ 任务详情加载失败: ${result.error}`);
+      }
+    } catch (err) {
+      console.error('❌ 加载任务详情失败:', err);
+    }
   };
 
   const triggerHighRiskAIAnalysis = async (highRiskProjects: Project[]) => {
@@ -1923,7 +1850,7 @@ export default function Dashboard() {
 
           <div ref={gaugeChartRef} className="w-full h-56"></div>
           {/* 新增任务列表 */}
-          <TaskList />
+          <TaskList onTaskClick={handleTaskListTaskClick} />
         </section>
       </main>
 
@@ -1970,12 +1897,12 @@ export default function Dashboard() {
       />
 
       {/* ============================================================ */}
-      {/* 任务详情抽屉（从个人效能面板跳转） */}
+      {/* 任务详情抽屉（任务总表 + 个人效能面板共用） */}
       {/* ============================================================ */}
-      <TaskDetailDrawerSimple
-        taskId={selectedTaskId}
+      <TaskDetailDrawer
         open={taskDrawerOpen}
         onClose={() => setTaskDrawerOpen(false)}
+        task={selectedTaskForDrawer}
       />
 
       {/* ============================================================ */}

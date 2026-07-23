@@ -21,7 +21,7 @@ interface Task {
   created_at: string;
 }
 
-export default function TaskList() {
+export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) => void }) {
   const { tasks, loading } = useRealtimeTasks();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -33,6 +33,10 @@ export default function TaskList() {
   const { milestones: hoverMilestones } = useTaskMilestones(hoveredTask?.id || null);
 
   const handleTaskClick = (task: Task) => {
+    if (onTaskClick) {
+      onTaskClick(task);
+      return;
+    }
     setSelectedTask(task);
     setDrawerOpen(true);
   };
@@ -84,16 +88,14 @@ export default function TaskList() {
           <table className="w-full text-sm text-left text-slate-300">
             <thead className="text-xs uppercase bg-slate-700/50 text-cyan-400">
               <tr>
-                <th className="px-4 py-3">任务名称</th>
-                <th className="px-4 py-3">进度 (%)</th>
-                <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">风险等级</th>
+                <th className="px-4 py-3 w-24">任务名称</th>
+                <th className="px-4 py-3 w-20">进度 (%)</th>
+                <th className="px-4 py-3 w-32">风险等级</th>
               </tr>
             </thead>
             <tbody>
               {tasks.map((task) => {
                 const progress = task['当前进度(%)'] ?? 0;
-                const status = task['状态'] || '未开始';
                 const riskLevel = task['风险等级'] || '';
 
                 return (
@@ -104,10 +106,10 @@ export default function TaskList() {
                     onMouseEnter={(e) => handleMouseEnter(task, e)}
                     onMouseLeave={handleMouseLeave}
                   >
-                    <td className="px-4 py-2 font-medium">{task['任务名称']}</td>
+                    <td className="px-4 py-2 font-medium break-words">{task['任务名称']}</td>
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
-                        <div className="w-24 bg-slate-700 rounded-full h-2">
+                        <div className="w-16 bg-slate-700 rounded-full h-2">
                           <div
                             className="bg-cyan-400 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${progress}%` }}
@@ -115,16 +117,6 @@ export default function TaskList() {
                         </div>
                         <span>{progress}%</span>
                       </div>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`px-2 py-0.5 rounded-full text-xs ${
-                        status === '进行中' ? 'bg-blue-500/20 text-blue-300' :
-                        status === '已完成' ? 'bg-green-500/20 text-green-300' :
-                        status === '待办' ? 'bg-yellow-500/20 text-yellow-300' :
-                        'bg-gray-500/20 text-gray-300'
-                      }`}>
-                        {status}
-                      </span>
                     </td>
                     <td className="px-4 py-2">
                       <span className={`px-2 py-0.5 rounded-full text-xs ${getRiskLevelClass(riskLevel)}`}>
@@ -136,7 +128,7 @@ export default function TaskList() {
               })}
               {tasks.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-center py-6 text-slate-400">
+                  <td colSpan={3} className="text-center py-6 text-slate-400">
                     暂无任务数据，请在 AI 表格中添加任务。
                   </td>
                 </tr>
@@ -154,12 +146,14 @@ export default function TaskList() {
         position={hoverPosition}
       />
 
-      {/* 任务详情抽屉 */}
-      <TaskDetailDrawer
-        open={drawerOpen}
-        onClose={handleCloseDrawer}
-        task={selectedTask}
-      />
+      {/* 任务详情抽屉（仅当无外部 onTaskClick 时使用内部抽屉） */}
+      {!onTaskClick && (
+        <TaskDetailDrawer
+          open={drawerOpen}
+          onClose={handleCloseDrawer}
+          task={selectedTask}
+        />
+      )}
     </>
   );
 }
