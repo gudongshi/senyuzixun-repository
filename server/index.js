@@ -652,33 +652,37 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           const regex1 = new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`);
           const match1 = rawBody.match(regex1);
           if (match1) {
-            console.log(`✅ 方法1匹配到: ${match1[1].slice(0, 100)}`);
+            console.log(`✅ 方法1匹配到原始字符串: ${match1[1]}`);
             const str = match1[1];
+            console.log(`📌 原始字符串长度: ${str.length}`);
 
-            // 如果字符串包含数组内容，尝试清洗后解析
-            if (str.trim().startsWith('[') || str.trim().startsWith('"')) {
-              // 去掉外层引号（如果存在）
-              let cleanStr = str.trim();
-              if (cleanStr.startsWith('"')) {
-                cleanStr = cleanStr.slice(1, -1);
-              }
-              // 去掉转义符（针对风控中心格式）
-              cleanStr = cleanStr.replace(/\\/g, '');
-              // 提取从 [ 到匹配的 ] 的内容
-              const arrayMatch = cleanStr.match(/^(\[[\s\S]*\])/);
-              if (arrayMatch) {
-                try {
-                  const parsed = JSON.parse(arrayMatch[1]);
-                  if (Array.isArray(parsed)) {
-                    console.log(`✅ 清洗后解析成功: ${parsed.length} 条`);
-                    return parsed;
-                  }
-                } catch (e) {
-                  console.log(`❌ 清洗后解析失败: ${e.message}`);
+            // 清洗步骤
+            let cleanStr = str.trim();
+            console.log(`📌 trim后: ${cleanStr}`);
+            if (cleanStr.startsWith('"')) {
+              cleanStr = cleanStr.slice(1, -1);
+              console.log(`📌 去掉外层引号后: ${cleanStr}`);
+            }
+            cleanStr = cleanStr.replace(/\\/g, '');
+            console.log(`📌 去掉转义符后: ${cleanStr}`);
+
+            // 提取数组内容
+            const arrayMatch = cleanStr.match(/^(\[[\s\S]*\])/);
+            if (arrayMatch) {
+              console.log(`📌 提取的数组内容: ${arrayMatch[1]}`);
+              try {
+                const parsed = JSON.parse(arrayMatch[1]);
+                if (Array.isArray(parsed)) {
+                  console.log(`✅ 清洗后解析成功: ${parsed.length} 条`);
+                  return parsed;
+                } else {
+                  console.log(`⚠️ 解析结果不是数组: ${typeof parsed}`);
                 }
-              } else {
-                console.log(`❌ 未提取到数组内容`);
+              } catch (e) {
+                console.log(`❌ 清洗后解析失败: ${e.message}`);
               }
+            } else {
+              console.log(`❌ 未提取到数组内容`);
             }
           } else {
             console.log(`❌ 方法1未匹配`);
