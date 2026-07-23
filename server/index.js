@@ -2328,6 +2328,20 @@ app.get('/api/tasks/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, error: '任务不存在' });
     }
 
+    // 获取里程碑（task_milestones 是公共表，通过 task_id 关联）
+    const { data: milestones, error: milestonesError } = await supabase
+      .from('task_milestones')
+      .select('*')
+      .eq('task_id', task.id)
+      .order('planned_date', { ascending: true });
+
+    if (milestonesError) {
+      console.warn(`⚠️ 获取里程碑失败: ${milestonesError.message}`);
+    } else {
+      task.milestones = milestones || [];
+      console.log(`✅ 里程碑 ${milestones?.length || 0} 条`);
+    }
+
     console.log(`✅ 任务详情: ${task['任务名称']}`);
     res.json({ success: true, data: task });
   } catch (err) {
