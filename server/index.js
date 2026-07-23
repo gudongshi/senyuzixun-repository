@@ -646,18 +646,31 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           return match ? match[1] : '';
         };
         const extractArray = (key) => {
+          // 先尝试匹配以 [ 开头的数组格式
           const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
           const match = rawBody.match(regex);
           if (match) {
             try {
               const parsed = JSON.parse(match[1]);
               if (Array.isArray(parsed)) return parsed;
-              // 如果解析结果是字符串但看起来像 JSON 数组，再解析一次（处理双重编码）
               if (typeof parsed === 'string' && parsed.trim().startsWith('[')) {
                 try {
                   const nested = JSON.parse(parsed);
                   if (Array.isArray(nested)) return nested;
                 } catch (e) {}
+              }
+            } catch (e) {}
+          }
+
+          // 如果没有匹配到数组格式，尝试匹配字符串格式（以 " 开头和结尾）
+          const stringRegex = new RegExp(`"${key}":\\s*"([^"]*)"`);
+          const stringMatch = rawBody.match(stringRegex);
+          if (stringMatch) {
+            try {
+              const str = stringMatch[1];
+              if (str.trim().startsWith('[')) {
+                const parsed = JSON.parse(str);
+                if (Array.isArray(parsed)) return parsed;
               }
             } catch (e) {}
           }
