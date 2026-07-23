@@ -649,7 +649,17 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           const regex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
           const match = rawBody.match(regex);
           if (match) {
-            try { return JSON.parse(match[1]); } catch (e) { return []; }
+            try {
+              const parsed = JSON.parse(match[1]);
+              if (Array.isArray(parsed)) return parsed;
+              // 如果解析结果是字符串但看起来像 JSON 数组，再解析一次（处理双重编码）
+              if (typeof parsed === 'string' && parsed.trim().startsWith('[')) {
+                try {
+                  const nested = JSON.parse(parsed);
+                  if (Array.isArray(nested)) return nested;
+                } catch (e) {}
+              }
+            } catch (e) {}
           }
           return [];
         };
