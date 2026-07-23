@@ -31,7 +31,9 @@ interface FilterOptions {
 }
 
 export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) => void }) {
-  const { tasks: realtimeTasks, loading: realtimeLoading } = useRealtimeTasks();
+  const [organization, setOrganization] = useState<'森宇' | '风控中心'>('森宇');
+  const tableName = organization === '风控中心' ? 'tasks_center' : 'tasks';
+  const { tasks: realtimeTasks, loading: realtimeLoading } = useRealtimeTasks(tableName);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -59,7 +61,6 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     status: [],
     riskLevel: [],
   });
-  const [organization, setOrganization] = useState<'森宇' | '风控中心'>('森宇');
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
   const [filteredLoading, setFilteredLoading] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 0 });
@@ -76,8 +77,8 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     filters.endDate
   );
 
-  // 合并后的任务列表（非森宇组织也走 API 数据）
-  const useApiData = hasFilters || organization !== '森宇';
+  // 只有存在筛选条件时才使用 API 数据，否则使用实时数据（支持双表 Realtime）
+  const useApiData = hasFilters;
   const tasks = useApiData ? filteredTasks : realtimeTasks;
   const loading = useApiData ? filteredLoading : realtimeLoading;
 
@@ -167,9 +168,9 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     }
   }, [filters, organization, pagination.page]);
 
-  // 筛选条件或组织变化时自动请求
+  // 筛选条件变化时自动请求
   useEffect(() => {
-    if (hasFilters || organization !== '森宇') {
+    if (hasFilters) {
       // 重置到第 1 页
       setPagination(prev => ({ ...prev, page: 1 }));
       fetchFilteredTasks();
@@ -183,12 +184,11 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     filters.project,
     filters.startDate,
     filters.endDate,
-    organization,
   ]);
 
   // 分页变化时请求
   useEffect(() => {
-    if ((hasFilters || organization !== '森宇') && pagination.page > 1) {
+    if (hasFilters && pagination.page > 1) {
       fetchFilteredTasks();
     }
   }, [pagination.page]);
@@ -367,17 +367,21 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
             </button>
           </div>
 
-          {/* 筛选结果提示 */}
-          {useApiData && (
-            <div className="text-xs text-cyan-400 flex items-center gap-2">
-              <span>📋 {organization} · {pagination.total} 条任务</span>
-              {pagination.totalPages > 1 && (
-                <span className="text-slate-500">
-                  | 第 {pagination.page}/{pagination.totalPages} 页
-                </span>
-              )}
-            </div>
-          )}
+          {/* 任务统计提示 */}
+          <div className="text-xs text-cyan-400 flex items-center gap-2">
+            {useApiData ? (
+              <>
+                <span>📋 {organization} · 筛选结果: {pagination.total} 条</span>
+                {pagination.totalPages > 1 && (
+                  <span className="text-slate-500">
+                    | 第 {pagination.page}/{pagination.totalPages} 页
+                  </span>
+                )}
+              </>
+            ) : (
+              <span>📋 {organization} · {tasks.length} 条任务（实时同步）</span>
+            )}
+          </div>
         </div>
 
         {/* ============================================================ */}
