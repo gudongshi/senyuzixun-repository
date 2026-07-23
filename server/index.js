@@ -646,29 +646,11 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           return match ? match[1] : '';
         };
         const extractArray = (key) => {
-          // 1. 首先尝试匹配数组格式（以 [ 开头）
-          const arrayRegex = new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`);
-          const arrayMatch = rawBody.match(arrayRegex);
-          if (arrayMatch) {
-            try {
-              const parsed = JSON.parse(arrayMatch[1]);
-              if (Array.isArray(parsed)) return parsed;
-              // 如果解析后是字符串但看起来像数组，再解析一次
-              if (typeof parsed === 'string' && parsed.trim().startsWith('[')) {
-                const nested = JSON.parse(parsed);
-                if (Array.isArray(nested)) return nested;
-              }
-            } catch (e) {}
-          }
-
-          // 2. 如果没有匹配到数组格式，尝试匹配字符串格式（以 " 开头，可能包含转义字符）
-          // 使用正则匹配 JSON 字符串，支持转义字符
-          const stringRegex = new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`);
-          const stringMatch = rawBody.match(stringRegex);
+          // 方法1：尝试从 rawBody 中查找 JSON 字符串值（可能包含转义字符）
+          const stringMatch = rawBody.match(new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`));
           if (stringMatch) {
             try {
               const str = stringMatch[1];
-              // 尝试解析 JSON 字符串（可能包含转义）
               if (str.trim().startsWith('[')) {
                 const parsed = JSON.parse(str);
                 if (Array.isArray(parsed)) return parsed;
@@ -676,7 +658,31 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
             } catch (e) {}
           }
 
-          // 3. 如果上述都失败，返回空数组
+          // 方法2：尝试匹配数组格式（以 [ 开头）
+          const arrayMatch = rawBody.match(new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`));
+          if (arrayMatch) {
+            try {
+              const parsed = JSON.parse(arrayMatch[1]);
+              if (Array.isArray(parsed)) return parsed;
+              if (typeof parsed === 'string' && parsed.trim().startsWith('[')) {
+                const nested = JSON.parse(parsed);
+                if (Array.isArray(nested)) return nested;
+              }
+            } catch (e) {}
+          }
+
+          // 方法3：尝试在 rawBody 中查找 key 后面的所有内容（直到字段结束）
+          const fallbackMatch = rawBody.match(new RegExp(`"${key}":\\s*"([^"]+)"`));
+          if (fallbackMatch) {
+            try {
+              const str = fallbackMatch[1];
+              if (str.trim().startsWith('[') || str.trim().startsWith('"')) {
+                const parsed = JSON.parse(str);
+                if (Array.isArray(parsed)) return parsed;
+              }
+            } catch (e) {}
+          }
+
           return [];
         };
 
