@@ -655,24 +655,26 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
             console.log(`✅ 方法1匹配到: ${match1[1].slice(0, 100)}`);
             const str = match1[1];
 
-            // 如果字符串以 [ 开头或包含数组内容，尝试提取数组部分
+            // 如果字符串包含数组内容，尝试清洗后解析
             if (str.trim().startsWith('[') || str.trim().startsWith('"')) {
-              // 如果 str 以 " 开头，说明被额外包裹，先去掉外层引号
-              let arrayStr = str;
-              if (str.trim().startsWith('"')) {
-                arrayStr = str.trim().slice(1, -1);
+              // 去掉外层引号（如果存在）
+              let cleanStr = str.trim();
+              if (cleanStr.startsWith('"')) {
+                cleanStr = cleanStr.slice(1, -1);
               }
-              // 提取从 [ 到匹配的 ] 的内容（贪婪匹配到最后一个 ]）
-              const arrayMatch = arrayStr.match(/^(\[[\s\S]*\])/);
+              // 去掉转义符（针对风控中心格式）
+              cleanStr = cleanStr.replace(/\\/g, '');
+              // 提取从 [ 到匹配的 ] 的内容
+              const arrayMatch = cleanStr.match(/^(\[[\s\S]*\])/);
               if (arrayMatch) {
                 try {
                   const parsed = JSON.parse(arrayMatch[1]);
                   if (Array.isArray(parsed)) {
-                    console.log(`✅ 数组内容解析成功: ${parsed.length} 条`);
+                    console.log(`✅ 清洗后解析成功: ${parsed.length} 条`);
                     return parsed;
                   }
                 } catch (e) {
-                  console.log(`❌ 数组内容解析失败: ${e.message}`);
+                  console.log(`❌ 清洗后解析失败: ${e.message}`);
                 }
               } else {
                 console.log(`❌ 未提取到数组内容`);
