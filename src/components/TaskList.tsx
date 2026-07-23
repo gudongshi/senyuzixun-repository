@@ -193,6 +193,15 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     }
   }, [pagination.page]);
 
+  // 组织切换时，主动刷新数据（非森宇组织通过 API 刷新）
+  useEffect(() => {
+    if (organization !== '森宇') {
+      console.log(`🔄 组织切换为 ${organization}，主动刷新数据`);
+      setPagination(prev => ({ ...prev, page: 1 }));
+      fetchFilteredTasks();
+    }
+  }, [organization]);
+
   // ---- 筛选控件变更处理 ----
   const handleFilterChange = (field: string, value: string) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -243,7 +252,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
             <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
             任务总表（实时同步）
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             {/* 组织切换 */}
             <select
               value={organization}
@@ -268,7 +277,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
         {/* ============================================================ */}
         {/* 筛选面板 */}
         {/* ============================================================ */}
-        <div className="mb-4 space-y-2">
+        <div className="mb-4 space-y-2 mt-4">
           {/* 筛选控件行 */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* 任务名称搜索 */}
