@@ -2166,6 +2166,136 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// GET /api/tasks - 获取任务列表（支持多条件筛选 + 分页）
+// ============================================================
+app.get('/api/tasks', authMiddleware, async (req, res) => {
+  try {
+    const {
+      search, status, riskLevel, responsible, category, project,
+      startDate, endDate, organization, page, limit
+    } = req.query;
+
+    const filters = { search, status, riskLevel, responsible, category, project, startDate, endDate };
+    const org = organization || '森宇';
+    const tableName = org === '风控中心' ? 'tasks_center' : 'tasks';
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    console.log(`📋 GET /api/tasks - 组织: ${org}, 筛选条件: ${JSON.stringify(filters)}, 分页: page=${pageNum}, limit=${limitNum}`);
+
+    // 构建查询
+    let query = supabase.from(tableName).select('*', { count: 'exact' });
+
+    // 关键词搜索
+    if (search) {
+      query = query.ilike('任务名称', `%${search}%`);
+    }
+
+    // 状态（支持逗号分隔多个）
+    if (status) {
+      const statusArr = status.split(',').map(s => s.trim()).filter(Boolean);
+      if (statusArr.length > 0) query = query.in('状态', statusArr);
+    }
+
+    // 风险等级（支持逗号分隔多个）
+    if (riskLevel) {
+      const riskArr = riskLevel.split(',').map(s => s.trim()).filter(Boolean);
+      if (riskArr.length > 0) query = query.in('风险等级', riskArr);
+    }
+
+    // 责任人
+    if (responsible) {
+      query = query.eq('责任人', responsible);
+    }
+
+    // 任务分类
+    if (category) {
+      query = query.eq('任务分类', category);
+    }
+
+    // 所属项目
+    if (project) {
+      query = query.eq('所属项目', project);
+    }
+
+    // 计划结束时间范围
+    if (startDate) {
+      query = query.gte('计划结束时间', startDate);
+    }
+    if (endDate) {
+      query = query.lte('计划结束时间', endDate);
+    }
+
+    // 排序 + 分页
+    query = query.order('created_at', { ascending: false }).range(offset, offset + limitNum - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    console.log(`✅ 任务列表返回 ${data.length} 条，共 ${count} 条`);
+    res.json({
+      success: true,
+      data,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: count,
+        totalPages: Math.ceil(count / limitNum)
+      }
+    });
+  } catch (err) {
+    console.error('❌ 获取任务列表失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// GET /api/tasks/options - 动态提取下拉选项
+// ============================================================
+app.get('/api/tasks/options', authMiddleware, async (req, res) => {
+  try {
+    const organization = req.query.organization || '森宇';
+    const tableName = organization === '风控中心' ? 'tasks_center' : 'tasks';
+
+    console.log(`📋 GET /api/tasks/options - 组织: ${organization}，目标表: ${tableName}`);
+
+    // 并行查询各字段的去重值
+    const fields = ['责任人', '任务分类', '所属项目', '状态', '风险等级'];
+    const results = await Promise.all(
+      fields.map(field =>
+        supabase.from(tableName).select(field).not(field, 'is', null)
+      )
+    );
+
+    const extractValues = (result, field) => {
+      if (result.error) {
+        console.warn(`⚠️ 查询 ${field} 去重值失败:`, result.error.message);
+        return [];
+      }
+      const values = [...new Set(result.data.map(row => row[field]).filter(Boolean))];
+      return values.sort();
+    };
+
+    const options = {
+      responsible: extractValues(results[0], '责任人'),
+      category: extractValues(results[1], '任务分类'),
+      project: extractValues(results[2], '所属项目'),
+      status: extractValues(results[3], '状态'),
+      riskLevel: extractValues(results[4], '风险等级'),
+    };
+
+    console.log(`✅ 下拉选项返回: 责任人 ${options.responsible.length} 个, 分类 ${options.category.length} 个, 项目 ${options.project.length} 个`);
+
+    res.json({ success: true, data: options });
+  } catch (err) {
+    console.error('❌ 获取下拉选项失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // GET /api/tasks/:id - 获取单个任务详情
 // ============================================================
 app.get('/api/tasks/:id', authMiddleware, async (req, res) => {

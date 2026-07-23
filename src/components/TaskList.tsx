@@ -1,6 +1,6 @@
 import { useRealtimeTasks } from '../hooks/useRealtimeTasks';
 import { useTaskMilestones } from '../hooks/useTaskMilestones';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import HoverChartCard from './HoverChartCard';
 
@@ -21,16 +21,63 @@ interface Task {
   created_at: string;
 }
 
+interface FilterOptions {
+  responsible: string[];
+  category: string[];
+  project: string[];
+  status: string[];
+  riskLevel: string[];
+}
+
 export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) => void }) {
-  const { tasks, loading } = useRealtimeTasks();
+  const { tasks: realtimeTasks, loading: realtimeLoading } = useRealtimeTasks();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  
+
   const [hoveredTask, setHoveredTask] = useState<Task | null>(null);
   const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
   const [hoverTimer, setHoverTimer] = useState<NodeJS.Timeout | null>(null);
-  
+
   const { milestones: hoverMilestones } = useTaskMilestones(hoveredTask?.id || null);
+
+  // ---- 筛选状态 ----
+  const [filters, setFilters] = useState({
+    search: '',
+    status: '',
+    riskLevel: '',
+    responsible: '',
+    category: '',
+    project: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    responsible: [],
+    category: [],
+    project: [],
+    status: [],
+    riskLevel: [],
+  });
+  const [organization, setOrganization] = useState<'森宇' | '风控中心'>('森宇');
+  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
+  const [filteredLoading, setFilteredLoading] = useState(false);
+  const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 0 });
+
+  // 判断是否有筛选条件
+  const hasFilters = !!(
+    filters.search ||
+    filters.status ||
+    filters.riskLevel ||
+    filters.responsible ||
+    filters.category ||
+    filters.project ||
+    filters.startDate ||
+    filters.endDate
+  );
+
+  // 合并后的任务列表
+  const tasks = hasFilters ? filteredTasks : realtimeTasks;
+  const loading = hasFilters ? filteredLoading : realtimeLoading;
 
   const handleTaskClick = (task: Task) => {
     if (onTaskClick) {
@@ -62,6 +109,108 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     setHoveredTask(null);
   };
 
+  // ---- 动态提取下拉选项 ----
+  const fetchFilterOptions = useCallback(async (org: string) => {
+    try {
+      console.log(`📋 获取筛选选项: organization=${org}`);
+      const resp = await fetch(`/api/tasks/options?organization=${encodeURIComponent(org)}`);
+      const result = await resp.json();
+      if (result.success) {
+        setFilterOptions(result.data);
+        console.log(`✅ 下拉选项加载成功: 责任人 ${result.data.responsible.length} 个, 分类 ${result.data.category.length} 个`);
+      }
+    } catch (err) {
+      console.error('❌ 获取下拉选项失败:', err);
+    }
+  }, []);
+
+  // 组件挂载 + 组织切换时获取下拉选项
+  useEffect(() => {
+    fetchFilterOptions(organization);
+  }, [organization, fetchFilterOptions]);
+
+  // ---- 筛选数据请求 ----
+  const fetchFilteredTasks = useCallback(async () => {
+    setFilteredLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('organization', organization);
+      if (filters.search) params.set('search', filters.search);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.riskLevel) params.set('riskLevel', filters.riskLevel);
+      if (filters.responsible) params.set('responsible', filters.responsible);
+      if (filters.category) params.set('category', filters.category);
+      if (filters.project) params.set('project', filters.project);
+      if (filters.startDate) params.set('startDate', filters.startDate);
+      if (filters.endDate) params.set('endDate', filters.endDate);
+      params.set('page', String(pagination.page));
+      params.set('limit', '20');
+
+      console.log(`📋 筛选任务: organization=${organization}`, filters);
+      const resp = await fetch(`/api/tasks?${params.toString()}`);
+      const result = await resp.json();
+      if (result.success) {
+        setFilteredTasks(result.data);
+        setPagination(prev => ({
+          ...prev,
+          total: result.pagination.total,
+          totalPages: result.pagination.totalPages,
+        }));
+        console.log(`✅ 筛选结果: ${result.data.length} 条，共 ${result.pagination.total} 条`);
+      }
+    } catch (err) {
+      console.error('❌ 筛选任务失败:', err);
+    } finally {
+      setFilteredLoading(false);
+    }
+  }, [filters, organization, pagination.page]);
+
+  // 筛选条件变化时自动请求
+  useEffect(() => {
+    if (hasFilters) {
+      // 重置到第 1 页
+      setPagination(prev => ({ ...prev, page: 1 }));
+      fetchFilteredTasks();
+    }
+  }, [
+    filters.search,
+    filters.status,
+    filters.riskLevel,
+    filters.responsible,
+    filters.category,
+    filters.project,
+    filters.startDate,
+    filters.endDate,
+    organization,
+  ]);
+
+  // 分页变化时请求
+  useEffect(() => {
+    if (hasFilters && pagination.page > 1) {
+      fetchFilteredTasks();
+    }
+  }, [pagination.page]);
+
+  // ---- 筛选控件变更处理 ----
+  const handleFilterChange = (field: string, value: string) => {
+    setFilters(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleResetFilters = () => {
+    console.log('🔄 重置筛选条件');
+    setFilters({
+      search: '',
+      status: '',
+      riskLevel: '',
+      responsible: '',
+      category: '',
+      project: '',
+      startDate: '',
+      endDate: '',
+    });
+    setPagination({ page: 1, total: 0, totalPages: 0 });
+  };
+
   if (loading && tasks.length === 0) {
     return <div className="text-center py-8 text-slate-400">加载任务中...</div>;
   }
@@ -84,6 +233,135 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
           <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
           任务总表（实时同步）
         </h3>
+
+        {/* ============================================================ */}
+        {/* 筛选面板 */}
+        {/* ============================================================ */}
+        <div className="mb-4 space-y-2">
+          {/* 第一行：组织切换 + 搜索框 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 组织切换 */}
+            <select
+              value={organization}
+              onChange={(e) => setOrganization(e.target.value as '森宇' | '风控中心')}
+              className="bg-slate-700 border border-blue-800/50 text-cyan-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+            >
+              <option value="森宇">森宇</option>
+              <option value="风控中心">风控中心</option>
+            </select>
+
+            {/* 任务名称搜索 */}
+            <input
+              type="text"
+              placeholder="🔍 任务名称..."
+              value={filters.search}
+              onChange={(e) => handleFilterChange('search', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-200 text-xs rounded-lg px-3 py-1.5 w-40 focus:outline-none focus:border-cyan-400 transition-colors placeholder-slate-500"
+            />
+
+            {/* 状态下拉 */}
+            <select
+              value={filters.status}
+              onChange={(e) => handleFilterChange('status', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+            >
+              <option value="">全部状态</option>
+              {filterOptions.status.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+
+            {/* 风险等级下拉 */}
+            <select
+              value={filters.riskLevel}
+              onChange={(e) => handleFilterChange('riskLevel', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+            >
+              <option value="">全部风险</option>
+              {filterOptions.riskLevel.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+
+            {/* 责任人下拉 */}
+            <select
+              value={filters.responsible}
+              onChange={(e) => handleFilterChange('responsible', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors max-w-[120px]"
+            >
+              <option value="">全部责任人</option>
+              {filterOptions.responsible.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+
+            {/* 任务分类下拉 */}
+            <select
+              value={filters.category}
+              onChange={(e) => handleFilterChange('category', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors max-w-[120px]"
+            >
+              <option value="">全部分类</option>
+              {filterOptions.category.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+
+            {/* 所属项目下拉 */}
+            <select
+              value={filters.project}
+              onChange={(e) => handleFilterChange('project', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors max-w-[120px]"
+            >
+              <option value="">全部项目</option>
+              {filterOptions.project.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+
+            {/* 开始日期 */}
+            <input
+              type="date"
+              value={filters.startDate}
+              onChange={(e) => handleFilterChange('startDate', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+              title="计划结束时间起始"
+            />
+
+            {/* 结束日期 */}
+            <input
+              type="date"
+              value={filters.endDate}
+              onChange={(e) => handleFilterChange('endDate', e.target.value)}
+              className="bg-slate-700 border border-blue-800/50 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+              title="计划结束时间截止"
+            />
+
+            {/* 重置按钮 */}
+            <button
+              onClick={handleResetFilters}
+              className="bg-slate-700 border border-red-800/40 text-red-400 text-xs rounded-lg px-3 py-1.5 hover:bg-red-900/20 hover:border-red-500/50 transition-all"
+            >
+              🔄 重置
+            </button>
+          </div>
+
+          {/* 筛选结果提示 */}
+          {hasFilters && (
+            <div className="text-xs text-cyan-400 flex items-center gap-2">
+              <span>📋 筛选结果: {pagination.total} 条</span>
+              {pagination.totalPages > 1 && (
+                <span className="text-slate-500">
+                  | 第 {pagination.page}/{pagination.totalPages} 页
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ============================================================ */}
+        {/* 任务表格 */}
+        {/* ============================================================ */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left text-slate-300">
             <thead className="text-xs uppercase bg-slate-700/50 text-cyan-400">
@@ -129,7 +407,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
               {tasks.length === 0 && (
                 <tr>
                   <td colSpan={3} className="text-center py-6 text-slate-400">
-                    暂无任务数据，请在 AI 表格中添加任务。
+                    {hasFilters ? '没有匹配的任务，请调整筛选条件' : '暂无任务数据，请在 AI 表格中添加任务。'}
                   </td>
                 </tr>
               )}
