@@ -656,6 +656,44 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
             const str = match1[1];
             console.log(`📌 原始字符串长度: ${str.length}`);
 
+            // 如果匹配到的字符串很短，说明正则提前截断了，改用字符串查找方式
+            if (str.length < 10) {
+              console.log(`📌 匹配到的字符串太短 (${str.length})，改用字符串查找方式`);
+              // 在 rawBody 中查找 key 的完整值
+              const startIndex = rawBody.indexOf(`"${key}"`);
+              if (startIndex !== -1) {
+                const valueStart = rawBody.indexOf(':', startIndex) + 1;
+                // 从 valueStart 开始，查找匹配的 } 或后面的字段结束
+                // 简单方式：查找最近的一个 }（假设里程碑是数组）
+                const braceStart = rawBody.indexOf('[', valueStart);
+                if (braceStart !== -1) {
+                  // 从 braceStart 开始，匹配到最后一个 ]
+                  let depth = 0;
+                  let braceEnd = -1;
+                  for (let i = braceStart; i < rawBody.length; i++) {
+                    if (rawBody[i] === '[') depth++;
+                    else if (rawBody[i] === ']') {
+                      depth--;
+                      if (depth === 0) { braceEnd = i; break; }
+                    }
+                  }
+                  if (braceEnd !== -1) {
+                    const arrayStr = rawBody.substring(braceStart, braceEnd + 1);
+                    console.log(`📌 字符串查找提取到: ${arrayStr}`);
+                    try {
+                      const parsed = JSON.parse(arrayStr);
+                      if (Array.isArray(parsed)) {
+                        console.log(`✅ 字符串查找解析成功: ${parsed.length} 条`);
+                        return parsed;
+                      }
+                    } catch (e) {
+                      console.log(`❌ 字符串查找解析失败: ${e.message}`);
+                    }
+                  }
+                }
+              }
+            }
+
             // 清洗步骤
             let cleanStr = str.trim();
             console.log(`📌 trim后: ${cleanStr}`);
