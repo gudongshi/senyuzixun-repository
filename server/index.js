@@ -930,8 +930,14 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    console.log(`🔍 任务操作完成: taskId=${taskId}, tasksTableName=${tasksTableName}`);
+
     // --- 里程碑处理（含计划进度和实际日期，使用本地时区） ---
     const milestones = data['里程碑明细'];
+    console.log(`🔍 里程碑数据检查: taskId=${taskId}, milestones类型=${typeof milestones}, 是否为数组=${Array.isArray(milestones)}, 长度=${milestones?.length}`);
+    if (milestones && Array.isArray(milestones)) {
+      console.log(`📋 里程碑内容: ${JSON.stringify(milestones)}`);
+    }
     if (milestones && Array.isArray(milestones) && taskId) {
       await supabase.from('task_milestones').delete().eq('task_id', taskId);
 
