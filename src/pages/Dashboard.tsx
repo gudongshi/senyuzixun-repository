@@ -1514,7 +1514,7 @@ export default function Dashboard() {
             onError={(e) => (e.currentTarget.style.display = 'none')}
           />
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-700 to-cyan-400 bg-clip-text text-transparent">
-            森宇集团·项目作战指挥大屏
+            森宇集团·项目作战管控指挥大屏
           </h1>
         </div>
         <div className="text-cyan-400 text-lg font-medium tracking-wider drop-shadow-lg">
