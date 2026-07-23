@@ -202,6 +202,22 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     }
   }, [organization]);
 
+  // 定时轮询兜底（仅风控中心 + 无筛选条件时生效）
+  useEffect(() => {
+    if (organization !== '风控中心') return;
+    if (hasFilters) return;
+
+    console.log('🔄 启动风控中心定时轮询 (10s)');
+    const interval = setInterval(() => {
+      fetchFilteredTasks();
+    }, 10000);
+
+    return () => {
+      console.log('🔄 停止风控中心定时轮询');
+      clearInterval(interval);
+    };
+  }, [organization, hasFilters]);
+
   // ---- 筛选控件变更处理 ----
   const handleFilterChange = (field: string, value: string) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -252,7 +268,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
             <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
             任务总表（实时同步）
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             {/* 组织切换 */}
             <select
               value={organization}
