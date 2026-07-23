@@ -216,7 +216,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
       console.log('🔄 停止风控中心定时轮询');
       clearInterval(interval);
     };
-  }, [organization, hasFilters]);
+  }, [organization, hasFilters, fetchFilteredTasks]);
 
   // ---- 筛选控件变更处理 ----
   const handleFilterChange = (field: string, value: string) => {
@@ -240,9 +240,8 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
 
   const handleRefresh = () => {
     console.log('🔄 手动刷新任务列表');
-    if (useApiData) {
-      fetchFilteredTasks();
-    }
+    setPagination(prev => ({ ...prev, page: 1 }));
+    fetchFilteredTasks();
   };
 
   if (loading && tasks.length === 0) {
