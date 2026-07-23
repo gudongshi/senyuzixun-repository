@@ -646,43 +646,77 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           return match ? match[1] : '';
         };
         const extractArray = (key) => {
-          // 方法1：尝试从 rawBody 中查找 JSON 字符串值（可能包含转义字符）
-          const stringMatch = rawBody.match(new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`));
-          if (stringMatch) {
+          console.log(`🔍 extractArray 开始: key=${key}`);
+
+          // 方法1：直接查找 key 的完整值（含外层引号）
+          const regex1 = new RegExp(`"${key}":\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+          const match1 = rawBody.match(regex1);
+          if (match1) {
+            console.log(`✅ 方法1匹配到: ${match1[1].slice(0, 100)}`);
             try {
-              const str = stringMatch[1];
+              const str = match1[1];
               if (str.trim().startsWith('[')) {
                 const parsed = JSON.parse(str);
-                if (Array.isArray(parsed)) return parsed;
+                if (Array.isArray(parsed)) {
+                  console.log(`✅ 方法1解析成功: ${parsed.length} 条`);
+                  return parsed;
+                }
               }
-            } catch (e) {}
+            } catch (e) {
+              console.log(`❌ 方法1解析失败: ${e.message}`);
+            }
+          } else {
+            console.log(`❌ 方法1未匹配`);
           }
 
-          // 方法2：尝试匹配数组格式（以 [ 开头）
-          const arrayMatch = rawBody.match(new RegExp(`"${key}":\\s*(\\[[\\s\\S]*?\\])`));
-          if (arrayMatch) {
+          // 方法2：查找 key 后面的内容，直到下一个字段
+          const regex2 = new RegExp(`"${key}":\\s*"([^"]+)"`);
+          const match2 = rawBody.match(regex2);
+          if (match2) {
+            console.log(`✅ 方法2匹配到: ${match2[1].slice(0, 100)}`);
             try {
-              const parsed = JSON.parse(arrayMatch[1]);
-              if (Array.isArray(parsed)) return parsed;
-              if (typeof parsed === 'string' && parsed.trim().startsWith('[')) {
-                const nested = JSON.parse(parsed);
-                if (Array.isArray(nested)) return nested;
-              }
-            } catch (e) {}
-          }
-
-          // 方法3：尝试在 rawBody 中查找 key 后面的所有内容（直到字段结束）
-          const fallbackMatch = rawBody.match(new RegExp(`"${key}":\\s*"([^"]+)"`));
-          if (fallbackMatch) {
-            try {
-              const str = fallbackMatch[1];
+              const str = match2[1];
               if (str.trim().startsWith('[') || str.trim().startsWith('"')) {
                 const parsed = JSON.parse(str);
-                if (Array.isArray(parsed)) return parsed;
+                if (Array.isArray(parsed)) {
+                  console.log(`✅ 方法2解析成功: ${parsed.length} 条`);
+                  return parsed;
+                }
               }
-            } catch (e) {}
+            } catch (e) {
+              console.log(`❌ 方法2解析失败: ${e.message}`);
+            }
+          } else {
+            console.log(`❌ 方法2未匹配`);
           }
 
+          // 方法3：尝试直接提取 rawBody 中 key 后面的所有内容（直到字段结束）
+          const start = rawBody.indexOf(`"${key}"`);
+          if (start !== -1) {
+            const valueStart = rawBody.indexOf(':', start) + 1;
+            const end = rawBody.indexOf('}', valueStart);
+            const substr = rawBody.substring(valueStart, end).trim();
+            console.log(`✅ 方法3提取: ${substr.slice(0, 100)}`);
+            if (substr.startsWith('"')) {
+              // 去掉外层引号
+              const inner = substr.slice(1, -1);
+              try {
+                if (inner.trim().startsWith('[')) {
+                  const parsed = JSON.parse(inner);
+                  if (Array.isArray(parsed)) {
+                    console.log(`✅ 方法3解析成功: ${parsed.length} 条`);
+                    return parsed;
+                  }
+                }
+              } catch (e) {
+                console.log(`❌ 方法3解析失败: ${e.message}`);
+              }
+            }
+          } else {
+            console.log(`❌ 方法3未找到 key`);
+          }
+
+          console.log(`❌ extractArray 最终返回空数组`);
           return [];
         };
 
