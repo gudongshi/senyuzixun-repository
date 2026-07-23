@@ -2166,6 +2166,47 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// GET /api/tasks/:id - 获取单个任务详情
+// ============================================================
+app.get('/api/tasks/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 GET /api/tasks/${id}`);
+
+    // 先查森宇表
+    let { data: task, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    // 如果森宇表没找到，查风控中心表
+    if (!task) {
+      const { data: task2, error: error2 } = await supabase
+        .from('tasks_center')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error2) throw error2;
+      task = task2;
+    }
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: '任务不存在' });
+    }
+
+    console.log(`✅ 任务详情: ${task['任务名称']}`);
+    res.json({ success: true, data: task });
+  } catch (err) {
+    console.error('❌ 获取任务详情失败:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // POST /api/projects - 创建项目
 // ============================================================
 app.post('/api/projects', authMiddleware, async (req, res) => {
