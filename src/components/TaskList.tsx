@@ -75,9 +75,10 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     filters.endDate
   );
 
-  // 合并后的任务列表
-  const tasks = hasFilters ? filteredTasks : realtimeTasks;
-  const loading = hasFilters ? filteredLoading : realtimeLoading;
+  // 合并后的任务列表（非森宇组织也走 API 数据）
+  const useApiData = hasFilters || organization !== '森宇';
+  const tasks = useApiData ? filteredTasks : realtimeTasks;
+  const loading = useApiData ? filteredLoading : realtimeLoading;
 
   const handleTaskClick = (task: Task) => {
     if (onTaskClick) {
@@ -165,9 +166,9 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
     }
   }, [filters, organization, pagination.page]);
 
-  // 筛选条件变化时自动请求
+  // 筛选条件或组织变化时自动请求
   useEffect(() => {
-    if (hasFilters) {
+    if (hasFilters || organization !== '森宇') {
       // 重置到第 1 页
       setPagination(prev => ({ ...prev, page: 1 }));
       fetchFilteredTasks();
@@ -186,7 +187,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
 
   // 分页变化时请求
   useEffect(() => {
-    if (hasFilters && pagination.page > 1) {
+    if ((hasFilters || organization !== '森宇') && pagination.page > 1) {
       fetchFilteredTasks();
     }
   }, [pagination.page]);
@@ -347,9 +348,9 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
           </div>
 
           {/* 筛选结果提示 */}
-          {hasFilters && (
+          {useApiData && (
             <div className="text-xs text-cyan-400 flex items-center gap-2">
-              <span>📋 筛选结果: {pagination.total} 条</span>
+              <span>📋 {organization} · {pagination.total} 条任务</span>
               {pagination.totalPages > 1 && (
                 <span className="text-slate-500">
                   | 第 {pagination.page}/{pagination.totalPages} 页
@@ -407,7 +408,7 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
               {tasks.length === 0 && (
                 <tr>
                   <td colSpan={3} className="text-center py-6 text-slate-400">
-                    {hasFilters ? '没有匹配的任务，请调整筛选条件' : '暂无任务数据，请在 AI 表格中添加任务。'}
+                    {hasFilters ? '没有匹配的任务，请调整筛选条件' : `暂无任务数据${organization !== '森宇' ? `（${organization}）` : ''}，请在 AI 表格中添加任务。`}
                   </td>
                 </tr>
               )}
