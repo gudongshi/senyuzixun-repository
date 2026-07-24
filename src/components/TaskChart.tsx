@@ -173,19 +173,21 @@ export default function TaskChart({
       })
       .filter(item => item !== null);
 
-    // 5. 已完成里程碑标记（实际线上的绿色方块节点）
-    const completedMarkData = completedMilestones
-      .map(m => {
+    // 5. 已完成里程碑标记（按名称去重，避免重复绘制）
+    const completedMarkDataMap = new Map<string, any>();
+    completedMilestones.forEach(m => {
+      if (!completedMarkDataMap.has(m.milestone_name)) {
         const ts = new Date(m.actual_date!).getTime();
-        return {
+        completedMarkDataMap.set(m.milestone_name, {
           name: `✓ ${m.milestone_name}`,
           coord: [ts, Math.min(100, Math.max(0, m.planned_progress || 0))],
           value: m.planned_progress || 0,
-        };
-      })
-      .filter(item => item !== null);
+        });
+      }
+    });
+    const completedMarkData = Array.from(completedMarkDataMap.values());
 
-    console.log(`📊 [TaskChart] 已完成里程碑标记: ${completedMarkData.length} 个`);
+    console.log(`📊 [TaskChart] 已完成里程碑标记: ${completedMarkData.length} 个(去重后)`);
 
     // 6. ECharts 配置
     const option = {
