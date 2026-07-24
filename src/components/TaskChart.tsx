@@ -265,7 +265,7 @@ export default function TaskChart({
         triggerOn: 'mousemove',
         enterable: true,
         confine: true,
-        hideDelay: 100000,
+        hideDelay: 300000,
         axisPointer: {
           type: 'line',
           snap: false,
