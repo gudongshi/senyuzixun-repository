@@ -111,7 +111,37 @@ export default function TaskChart({
 
     console.log(`📊 [TaskChart] 计划进度: 去重前=${planPoints.length}, 去重后=${dedupedPlanPoints.length}`);
 
-    const planData = dedupedPlanPoints.map(p => ({
+    // 插值函数：在 points 数组中的相邻点之间按日粒度插入中间点
+    function interpolatePoints(points: { date: string; progress: number }[]) {
+      if (points.length < 2) return points;
+      const result: { date: string; progress: number }[] = [];
+      for (let i = 0; i < points.length - 1; i++) {
+        const cur = points[i];
+        const next = points[i + 1];
+        const curDate = new Date(cur.date);
+        const nextDate = new Date(next.date);
+        const daysDiff = Math.floor((nextDate.getTime() - curDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysDiff <= 1) {
+          result.push(cur);
+        } else {
+          for (let d = 0; d <= daysDiff; d++) {
+            const date = new Date(curDate.getTime() + d * 24 * 60 * 60 * 1000);
+            const progress = cur.progress + (next.progress - cur.progress) * (d / daysDiff);
+            result.push({
+              date: date.toISOString().split('T')[0],
+              progress: Math.round(progress * 10) / 10,
+            });
+          }
+        }
+      }
+      if (points.length > 0) result.push(points[points.length - 1]);
+      return result;
+    }
+
+    const interpolatedPlanPoints = interpolatePoints(dedupedPlanPoints);
+    console.log(`📊 [TaskChart] 计划进度插值后: ${interpolatedPlanPoints.length} 个点`);
+
+    const planData = interpolatedPlanPoints.map(p => ({
       value: [new Date(p.date).getTime(), p.progress],
     }));
 
@@ -169,7 +199,10 @@ export default function TaskChart({
 
     console.log(`📊 [TaskChart] 实际进度: 去重前=${actualPoints.length}, 去重后=${dedupedActualPoints.length}, 过滤后=${filteredActualPoints.length}`);
 
-    const actualData = filteredActualPoints.map(p => ({
+    const interpolatedActualPoints = interpolatePoints(filteredActualPoints);
+    console.log(`📊 [TaskChart] 实际进度插值后: ${interpolatedActualPoints.length} 个点`);
+
+    const actualData = interpolatedActualPoints.map(p => ({
       value: [new Date(p.date).getTime(), p.progress],
     }));
 
@@ -232,7 +265,7 @@ export default function TaskChart({
         triggerOn: 'mousemove',
         enterable: true,
         confine: true,
-        hideDelay: 10000,
+        hideDelay: 100000,
         axisPointer: {
           type: 'line',
           snap: false,
