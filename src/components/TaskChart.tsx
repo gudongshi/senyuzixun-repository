@@ -229,13 +229,27 @@ export default function TaskChart({
       } : undefined,
       tooltip: {
         trigger: 'axis',
+        axisPointer: {
+          type: 'line',
+          lineStyle: {
+            color: '#334155',
+            width: 1,
+            type: 'dashed'
+          }
+        },
+        enterable: true,
+        hideDelay: 2000,
         formatter: (params: any) => {
           if (!params || params.length === 0) return '';
           const date = new Date(params[0].value[0]).toLocaleDateString('zh-CN');
-          let res = `<div style="font-size:13px;font-weight:bold;">${date}</div>`;
+          let res = `<div style="font-size:13px;font-weight:bold;margin-bottom:4px;">${date}</div>`;
           params.forEach((p: any) => {
             if (p.value !== null && p.value[1] !== undefined) {
-              res += `<div style="color:${p.color};margin-top:2px;">${p.marker} ${p.seriesName}: ${p.value[1]}%</div>`;
+              const value = typeof p.value[1] === 'number' ? Math.round(p.value[1]) : p.value;
+              res += `<div style="display:flex;justify-content:space-between;gap:12px;margin-top:2px;">
+                <span style="color:${p.color};">● ${p.seriesName || '进度'}</span>
+                <span style="font-weight:bold;color:#e2e8f0;">${value}%</span>
+              </div>`;
             }
           });
           return res;
