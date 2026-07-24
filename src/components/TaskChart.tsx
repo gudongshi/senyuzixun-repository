@@ -287,6 +287,9 @@ export default function TaskChart({
       },
       xAxis: {
         type: 'time',
+        axisPointer: {
+          snap: false,
+        },
         name: '日期',
         axisLabel: {
           rotate: 30,
