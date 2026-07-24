@@ -255,7 +255,9 @@ export default function TaskChart({
             fontSize: 10
           }
         },
-        position: [20, 20],
+        position: function (point: number[]) {
+          return [point[0], point[1] - 30];
+        },
         formatter: (params: any) => {
           console.log('📊 tooltip params:', JSON.stringify(params));
           if (!params || params.length === 0) return '';
