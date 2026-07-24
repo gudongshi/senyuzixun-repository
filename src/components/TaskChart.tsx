@@ -171,13 +171,14 @@ export default function TaskChart({
       value: [new Date(p.date).getTime(), p.progress],
     }));
 
-    // 4. 里程碑标记（按名称去重，避免重复节点）
+    // 4. 里程碑标记（按名称去重，trim 后比较避免空格导致重复）
     const markDataMap = new Map<string, any>();
     sortedMilestones.forEach(m => {
-      if (!markDataMap.has(m.milestone_name)) {
+      const name = (m.milestone_name || '').trim();
+      if (name && !markDataMap.has(name)) {
         const ts = new Date(m.planned_date).getTime();
-        markDataMap.set(m.milestone_name, {
-          name: m.milestone_name,
+        markDataMap.set(name, {
+          name: m.milestone_name,  // 保留原始名称用于显示
           coord: [ts, Math.min(100, Math.max(0, m.planned_progress || 0))],
           value: m.planned_progress || 0,
         });
@@ -185,13 +186,14 @@ export default function TaskChart({
     });
     const markData = Array.from(markDataMap.values());
 
-    // 5. 已完成里程碑标记（按名称去重，避免重复绘制）
+    // 5. 已完成里程碑标记（按名称去重，trim 后比较避免空格导致重复）
     const completedMarkDataMap = new Map<string, any>();
     completedMilestones.forEach(m => {
-      if (!completedMarkDataMap.has(m.milestone_name)) {
+      const name = (m.milestone_name || '').trim();
+      if (name && !completedMarkDataMap.has(name)) {
         const ts = new Date(m.actual_date!).getTime();
-        completedMarkDataMap.set(m.milestone_name, {
-          name: `✓ ${m.milestone_name}`,
+        completedMarkDataMap.set(name, {
+          name: `✓ ${m.milestone_name}`,  // 保留原始名称用于显示
           coord: [ts, Math.min(100, Math.max(0, m.planned_progress || 0))],
           value: m.planned_progress || 0,
         });
