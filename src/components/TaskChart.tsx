@@ -292,14 +292,7 @@ export default function TaskChart({
           symbolSize: 4,
           connectNulls: true,
           label: {
-            show: true,
-            position: 'top',
-            formatter: (params: any) => {
-              if (params.value[1] === null) return '';
-              return params.value[1] + '%';
-            },
-            color: '#93c5fd',
-            fontSize: 10,
+            show: false, // 不显示数据点标签，避免与里程碑标记重复
           },
           markPoint: {
             data: markData,
