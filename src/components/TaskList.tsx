@@ -41,7 +41,11 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
   const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
   const [hoverTimer, setHoverTimer] = useState<NodeJS.Timeout | null>(null);
 
-  const { milestones: hoverMilestones } = useTaskMilestones(hoveredTask?.id || null);
+  // 在调用 useTaskMilestones 之前添加日志
+  console.log('🟢 hoveredTask:', hoveredTask);
+  const taskId = hoveredTask?.id || null;
+  console.log('🟢 使用 taskId:', taskId);
+  const { milestones: hoverMilestones } = useTaskMilestones(taskId);
 
   // ---- 筛选状态 ----
   const [filters, setFilters] = useState({
@@ -97,6 +101,8 @@ export default function TaskList({ onTaskClick }: { onTaskClick?: (task: Task) =
   };
 
   const handleMouseEnter = (task: Task, event: React.MouseEvent) => {
+    console.log('🔍 任务对象:', task);
+    console.log('🔍 task.id:', task.id);
     const timer = setTimeout(() => {
       setHoveredTask(task);
       setHoverPosition({ x: event.clientX, y: event.clientY });
