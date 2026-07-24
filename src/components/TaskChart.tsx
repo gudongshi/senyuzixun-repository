@@ -15,7 +15,7 @@ interface TaskChartProps {
   planEnd?: string;
   actualStart?: string | null;
   actualEnd?: string | null;
-  milestones: Milestone[];
+  milestones?: Milestone[];
   currentProgress?: number;
   progressHistory?: { date: string; progress: number }[];
   height?: number;
@@ -28,126 +28,166 @@ export default function TaskChart({
   planEnd,
   actualStart,
   actualEnd,
-  milestones,
+  milestones = [],
   currentProgress = 0,
   progressHistory = [],
   height = 200,
   showTitle = true,
 }: TaskChartProps) {
   const lineChartRef = useRef<HTMLDivElement>(null);
-  const hasTimeData = (planStart && planEnd) || actualStart;
+  const hasTimeData = (planStart && planEnd) || actualStart || milestones.length > 0;
 
   useEffect(() => {
-    if (!lineChartRef.current || !hasTimeData) return;
+    if (!lineChartRef.current || !hasTimeData) {
+      if (lineChartRef.current) {
+        lineChartRef.current.innerHTML = '<div class="text-center text-slate-400 py-8">暂无时间数据</div>';
+      }
+      return;
+    }
 
     const container = lineChartRef.current;
+    const existingChart = echarts.getInstanceByDom(container);
+    if (existingChart) {
+      existingChart.dispose();
+    }
+
     const chart = echarts.init(container);
 
-    // 1. 生成 X 轴日期（每周五）
-    const getWeekFridays = (start: string, end: string): string[] => {
-      const dates: string[] = [];
-      const current = new Date(start);
-      const last = new Date(end);
-      while (current.getDay() !== 5) {
-        current.setDate(current.getDate() + 1);
+    // 1. 确定时间范围
+    let startDate = planStart;
+    let endDate = planEnd;
+    if (!startDate || !endDate) {
+      const dates = milestones
+        .filter(m => m.planned_date)
+        .map(m => new Date(m.planned_date).getTime());
+      if (dates.length > 0) {
+        const min = new Date(Math.min(...dates));
+        const max = new Date(Math.max(...dates));
+        startDate = startDate || min.toISOString().split('T')[0];
+        endDate = endDate || max.toISOString().split('T')[0];
+        if (startDate === endDate) {
+          const d = new Date(startDate);
+          d.setDate(d.getDate() - 7);
+          startDate = d.toISOString().split('T')[0];
+          d.setDate(d.getDate() + 14);
+          endDate = d.toISOString().split('T')[0];
+        }
+      } else {
+        container.innerHTML = '<div class="text-center text-slate-400 py-8">暂无时间数据</div>';
+        return;
       }
-      while (current <= last) {
-        dates.push(current.toISOString().split('T')[0]);
-        current.setDate(current.getDate() + 7);
-      }
-      return dates;
-    };
+    }
 
-    const allStart = planStart || actualStart || new Date().toISOString().split('T')[0];
-    const allEnd = planEnd || actualEnd || new Date().toISOString().split('T')[0];
-    const fridays = getWeekFridays(allStart, allEnd);
-    if (fridays.length === 0) fridays.push(allStart);
-
-    // 2. 构建计划进度数据（由里程碑计划进度点 + 端点插值）
+    // 2. 构建计划进度数据（时间戳 + 进度）
     const sortedMilestones = [...milestones]
       .filter(m => m.planned_date && m.planned_progress !== undefined && m.planned_progress !== null)
       .sort((a, b) => new Date(a.planned_date).getTime() - new Date(b.planned_date).getTime());
 
+    console.log(`📊 [TaskChart] 里程碑数据: 总数=${milestones.length}, 有计划日期=${sortedMilestones.length}, 有实际日期=${milestones.filter(m => m.actual_date).length}`);
+
     const planPoints: { date: string; progress: number }[] = [];
-
-    // 起点：任务计划开始日期，进度 0%
-    if (planStart) {
-      planPoints.push({ date: planStart, progress: 0 });
-    }
-
-    // 里程碑节点
+    planPoints.push({ date: startDate, progress: 0 });
     sortedMilestones.forEach(m => {
       planPoints.push({
         date: m.planned_date,
         progress: Math.min(100, Math.max(0, m.planned_progress || 0)),
       });
     });
+    planPoints.push({ date: endDate, progress: 100 });
 
-    // 终点：任务计划结束日期，进度 100%
-    if (planEnd) {
-      planPoints.push({ date: planEnd, progress: 100 });
+    // 按日期去重：同一日期保留最高进度
+    const planPointsMap = new Map<string, number>();
+    planPoints.forEach(p => {
+      const existing = planPointsMap.get(p.date);
+      if (existing === undefined || p.progress > existing) {
+        planPointsMap.set(p.date, p.progress);
+      }
+    });
+    const dedupedPlanPoints = Array.from(planPointsMap.entries())
+      .map(([date, progress]) => ({ date, progress }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    console.log(`📊 [TaskChart] 计划进度: 去重前=${planPoints.length}, 去重后=${dedupedPlanPoints.length}`);
+
+    const planData = dedupedPlanPoints.map(p => ({
+      value: [new Date(p.date).getTime(), p.progress],
+    }));
+
+    // 3. 构建实际进度数据（时间戳 + 进度）
+    const actualPoints: { date: string; progress: number }[] = [];
+
+    if (planStart) {
+      actualPoints.push({ date: planStart, progress: 0 });
     }
 
-    planPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    // 对每个周五，插值计算计划进度
-    const planData = fridays.map(friday => {
-      let before = null, after = null;
-      for (const p of planPoints) {
-        const d = new Date(p.date).getTime();
-        const f = new Date(friday).getTime();
-        if (d <= f) before = p;
-        if (d >= f && after === null) after = p;
-      }
-      if (before && after) {
-        if (before.date === after.date) return before.progress;
-        const t = (new Date(friday).getTime() - new Date(before.date).getTime()) / 
-                  (new Date(after.date).getTime() - new Date(before.date).getTime());
-        return Math.round(before.progress + (after.progress - before.progress) * t);
-      }
-      return before ? before.progress : after ? after.progress : null;
+    console.log(`📊 [TaskChart] 周报进度历史: 条数=${progressHistory.length}`);
+    progressHistory.forEach(p => {
+      actualPoints.push({ date: p.date, progress: Math.min(100, Math.max(0, p.progress)) });
     });
 
-    // 3. 构建实际进度数据（来自周报历史 + 当前进度）
-    // 3. 构建实际进度数据（周报历史 + 里程碑实际完成日期 + 当前进度）
-const actualPoints: { date: string; progress: number }[] = [
-  ...progressHistory.map(p => ({ date: p.date, progress: Math.min(100, Math.max(0, p.progress)) })),
-];
-
-// 加入里程碑实际完成日期（作为实际进度点）
-milestones.forEach(m => {
-  if (m.actual_date) {
-    const progress = m.planned_progress ?? 0; // 使用里程碑计划进度作为实际进度
-    actualPoints.push({
-      date: m.actual_date,
-      progress: Math.min(100, Math.max(0, progress)),
+    // 已完成里程碑的 actual_date 作为实际进度数据点
+    const completedMilestones = milestones.filter(m => m.actual_date);
+    console.log(`📊 [TaskChart] 已完成里程碑: ${completedMilestones.length} 个`);
+    completedMilestones.forEach(m => {
+      const progress = m.planned_progress ?? 0;
+      actualPoints.push({
+        date: m.actual_date!,
+        progress: Math.min(100, Math.max(0, progress)),
+      });
     });
-  }
-});
 
-// 加入当前进度
-if (currentProgress !== undefined && currentProgress !== null) {
-  const today = new Date().toISOString().split('T')[0];
-  if (!actualPoints.some(p => p.date === today)) {
-    actualPoints.push({ date: today, progress: Math.min(100, Math.max(0, currentProgress)) });
-  }
-}
-actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    if (currentProgress !== undefined && currentProgress !== null) {
+      const today = new Date().toISOString().split('T')[0];
+      if (!actualPoints.some(p => p.date === today)) {
+        actualPoints.push({ date: today, progress: Math.min(100, Math.max(0, currentProgress)) });
+      }
+    }
 
-    // 4. 里程碑标记（在计划线上的关键节点）
+    // 按日期去重：同一日期保留最高进度（解决周报重复节点问题）
+    const actualPointsMap = new Map<string, number>();
+    actualPoints.forEach(p => {
+      const existing = actualPointsMap.get(p.date);
+      if (existing === undefined || p.progress > existing) {
+        actualPointsMap.set(p.date, p.progress);
+      }
+    });
+    const dedupedActualPoints = Array.from(actualPointsMap.entries())
+      .map(([date, progress]) => ({ date, progress }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    console.log(`📊 [TaskChart] 实际进度: 去重前=${actualPoints.length}, 去重后=${dedupedActualPoints.length}`);
+
+    const actualData = dedupedActualPoints.map(p => ({
+      value: [new Date(p.date).getTime(), p.progress],
+    }));
+
+    // 4. 里程碑标记（计划线上的蓝色菱形节点）
     const markData = sortedMilestones
       .map(m => {
-        const idx = fridays.indexOf(m.planned_date);
-        if (idx === -1) return null;
+        const ts = new Date(m.planned_date).getTime();
         return {
           name: m.milestone_name,
-          coord: [idx, Math.min(100, Math.max(0, m.planned_progress || 0))],
+          coord: [ts, Math.min(100, Math.max(0, m.planned_progress || 0))],
           value: m.planned_progress || 0,
         };
       })
       .filter(item => item !== null);
 
-    // 5. ECharts 配置
+    // 5. 已完成里程碑标记（实际线上的绿色方块节点）
+    const completedMarkData = completedMilestones
+      .map(m => {
+        const ts = new Date(m.actual_date!).getTime();
+        return {
+          name: `✓ ${m.milestone_name}`,
+          coord: [ts, Math.min(100, Math.max(0, m.planned_progress || 0))],
+          value: m.planned_progress || 0,
+        };
+      })
+      .filter(item => item !== null);
+
+    console.log(`📊 [TaskChart] 已完成里程碑标记: ${completedMarkData.length} 个`);
+
+    // 6. ECharts 配置
     const option = {
       animation: false,
       title: showTitle ? {
@@ -158,10 +198,12 @@ actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTim
       tooltip: {
         trigger: 'axis',
         formatter: (params: any) => {
-          let res = `<div style="font-size:13px;font-weight:bold;">${params[0].axisValue}</div>`;
+          if (!params || params.length === 0) return '';
+          const date = new Date(params[0].value[0]).toLocaleDateString('zh-CN');
+          let res = `<div style="font-size:13px;font-weight:bold;">${date}</div>`;
           params.forEach((p: any) => {
-            if (p.value !== null && p.value !== undefined) {
-              res += `<div style="color:${p.color};margin-top:2px;">${p.marker} ${p.seriesName}: ${p.value}%</div>`;
+            if (p.value !== null && p.value[1] !== undefined) {
+              res += `<div style="color:${p.color};margin-top:2px;">${p.marker} ${p.seriesName}: ${p.value[1]}%</div>`;
             }
           });
           return res;
@@ -174,26 +216,29 @@ actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTim
         right: 10,
       },
       grid: {
-        left: '10%',
-        right: '5%',
+        left: '12%',
+        right: '8%',
         top: showTitle ? '18%' : '8%',
-        bottom: '8%',
+        bottom: '15%',
         containLabel: true,
       },
       xAxis: {
-        type: 'category',
-        data: fridays,
-        name: '日期（每周五）',
+        type: 'time',
+        name: '日期',
         axisLabel: {
           rotate: 30,
           color: '#94a3b8',
-          interval: 0,
-          formatter: (value: string) => {
+          formatter: (value: number) => {
             const d = new Date(value);
             return `${d.getMonth()+1}/${d.getDate()}`;
           },
+          interval: 'auto',
+          showMinLabel: true,
+          showMaxLabel: true,
         },
         axisLine: { lineStyle: { color: '#475569' } },
+        min: new Date(startDate).getTime(),
+        max: new Date(endDate).getTime(),
       },
       yAxis: {
         type: 'value',
@@ -218,8 +263,8 @@ actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTim
             show: true,
             position: 'top',
             formatter: (params: any) => {
-              if (params.value === null) return '';
-              return params.value + '%';
+              if (params.value[1] === null) return '';
+              return params.value[1] + '%';
             },
             color: '#93c5fd',
             fontSize: 10,
@@ -232,6 +277,7 @@ actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTim
             label: {
               show: true,
               formatter: (params: any) => {
+                if (!params.name) return '';
                 return params.name + '\n' + params.value + '%';
               },
               color: '#93c5fd',
@@ -254,11 +300,28 @@ actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTim
             show: true,
             position: 'bottom',
             formatter: (params: any) => {
-              if (params.value === null) return '';
-              return params.value + '%';
+              if (params.value[1] === null) return '';
+              return params.value[1] + '%';
             },
             color: '#6ee7b7',
             fontSize: 10,
+          },
+          markPoint: {
+            data: completedMarkData,
+            symbol: 'rect',
+            symbolSize: [14, 14],
+            symbolRotate: 0,
+            itemStyle: { color: '#22c55e', borderColor: '#fff', borderWidth: 2 },
+            label: {
+              show: true,
+              formatter: (params: any) => {
+                if (!params.name) return '';
+                return params.name + '\n' + params.value + '%';
+              },
+              color: '#86efac',
+              fontSize: 10,
+              position: 'top',
+            },
           },
         },
       ],
@@ -267,12 +330,11 @@ actualPoints.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTim
     chart.setOption(option);
     const handleResize = () => chart.resize();
     window.addEventListener('resize', handleResize);
-    return () => { chart.dispose(); window.removeEventListener('resize', handleResize); };
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.dispose();
+    };
   }, [planStart, planEnd, actualStart, actualEnd, milestones, currentProgress, progressHistory, hasTimeData, showTitle]);
-
-  if (!hasTimeData) {
-    return <div className="bg-slate-700/30 rounded-xl p-6 text-center text-slate-400">暂无时间数据</div>;
-  }
 
   return (
     <div className="space-y-4">
