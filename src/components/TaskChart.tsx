@@ -229,20 +229,38 @@ export default function TaskChart({
       } : undefined,
       tooltip: {
         trigger: 'axis',
+        triggerOn: 'mousemove',
+        enterable: true,
+        hideDelay: 5000,
         axisPointer: {
           type: 'line',
+          snap: false,
           lineStyle: {
             color: '#334155',
             width: 1,
             type: 'dashed'
+          },
+          label: {
+            show: true,
+            formatter: (params: any) => {
+              return new Date(params.value).toLocaleDateString('zh-CN');
+            },
+            backgroundColor: '#1e293b',
+            color: '#e2e8f0',
+            borderColor: '#334155',
+            borderWidth: 1,
+            borderRadius: 4,
+            padding: [2, 6],
+            fontSize: 10
           }
         },
-        enterable: true,
-        hideDelay: 2000,
+        position: function (point: number[]) {
+          return [point[0] + 20, 20];
+        },
         formatter: (params: any) => {
           if (!params || params.length === 0) return '';
           const date = new Date(params[0].value[0]).toLocaleDateString('zh-CN');
-          let res = `<div style="font-size:13px;font-weight:bold;margin-bottom:4px;">${date}</div>`;
+          let res = `<div style="font-size:13px;font-weight:bold;margin-bottom:4px;">📅 ${date}</div>`;
           params.forEach((p: any) => {
             if (p.value !== null && p.value[1] !== undefined) {
               const value = typeof p.value[1] === 'number' ? Math.round(p.value[1]) : p.value;
