@@ -926,22 +926,32 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
       }
 
       // --- 处理里程碑完成（兼容新旧字段名） ---
-      const completedMilestone = data['本次完成的里程碑'] || data['当前进行中里程碑'];
+      const completedMilestone = cleanField(data['本次完成的里程碑']) || cleanField(data['当前进行中里程碑']);
       const completedDate = data['本次完成里程碑时间'] || data['里程碑完成时间（如完成请填写）'];
 
       if (taskId && completedMilestone && completedDate) {
         console.log(`🔍 更新里程碑完成: 任务=${taskName}, 里程碑="${completedMilestone}", 完成日期=${completedDate}`);
 
-        // 解析日期（兼容钉钉时间戳格式）
+        // 解析日期（兼容钉钉时间戳格式及带空格的数字字符串）
         let actualDate = completedDate;
         if (typeof completedDate === 'number') {
           const date = new Date(completedDate);
           actualDate = date.toISOString().split('T')[0];
         } else if (typeof completedDate === 'string') {
-          // 如果是字符串，尝试解析为标准日期格式
-          const parsed = new Date(completedDate);
-          if (!isNaN(parsed.getTime())) {
-            actualDate = parsed.toISOString().split('T')[0];
+          // 去除前后空格
+          const trimmed = completedDate.trim();
+          // 如果是数字字符串，转为数字再处理
+          if (/^\d+$/.test(trimmed)) {
+            const date = new Date(parseInt(trimmed));
+            if (!isNaN(date.getTime())) {
+              actualDate = date.toISOString().split('T')[0];
+            }
+          } else {
+            // 尝试解析为日期字符串
+            const parsed = new Date(trimmed);
+            if (!isNaN(parsed.getTime())) {
+              actualDate = parsed.toISOString().split('T')[0];
+            }
           }
         }
 
