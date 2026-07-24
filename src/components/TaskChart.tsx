@@ -83,6 +83,8 @@ export default function TaskChart({
       .filter(m => m.planned_date && m.planned_progress !== undefined && m.planned_progress !== null)
       .sort((a, b) => new Date(a.planned_date).getTime() - new Date(b.planned_date).getTime());
 
+    console.log(`📊 [TaskChart] sortedMilestones 条数: ${sortedMilestones.length}`);
+
     console.log(`📊 [TaskChart] 里程碑数据: 总数=${milestones.length}, 有计划日期=${sortedMilestones.length}, 有实际日期=${milestones.filter(m => m.actual_date).length}`);
 
     const planPoints: { date: string; progress: number }[] = [];
@@ -172,6 +174,12 @@ export default function TaskChart({
     }));
 
     // 4. 里程碑标记（按名称去重，trim 后比较避免空格导致重复）
+    console.log(`📊 [TaskChart] 原始里程碑数据:`, sortedMilestones.map(m => ({
+      raw: JSON.stringify(m.milestone_name),
+      trimmed: JSON.stringify((m.milestone_name || '').trim()),
+      planned_date: m.planned_date,
+      progress: m.planned_progress
+    })));
     const markDataMap = new Map<string, any>();
     sortedMilestones.forEach(m => {
       const name = (m.milestone_name || '').trim();
@@ -184,9 +192,16 @@ export default function TaskChart({
         });
       }
     });
+    console.log(`📊 [TaskChart] markDataMap keys:`, Array.from(markDataMap.keys()));
     const markData = Array.from(markDataMap.values());
 
     // 5. 已完成里程碑标记（按名称去重，trim 后比较避免空格导致重复）
+    console.log(`📊 [TaskChart] 原始已完成里程碑数据:`, completedMilestones.map(m => ({
+      raw: JSON.stringify(m.milestone_name),
+      trimmed: JSON.stringify((m.milestone_name || '').trim()),
+      actual_date: m.actual_date,
+      progress: m.planned_progress
+    })));
     const completedMarkDataMap = new Map<string, any>();
     completedMilestones.forEach(m => {
       const name = (m.milestone_name || '').trim();
@@ -199,6 +214,7 @@ export default function TaskChart({
         });
       }
     });
+    console.log(`📊 [TaskChart] completedMarkDataMap keys:`, Array.from(completedMarkDataMap.keys()));
     const completedMarkData = Array.from(completedMarkDataMap.values());
 
     console.log(`📊 [TaskChart] 已完成里程碑标记: ${completedMarkData.length} 个(去重后)`);
