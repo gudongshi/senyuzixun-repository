@@ -155,23 +155,35 @@ export default function TaskChart({
       .map(([date, progress]) => ({ date, progress }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    console.log(`📊 [TaskChart] 实际进度: 去重前=${actualPoints.length}, 去重后=${dedupedActualPoints.length}`);
+    // 过滤掉在已完成里程碑之后出现的 0% 点（异常数据导致折线回退）
+    const maxMilestoneDate = completedMilestones.length > 0
+      ? Math.max(...completedMilestones.map(m => new Date(m.actual_date!).getTime()))
+      : 0;
+    const filteredActualPoints = maxMilestoneDate > 0
+      ? dedupedActualPoints.filter(p =>
+          new Date(p.date).getTime() <= maxMilestoneDate || p.progress > 0
+        )
+      : dedupedActualPoints;
 
-    const actualData = dedupedActualPoints.map(p => ({
+    console.log(`📊 [TaskChart] 实际进度: 去重前=${actualPoints.length}, 去重后=${dedupedActualPoints.length}, 过滤后=${filteredActualPoints.length}`);
+
+    const actualData = filteredActualPoints.map(p => ({
       value: [new Date(p.date).getTime(), p.progress],
     }));
 
-    // 4. 里程碑标记（计划线上的蓝色菱形节点）
-    const markData = sortedMilestones
-      .map(m => {
+    // 4. 里程碑标记（按名称去重，避免重复节点）
+    const markDataMap = new Map<string, any>();
+    sortedMilestones.forEach(m => {
+      if (!markDataMap.has(m.milestone_name)) {
         const ts = new Date(m.planned_date).getTime();
-        return {
+        markDataMap.set(m.milestone_name, {
           name: m.milestone_name,
           coord: [ts, Math.min(100, Math.max(0, m.planned_progress || 0))],
           value: m.planned_progress || 0,
-        };
-      })
-      .filter(item => item !== null);
+        });
+      }
+    });
+    const markData = Array.from(markDataMap.values());
 
     // 5. 已完成里程碑标记（按名称去重，避免重复绘制）
     const completedMarkDataMap = new Map<string, any>();
