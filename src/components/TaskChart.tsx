@@ -255,6 +255,7 @@ export default function TaskChart({
             fontSize: 10
           }
         },
+        position: [20, 20],
         formatter: (params: any) => {
           console.log('📊 tooltip params:', JSON.stringify(params));
           if (!params || params.length === 0) return '';
