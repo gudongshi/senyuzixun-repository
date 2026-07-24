@@ -923,6 +923,42 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
         }
       }
 
+      // --- 处理里程碑完成（兼容新旧字段名） ---
+      const completedMilestone = data['本次完成的里程碑'] || data['当前进行中里程碑'];
+      const completedDate = data['本次完成里程碑时间'] || data['里程碑完成时间（如完成请填写）'];
+
+      if (taskId && completedMilestone && completedDate) {
+        console.log(`🔍 更新里程碑完成: 任务=${taskName}, 里程碑="${completedMilestone}", 完成日期=${completedDate}`);
+
+        // 解析日期（兼容钉钉时间戳格式）
+        let actualDate = completedDate;
+        if (typeof completedDate === 'number') {
+          const date = new Date(completedDate);
+          actualDate = date.toISOString().split('T')[0];
+        } else if (typeof completedDate === 'string') {
+          // 如果是字符串，尝试解析为标准日期格式
+          const parsed = new Date(completedDate);
+          if (!isNaN(parsed.getTime())) {
+            actualDate = parsed.toISOString().split('T')[0];
+          }
+        }
+
+        console.log(`📌 解析后的完成日期: ${actualDate}`);
+
+        // 更新里程碑的 actual_date
+        const { error: milestoneUpdateError } = await supabase
+          .from('task_milestones')
+          .update({ actual_date: actualDate })
+          .eq('task_id', taskId)
+          .eq('milestone_name', completedMilestone);
+
+        if (milestoneUpdateError) {
+          console.error(`❌ 更新里程碑完成时间失败: ${milestoneUpdateError.message}`);
+        } else {
+          console.log(`✅ 里程碑 "${completedMilestone}" 完成时间已更新为 ${actualDate}`);
+        }
+      }
+
       // 同步触发 AI 风险分析（await 等待完成，确保数据库风险信息已更新）
       console.log(`🤖 开始任务 AI 分析: taskId=${taskId}, 目标表=${tasksTableName}`);
       try {
