@@ -231,7 +231,8 @@ export default function TaskChart({
         trigger: 'axis',
         triggerOn: 'mousemove',
         enterable: true,
-        hideDelay: 5000,
+        confine: true,
+        hideDelay: 10000,
         axisPointer: {
           type: 'line',
           snap: false,
@@ -254,10 +255,8 @@ export default function TaskChart({
             fontSize: 10
           }
         },
-        position: function (point: number[]) {
-          return [point[0] + 20, 20];
-        },
         formatter: (params: any) => {
+          console.log('📊 tooltip params:', JSON.stringify(params));
           if (!params || params.length === 0) return '';
           const date = new Date(params[0].value[0]).toLocaleDateString('zh-CN');
           let res = `<div style="font-size:13px;font-weight:bold;margin-bottom:4px;">📅 ${date}</div>`;
