@@ -789,6 +789,8 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
           '计划开始时间': extract('计划开始时间'),
           '计划结束时间': extract('计划结束时间'),
           '当前进度(%)': extract('当前进度(%)'),
+          '本次完成的里程碑': extract('本次完成的里程碑'),
+          '本次完成里程碑时间': extract('本次完成里程碑时间'),
           '状态': extract('状态'),
           '责任人': extract('责任人'),
           '风险等级': extract('风险等级'),
