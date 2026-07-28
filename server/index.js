@@ -612,8 +612,11 @@ app.get('/api/dingtalk/login', async (req, res) => {
 
     const user = userResp.data;
     console.log('🔍 钉钉用户完整信息:', JSON.stringify(user, null, 2));
+    // 注意：钉钉 /v1.0/contact/users/me 返回的 openId 字段实际上是 userId，
+    // 真正的 openId 是 unionId 字段。会议 API 需要 unionId。
     const userId = user.userId || user.openId || '';
-    let openId = user.openId || user.open_id || user.openid || '';
+    let openId = user.unionId || user.union_id || user.openId || user.open_id || user.openid || '';
+    console.log(`📋 使用的 openId(unionId): ${openId || '(空)'}`);
 
     // 如果 openId 为空或等于 userId（无效值），通过 userId 查询用户详情获取真正的 openId
     if ((!openId || openId === userId) && userId) {
@@ -630,8 +633,9 @@ app.get('/api/dingtalk/login', async (req, res) => {
             timeout: 10000,
           }
         );
-        openId = userInfoResp.data.openId || userInfoResp.data.open_id || userInfoResp.data.openid || '';
-        console.log(`✅ 通过 userId 查询获取 openId: ${openId || '(空)'}`);
+        console.log('🔍 用户详情完整信息:', JSON.stringify(userInfoResp.data, null, 2));
+        openId = userInfoResp.data.unionId || userInfoResp.data.union_id || userInfoResp.data.openId || userInfoResp.data.open_id || userInfoResp.data.openid || '';
+        console.log(`✅ 通过 userId 查询获取 openId(unionId): ${openId || '(空)'}`);
       } catch (err) {
         console.warn(`⚠️ 通过 userId 查询 openId 失败: ${err.message}`);
       }
@@ -639,7 +643,7 @@ app.get('/api/dingtalk/login', async (req, res) => {
 
     // 如果仍然没有 openId，记录警告
     if (!openId) {
-      console.warn(`⚠️ 未能获取用户 openId，会议创建将失败`);
+      console.warn(`⚠️ 未能获取用户 openId(unionId)，会议创建将失败`);
     }
 
     const userName = user.nick || user.name || userId || '未知用户';
