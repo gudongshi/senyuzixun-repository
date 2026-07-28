@@ -597,6 +597,7 @@ export default function Dashboard() {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [user, setUser] = useState<{ userId: string; name: string; roles: { dashboard: boolean; manager: boolean } } | null>(null);
   const [overallRisk, setOverallRisk] = useState<{
   score: number;
   level: string;
@@ -1011,6 +1012,26 @@ export default function Dashboard() {
       fetchProjects(1);
     }
   }, [fetchProjectStats, fetchProjects]);
+
+  // ============================================================
+  // 获取当前用户信息
+  // ============================================================
+  useEffect(() => {
+    console.log('📋 获取当前用户信息...');
+    fetch('/api/dingtalk/me')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && result.user) {
+          console.log(`✅ 用户信息获取成功: ${result.user.name} (${result.user.userId})`);
+          setUser(result.user);
+        } else {
+          console.warn('⚠️ 获取用户信息失败:', result.error);
+        }
+      })
+      .catch(err => {
+        console.error('❌ 获取用户信息异常:', err.message);
+      });
+  }, []);
 
   // ============================================================
   // 自动触发未分析项目的 AI 分析（后台异步，不阻塞 UI）
@@ -1684,8 +1705,38 @@ export default function Dashboard() {
             森宇集团·项目作战管控指挥大屏
           </h1>
         </div>
-        <div className="text-cyan-400 text-lg font-medium tracking-wider drop-shadow-lg">
-          {formatDateTime(currentTime)}
+        <div className="flex items-center gap-4">
+          {user && (
+            <span className="text-cyan-400 text-sm font-medium">
+              👤 {user.name}
+            </span>
+          )}
+          <span className="text-cyan-400 text-lg font-medium tracking-wider drop-shadow-lg">
+            {formatDateTime(currentTime)}
+          </span>
+          {user && (
+            <button
+              onClick={async () => {
+                console.log('📋 用户点击退出登录');
+                try {
+                  const resp = await fetch('/api/dingtalk/logout', { method: 'POST' });
+                  const result = await resp.json();
+                  if (result.success) {
+                    console.log('✅ 退出登录成功，准备刷新页面');
+                    localStorage.clear();
+                    window.location.href = '/';
+                  } else {
+                    console.error('❌ 退出登录失败:', result.error);
+                  }
+                } catch (err: any) {
+                  console.error('❌ 退出登录异常:', err.message);
+                }
+              }}
+              className="ml-3 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-sm hover:bg-red-500/10 transition-colors"
+            >
+              退出登录
+            </button>
+          )}
         </div>
       </header>
 
