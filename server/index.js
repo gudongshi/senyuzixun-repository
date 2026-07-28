@@ -619,6 +619,7 @@ app.get('/api/dingtalk/login', async (req, res) => {
     if (!openId && userId) {
       try {
         console.log(`📋 openId 为空，尝试通过 userId 查询: userId=${userId}`);
+        console.log(`📋 当前 accessToken: ${accessToken ? accessToken.slice(0, 20) + '...' : '(空)'}`);
         const userInfoResp = await axios.get(
           `https://api.dingtalk.com/v1.0/contact/users/${userId}`,
           {
