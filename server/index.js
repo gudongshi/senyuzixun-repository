@@ -401,26 +401,33 @@ async function getDingTalkAccessToken() {
 // ============================================================
 
 // 创建钉钉视频会议
-async function createDingTalkMeeting(accessToken, meetingData) {
+async function createDingTalkMeeting(accessToken, userId, meetingData) {
   const { meetingTitle, startTime, endTime } = meetingData;
-  console.log(`📋 创建钉钉视频会议: title="${meetingTitle}", startTime=${startTime}, endTime=${endTime}`);
-  const response = await axios.post(
-    'https://api.dingtalk.com/v1.0/conference/videoConferences',
-    {
-      title: meetingTitle,
-      startTime: startTime || new Date().toISOString(),
-      endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-    },
-    {
-      headers: {
-        'x-acs-dingtalk-access-token': accessToken,
-        'Content-Type': 'application/json',
+  console.log(`📋 创建钉钉视频会议: userId=${userId}, title="${meetingTitle}", startTime=${startTime}, endTime=${endTime}`);
+  try {
+    const response = await axios.post(
+      'https://api.dingtalk.com/v1.0/conference/videoConferences',
+      {
+        title: meetingTitle,
+        startTime: startTime || new Date().toISOString(),
+        endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        userId: userId,
       },
-      timeout: 30000,
-    }
-  );
-  console.log(`✅ 钉钉会议创建成功: conferenceId=${response.data.conferenceId}`);
-  return response.data;
+      {
+        headers: {
+          'x-acs-dingtalk-access-token': accessToken,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    console.log(`✅ 钉钉会议创建成功: userId=${userId}, conferenceId=${response.data.conferenceId}`);
+    return response.data;
+  } catch (err) {
+    const errDetail = err.response?.data || err.message;
+    console.error(`❌ 钉钉创建会议 API 调用失败: userId=${userId}, error=${JSON.stringify(errDetail).slice(0, 500)}`);
+    throw err;
+  }
 }
 
 // 查询钉钉会议信息
@@ -4173,6 +4180,14 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: '缺少会议标题 (meetingTitle)' });
     }
 
+    // 从 JWT 中获取当前用户钉钉 ID
+    const userId = req.user?.userId;
+    if (!userId) {
+      console.warn('⚠️ 创建会议失败: 无法获取当前用户 userId');
+      return res.status(400).json({ success: false, error: '无法获取当前用户信息，请重新登录' });
+    }
+    console.log(`📋 会议创建者: userId=${userId}`);
+
     // 获取钉钉 Access Token
     const accessToken = await getDingTalkAccessToken();
     if (!accessToken) {
@@ -4186,19 +4201,19 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
     const meetingStartTime = startTime || now.toISOString();
     const meetingEndTime = new Date(now.getTime() + meetingDuration * 60 * 1000).toISOString();
 
-    console.log(`📋 会议参数: duration=${meetingDuration}分钟, startTime=${meetingStartTime}, endTime=${meetingEndTime}`);
+    console.log(`📋 会议参数: userId=${userId}, duration=${meetingDuration}分钟, startTime=${meetingStartTime}, endTime=${meetingEndTime}`);
 
     // 调用钉钉 API 创建会议
     let meetingResult;
     try {
-      meetingResult = await createDingTalkMeeting(accessToken, {
+      meetingResult = await createDingTalkMeeting(accessToken, userId, {
         meetingTitle,
         startTime: meetingStartTime,
         endTime: meetingEndTime,
       });
     } catch (dingErr) {
       const errMsg = dingErr.response?.data || dingErr.message;
-      console.error(`❌ 钉钉创建会议 API 调用失败: ${JSON.stringify(errMsg).slice(0, 500)}`);
+      console.error(`❌ 钉钉创建会议 API 调用失败: userId=${userId}, error=${JSON.stringify(errMsg).slice(0, 500)}`);
       return res.status(502).json({ success: false, error: `钉钉会议创建失败: ${dingErr.response?.data?.message || dingErr.message}` });
     }
 
@@ -4206,7 +4221,7 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
     const joinUrl = meetingResult.joinUrl || '';
     const meetingCode = meetingResult.meetingCode || '';
 
-    console.log(`✅ 会议创建成功: meetingId=${meetingId}, meetingCode=${meetingCode}`);
+    console.log(`✅ 会议创建成功: userId=${userId}, meetingId=${meetingId}, meetingCode=${meetingCode}`);
 
     // 将会议信息缓存到 system_config 表
     const cacheValue = {
@@ -4215,6 +4230,7 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
       joinUrl,
       projectId,
       meetingTitle,
+      userId,
       status: 'active',
       participantCount: 0,
       startTime: meetingStartTime,
