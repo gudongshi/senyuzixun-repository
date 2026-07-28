@@ -613,7 +613,34 @@ app.get('/api/dingtalk/login', async (req, res) => {
     const user = userResp.data;
     console.log('🔍 钉钉用户完整信息:', JSON.stringify(user, null, 2));
     const userId = user.userId || user.openId || '';
-    const openId = user.openId || user.open_id || user.openid || '';
+    let openId = user.openId || user.open_id || user.openid || '';
+
+    // 如果 openId 仍然为空，通过 userId 查询用户详情
+    if (!openId && userId) {
+      try {
+        console.log(`📋 openId 为空，尝试通过 userId 查询: userId=${userId}`);
+        const userInfoResp = await axios.get(
+          `https://api.dingtalk.com/v1.0/contact/users/${userId}`,
+          {
+            headers: {
+              'x-acs-dingtalk-access-token': accessToken,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+          }
+        );
+        openId = userInfoResp.data.openId || userInfoResp.data.open_id || userInfoResp.data.openid || '';
+        console.log(`✅ 通过 userId 查询获取 openId: ${openId || '(空)'}`);
+      } catch (err) {
+        console.warn(`⚠️ 通过 userId 查询 openId 失败: ${err.message}`);
+      }
+    }
+
+    // 如果仍然没有 openId，记录警告
+    if (!openId) {
+      console.warn(`⚠️ 未能获取用户 openId，会议创建将失败`);
+    }
+
     const userName = user.nick || user.name || userId || '未知用户';
 
     // 白名单校验：检查是否在任意一个白名单中
