@@ -408,7 +408,7 @@ async function createDingTalkMeeting(accessToken, userId, meetingData) {
     const response = await axios.post(
       'https://api.dingtalk.com/v1.0/conference/videoConferences',
       {
-        title: meetingTitle,
+        confTitle: meetingTitle,
         startTime: startTime || new Date().toISOString(),
         endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         userId: userId,
