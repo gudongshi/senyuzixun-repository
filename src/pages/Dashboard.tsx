@@ -2,7 +2,7 @@ import TaskList from '../components/TaskList';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
-import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2 } from 'lucide-react';
+import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2, Video, Phone, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
@@ -616,6 +616,15 @@ export default function Dashboard() {
     taskCount: number;
     businessPersonnel: number;
   } | null>(null);
+
+  // ---- 会议管理（连线现场）状态 ----
+  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [meetingLoading, setMeetingLoading] = useState(false);
+  const [meetingInfo, setMeetingInfo] = useState<{ meetingId: string; joinUrl: string; meetingCode: string; status: string; participantCount: number } | null>(null);
+  const [meetingStatusTimer, setMeetingStatusTimer] = useState<NodeJS.Timeout | null>(null);
+  const [meetingTitle, setMeetingTitle] = useState('');
+  const [meetingDuration, setMeetingDuration] = useState(60);
 
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
@@ -1530,6 +1539,136 @@ export default function Dashboard() {
     return 'bg-blue-900/60 text-cyan-400';
   };
 
+  // ============================================================
+  // 会议管理（连线现场）处理函数
+  // ============================================================
+
+  // 打开会议模态框
+  const handleOpenMeetingModal = () => {
+    setMeetingModalOpen(true);
+    setMeetingInfo(null);
+    setMeetingLoading(false);
+    if (selectedProjectId) {
+      const project = projects.find(p => p.id === selectedProjectId);
+      setMeetingTitle(project ? `${project.projectName} - 现场连线` : '');
+    } else {
+      setMeetingTitle('');
+    }
+  };
+
+  // 创建会议
+  const handleCreateMeeting = async () => {
+    if (!selectedProjectId) {
+      toast.error('请选择项目');
+      return;
+    }
+    if (!meetingTitle.trim()) {
+      toast.error('请输入会议标题');
+      return;
+    }
+
+    setMeetingLoading(true);
+    console.log(`📋 创建视频会议: projectId=${selectedProjectId}, meetingTitle="${meetingTitle}", duration=${meetingDuration}`);
+    try {
+      const resp = await fetch('/api/meeting/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          meetingTitle: meetingTitle.trim(),
+          duration: meetingDuration,
+        }),
+      });
+      const result = await resp.json();
+      if (result.success) {
+        console.log(`✅ 会议创建成功: meetingId=${result.data.meetingId}`);
+        setMeetingInfo(result.data);
+        toast.success('会议创建成功');
+        startMeetingPolling(result.data.meetingId);
+      } else {
+        console.error(`❌ 创建会议失败: ${result.error}`);
+        toast.error(result.error || '创建会议失败');
+      }
+    } catch (err: any) {
+      console.error(`❌ 创建会议失败: ${err.message}`);
+      toast.error('创建会议失败，请稍后重试');
+    } finally {
+      setMeetingLoading(false);
+    }
+  };
+
+  // 关闭会议
+  const handleCloseMeeting = async () => {
+    if (!meetingInfo?.meetingId) return;
+    setMeetingLoading(true);
+    console.log(`📋 关闭会议: meetingId=${meetingInfo.meetingId}`);
+    try {
+      const resp = await fetch(`/api/meeting/close/${meetingInfo.meetingId}`, { method: 'POST' });
+      const result = await resp.json();
+      if (result.success) {
+        console.log(`✅ 会议已关闭: meetingId=${meetingInfo.meetingId}`);
+        setMeetingInfo(prev => prev ? { ...prev, status: 'closed' } : null);
+        toast.success('会议已关闭');
+        // 清除定时器
+        if (meetingStatusTimer) {
+          clearInterval(meetingStatusTimer);
+          setMeetingStatusTimer(null);
+        }
+      } else {
+        console.error(`❌ 关闭会议失败: ${result.error}`);
+        toast.error(result.error || '关闭会议失败');
+      }
+    } catch (err: any) {
+      console.error(`❌ 关闭会议失败: ${err.message}`);
+      toast.error('关闭会议失败，请稍后重试');
+    } finally {
+      setMeetingLoading(false);
+    }
+  };
+
+  // 启动会议状态轮询（每 10 秒）
+  const startMeetingPolling = (meetingId: string) => {
+    // 清除旧定时器
+    if (meetingStatusTimer) {
+      clearInterval(meetingStatusTimer);
+    }
+    console.log(`📋 启动会议状态轮询: meetingId=${meetingId}, 间隔=10s`);
+    const timer = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/meeting/status/${meetingId}`);
+        const result = await resp.json();
+        if (result.success) {
+          console.log(`📋 会议状态轮询: meetingId=${meetingId}, status=${result.data.status}, participants=${result.data.participantCount}`);
+          setMeetingInfo(prev => {
+            if (!prev) return result.data;
+            return { ...prev, ...result.data };
+          });
+          // 如果会议已关闭，停止轮询
+          if (result.data.status === 'closed') {
+            console.log(`📋 会议已关闭，停止轮询: meetingId=${meetingId}`);
+            if (meetingStatusTimer) {
+              clearInterval(meetingStatusTimer);
+              setMeetingStatusTimer(null);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ 会议状态轮询失败: ${err.message}`);
+      }
+    }, 10000);
+    setMeetingStatusTimer(timer);
+  };
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (meetingStatusTimer) {
+        console.log('📋 组件卸载，清理会议状态轮询定时器');
+        clearInterval(meetingStatusTimer);
+      }
+    };
+  }, [meetingStatusTimer]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-slate-200 p-5 overflow-x-hidden">
       {/* Header */}
@@ -1688,9 +1827,18 @@ export default function Dashboard() {
         {/* Center Panel — 核心态势 */}
         {/* ============================================================ */}
         <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
-          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
-            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
-            核心态势
+          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
+              核心态势
+            </div>
+            <button
+              onClick={handleOpenMeetingModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gradient-to-r from-red-600 to-red-500 text-white border border-red-400/30 hover:from-red-500 hover:to-red-400 transition-all duration-300 animate-pulse shadow-lg shadow-red-500/30"
+            >
+              <Video size={16} />
+              连线现场
+            </button>
           </h2>
 
           <div className="grid grid-cols-2 gap-4 mb-5">
@@ -2123,6 +2271,197 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============================================================ */}
+      {/* 连线现场 — 会议模态框 */}
+      {/* ============================================================ */}
+      {meetingModalOpen && (
+        <>
+          {/* Overlay */}
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50" onClick={() => {
+            setMeetingModalOpen(false);
+            // 关闭模态框时清除轮询
+            if (meetingStatusTimer) {
+              clearInterval(meetingStatusTimer);
+              setMeetingStatusTimer(null);
+            }
+          }} />
+
+          {/* Modal */}
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-w-[90vw] bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-2 border-red-500/40 rounded-2xl z-50 shadow-2xl shadow-red-900/30">
+            {/* Header */}
+            <div className="flex justify-between items-center p-5 border-b border-red-500/30 bg-slate-800/50 rounded-t-2xl">
+              <div className="flex items-center gap-2">
+                <Video size={20} className="text-red-400" />
+                <h2 className="text-lg font-bold text-red-400">连线现场</h2>
+              </div>
+              <button
+                onClick={() => {
+                  setMeetingModalOpen(false);
+                  if (meetingStatusTimer) {
+                    clearInterval(meetingStatusTimer);
+                    setMeetingStatusTimer(null);
+                  }
+                }}
+                className="w-8 h-8 rounded-full border border-red-400/50 text-red-400 hover:bg-red-500/20 hover:border-red-300 transition-all duration-300 flex items-center justify-center"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {/* 未创建会议时显示表单 */}
+              {!meetingInfo && (
+                <>
+                  {/* 项目下拉选择 */}
+                  <div>
+                    <label className="block text-slate-400 text-sm mb-1.5">选择项目</label>
+                    <select
+                      value={selectedProjectId ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedProjectId(val ? parseInt(val) : null);
+                        const project = projects.find(p => p.id === parseInt(val));
+                        setMeetingTitle(project ? `${project.projectName} - 现场连线` : '');
+                      }}
+                      className="w-full bg-slate-700/80 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-red-500/50 transition-colors"
+                    >
+                      <option value="">-- 请选择项目 --</option>
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>{p.projectName || `项目 #${p.id}`}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 会议标题输入 */}
+                  <div>
+                    <label className="block text-slate-400 text-sm mb-1.5">会议标题</label>
+                    <input
+                      type="text"
+                      value={meetingTitle}
+                      onChange={(e) => setMeetingTitle(e.target.value)}
+                      placeholder="请输入会议标题"
+                      className="w-full bg-slate-700/80 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-red-500/50 transition-colors"
+                    />
+                  </div>
+
+                  {/* 会议时长选择 */}
+                  <div>
+                    <label className="block text-slate-400 text-sm mb-1.5">会议时长</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[30, 60, 90, 120].map(d => (
+                        <button
+                          key={d}
+                          onClick={() => setMeetingDuration(d)}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 border ${
+                            meetingDuration === d
+                              ? 'bg-red-500/20 border-red-400/50 text-red-400'
+                              : 'bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-500'
+                          }`}
+                        >
+                          {d} 分钟
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 创建按钮 */}
+                  <button
+                    onClick={handleCreateMeeting}
+                    disabled={meetingLoading}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-red-500 text-white font-semibold text-sm hover:from-red-500 hover:to-red-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-500/30"
+                  >
+                    {meetingLoading ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <Video size={18} />
+                    )}
+                    {meetingLoading ? '创建中...' : '创建并连线'}
+                  </button>
+                </>
+              )}
+
+              {/* 创建成功后显示会议信息 */}
+              {meetingInfo && (
+                <div className="space-y-4">
+                  {/* 会议状态卡片 */}
+                  <div className="bg-slate-800/60 border border-red-500/30 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-sm">会议状态</span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium border ${
+                        meetingInfo.status === 'active'
+                          ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-400'
+                          : 'bg-slate-700/50 border-slate-500/30 text-slate-400'
+                      }`}>
+                        {meetingInfo.status === 'active' ? '进行中' : '已关闭'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-sm">会议 ID</span>
+                      <span className="text-slate-200 text-sm font-mono">{meetingInfo.meetingId}</span>
+                    </div>
+
+                    {meetingInfo.meetingCode && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-sm">会议号</span>
+                        <span className="text-slate-200 text-sm font-mono">{meetingInfo.meetingCode}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-sm">参会人数</span>
+                      <span className="text-slate-200 text-sm flex items-center gap-1">
+                        <Users size={14} className="text-cyan-400" />
+                        {meetingInfo.participantCount ?? 0}
+                      </span>
+                    </div>
+
+                    {meetingInfo.joinUrl && (
+                      <div className="pt-2 border-t border-slate-700/50">
+                        <span className="text-slate-400 text-sm block mb-1.5">入会链接</span>
+                        <div className="bg-slate-900/80 rounded-lg p-2 break-all text-xs text-cyan-400 font-mono border border-slate-700/50">
+                          {meetingInfo.joinUrl}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex gap-3">
+                    {meetingInfo.joinUrl && meetingInfo.status === 'active' && (
+                      <a
+                        href={meetingInfo.joinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold text-sm hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 shadow-lg shadow-blue-500/30"
+                      >
+                        <Phone size={16} />
+                        加入会议
+                      </a>
+                    )}
+                    {meetingInfo.status === 'active' && (
+                      <button
+                        onClick={handleCloseMeeting}
+                        disabled={meetingLoading}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-red-500 text-white font-semibold text-sm hover:from-red-500 hover:to-red-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-500/30"
+                      >
+                        {meetingLoading ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <X size={16} />
+                        )}
+                        {meetingLoading ? '关闭中...' : '结束会议'}
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>

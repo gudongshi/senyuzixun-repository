@@ -397,6 +397,68 @@ async function getDingTalkAccessToken() {
 }
 
 // ============================================================
+// 钉钉视频会议辅助函数
+// ============================================================
+
+// 创建钉钉视频会议
+async function createDingTalkMeeting(accessToken, meetingData) {
+  const { meetingTitle, startTime, endTime } = meetingData;
+  console.log(`📋 创建钉钉视频会议: title="${meetingTitle}", startTime=${startTime}, endTime=${endTime}`);
+  const response = await axios.post(
+    'https://api.dingtalk.com/v1.0/conference/videoConferences',
+    {
+      title: meetingTitle,
+      startTime: startTime || new Date().toISOString(),
+      endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    },
+    {
+      headers: {
+        'x-acs-dingtalk-access-token': accessToken,
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+    }
+  );
+  console.log(`✅ 钉钉会议创建成功: conferenceId=${response.data.conferenceId}`);
+  return response.data;
+}
+
+// 查询钉钉会议信息
+async function getDingTalkMeetingInfo(accessToken, meetingId) {
+  console.log(`📋 查询钉钉会议信息: meetingId=${meetingId}`);
+  const response = await axios.get(
+    `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}`,
+    {
+      headers: {
+        'x-acs-dingtalk-access-token': accessToken,
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+    }
+  );
+  console.log(`✅ 会议信息查询成功: meetingId=${meetingId}, status=${response.data.status}`);
+  return response.data;
+}
+
+// 关闭钉钉会议
+async function closeDingTalkMeeting(accessToken, meetingId) {
+  console.log(`📋 关闭钉钉会议: meetingId=${meetingId}`);
+  const response = await axios.put(
+    `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`,
+    {},
+    {
+      headers: {
+        'x-acs-dingtalk-access-token': accessToken,
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+    }
+  );
+  console.log(`✅ 会议已关闭: meetingId=${meetingId}`);
+  return response.data;
+}
+
+// ============================================================
 // 用户姓名缓存
 // ============================================================
 const userNameCache = new Map();
@@ -4087,6 +4149,311 @@ ${projectDetails}
     res.json({ success: true, data: aiAnalysis });
   } catch (err) {
     console.error('❌ 高风险项目综合诊断失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 钉钉视频会议管理接口
+// ============================================================
+
+// 1. 创建视频会议
+app.post('/api/meeting/create', authMiddleware, async (req, res) => {
+  try {
+    const { projectId, meetingTitle, startTime, duration } = req.body;
+    console.log(`📋 POST /api/meeting/create - 创建视频会议: projectId=${projectId}, meetingTitle="${meetingTitle}"`);
+
+    // 校验必填字段
+    if (!projectId) {
+      console.warn('⚠️ 创建会议失败: 缺少 projectId');
+      return res.status(400).json({ success: false, error: '缺少项目ID (projectId)' });
+    }
+    if (!meetingTitle) {
+      console.warn('⚠️ 创建会议失败: 缺少 meetingTitle');
+      return res.status(400).json({ success: false, error: '缺少会议标题 (meetingTitle)' });
+    }
+
+    // 获取钉钉 Access Token
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      console.error('❌ 创建会议失败: 无法获取钉钉 Access Token');
+      return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
+    }
+
+    // 计算会议时间
+    const meetingDuration = duration || 60; // 默认 60 分钟
+    const now = new Date();
+    const meetingStartTime = startTime || now.toISOString();
+    const meetingEndTime = new Date(now.getTime() + meetingDuration * 60 * 1000).toISOString();
+
+    console.log(`📋 会议参数: duration=${meetingDuration}分钟, startTime=${meetingStartTime}, endTime=${meetingEndTime}`);
+
+    // 调用钉钉 API 创建会议
+    let meetingResult;
+    try {
+      meetingResult = await createDingTalkMeeting(accessToken, {
+        meetingTitle,
+        startTime: meetingStartTime,
+        endTime: meetingEndTime,
+      });
+    } catch (dingErr) {
+      const errMsg = dingErr.response?.data || dingErr.message;
+      console.error(`❌ 钉钉创建会议 API 调用失败: ${JSON.stringify(errMsg).slice(0, 500)}`);
+      return res.status(502).json({ success: false, error: `钉钉会议创建失败: ${dingErr.response?.data?.message || dingErr.message}` });
+    }
+
+    const meetingId = meetingResult.conferenceId;
+    const joinUrl = meetingResult.joinUrl || '';
+    const meetingCode = meetingResult.meetingCode || '';
+
+    console.log(`✅ 会议创建成功: meetingId=${meetingId}, meetingCode=${meetingCode}`);
+
+    // 将会议信息缓存到 system_config 表
+    const cacheValue = {
+      meetingId,
+      meetingCode,
+      joinUrl,
+      projectId,
+      meetingTitle,
+      status: 'active',
+      participantCount: 0,
+      startTime: meetingStartTime,
+      endTime: meetingEndTime,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await supabase
+        .from('system_config')
+        .upsert({
+          key: `meeting_${meetingId}`,
+          value: cacheValue,
+          updated_at: new Date().toISOString(),
+        });
+      console.log(`✅ 会议信息已缓存: key=meeting_${meetingId}`);
+    } catch (cacheErr) {
+      console.warn(`⚠️ 会议信息缓存失败（不影响创建结果）: ${cacheErr.message}`);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        meetingId,
+        joinUrl,
+        meetingCode,
+        conferenceId: meetingId,
+        status: 'active',
+        participantCount: 0,
+      },
+    });
+  } catch (err) {
+    console.error('❌ 创建会议失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. 查询会议状态
+app.get('/api/meeting/status/:id', authMiddleware, async (req, res) => {
+  try {
+    const meetingId = req.params.id;
+    console.log(`📋 GET /api/meeting/status/${meetingId} - 查询会议状态`);
+
+    // 优先检查本地缓存
+    let cachedInfo = null;
+    try {
+      const { data: cacheData } = await supabase
+        .from('system_config')
+        .select('value')
+        .eq('key', `meeting_${meetingId}`)
+        .maybeSingle();
+      if (cacheData && cacheData.value) {
+        cachedInfo = cacheData.value;
+        console.log(`📋 会议状态命中缓存: meetingId=${meetingId}, status=${cachedInfo.status}`);
+      }
+    } catch (cacheErr) {
+      console.warn(`⚠️ 读取会议缓存失败: ${cacheErr.message}`);
+    }
+
+    // 异步刷新钉钉最新状态（不阻塞响应）
+    getDingTalkAccessToken().then(accessToken => {
+      if (!accessToken) return;
+      return getDingTalkMeetingInfo(accessToken, meetingId).then(async (dingInfo) => {
+        const updatedValue = {
+          ...(cachedInfo || {}),
+          meetingId,
+          status: dingInfo.status || 'active',
+          participantCount: dingInfo.participantCount || 0,
+          joinUrl: dingInfo.joinUrl || cachedInfo?.joinUrl || '',
+          meetingCode: dingInfo.meetingCode || cachedInfo?.meetingCode || '',
+          lastRefreshedAt: new Date().toISOString(),
+        };
+        await supabase
+          .from('system_config')
+          .upsert({
+            key: `meeting_${meetingId}`,
+            value: updatedValue,
+            updated_at: new Date().toISOString(),
+          });
+        console.log(`✅ 会议缓存已异步刷新: meetingId=${meetingId}`);
+      }).catch(err => {
+        console.warn(`⚠️ 异步刷新会议状态失败: meetingId=${meetingId}, error=${err.message}`);
+      });
+    }).catch(err => {
+      console.warn(`⚠️ 异步刷新时获取 Token 失败: ${err.message}`);
+    });
+
+    // 优先返回缓存状态
+    if (cachedInfo) {
+      return res.json({
+        success: true,
+        data: {
+          meetingId,
+          joinUrl: cachedInfo.joinUrl || '',
+          meetingCode: cachedInfo.meetingCode || '',
+          status: cachedInfo.status || 'active',
+          participantCount: cachedInfo.participantCount || 0,
+          startTime: cachedInfo.startTime || '',
+          endTime: cachedInfo.endTime || '',
+        },
+      });
+    }
+
+    // 无缓存时实时查询钉钉
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
+    }
+
+    let dingInfo;
+    try {
+      dingInfo = await getDingTalkMeetingInfo(accessToken, meetingId);
+    } catch (dingErr) {
+      const errMsg = dingErr.response?.data || dingErr.message;
+      console.error(`❌ 钉钉查询会议 API 失败: ${JSON.stringify(errMsg).slice(0, 500)}`);
+      return res.status(502).json({ success: false, error: `钉钉会议查询失败: ${dingErr.response?.data?.message || dingErr.message}` });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        meetingId,
+        joinUrl: dingInfo.joinUrl || '',
+        meetingCode: dingInfo.meetingCode || '',
+        status: dingInfo.status || 'active',
+        participantCount: dingInfo.participantCount || 0,
+        startTime: dingInfo.startTime || '',
+        endTime: dingInfo.endTime || '',
+      },
+    });
+  } catch (err) {
+    console.error('❌ 查询会议状态失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. 关闭视频会议
+app.post('/api/meeting/close/:id', authMiddleware, async (req, res) => {
+  try {
+    const meetingId = req.params.id;
+    console.log(`📋 POST /api/meeting/close/${meetingId} - 关闭视频会议`);
+
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      console.error('❌ 关闭会议失败: 无法获取钉钉 Access Token');
+      return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
+    }
+
+    try {
+      await closeDingTalkMeeting(accessToken, meetingId);
+    } catch (dingErr) {
+      const errMsg = dingErr.response?.data || dingErr.message;
+      console.error(`❌ 钉钉关闭会议 API 失败: ${JSON.stringify(errMsg).slice(0, 500)}`);
+      return res.status(502).json({ success: false, error: `钉钉会议关闭失败: ${dingErr.response?.data?.message || dingErr.message}` });
+    }
+
+    // 更新本地缓存状态为已关闭
+    try {
+      const { data: cacheData } = await supabase
+        .from('system_config')
+        .select('value')
+        .eq('key', `meeting_${meetingId}`)
+        .maybeSingle();
+
+      const updatedValue = {
+        ...(cacheData?.value || {}),
+        meetingId,
+        status: 'closed',
+        closedAt: new Date().toISOString(),
+      };
+
+      await supabase
+        .from('system_config')
+        .upsert({
+          key: `meeting_${meetingId}`,
+          value: updatedValue,
+          updated_at: new Date().toISOString(),
+        });
+      console.log(`✅ 会议缓存已更新为已关闭: meetingId=${meetingId}`);
+    } catch (cacheErr) {
+      console.warn(`⚠️ 更新会议缓存失败: ${cacheErr.message}`);
+    }
+
+    console.log(`✅ 会议已关闭: meetingId=${meetingId}`);
+    res.json({ success: true, data: { meetingId, status: 'closed' } });
+  } catch (err) {
+    console.error('❌ 关闭会议失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. 钉钉事件回调接收地址（无需认证）
+app.post('/api/meeting/callback', async (req, res) => {
+  try {
+    console.log('📋 POST /api/meeting/callback - 钉钉会议事件回调');
+    console.log('📦 回调数据:', JSON.stringify(req.body).slice(0, 500));
+
+    const eventData = req.body;
+    // 处理会议状态变更事件
+    if (eventData && eventData.conferenceId) {
+      const meetingId = eventData.conferenceId;
+      const eventType = eventData.eventType || 'unknown';
+
+      console.log(`📋 会议事件: meetingId=${meetingId}, eventType=${eventType}`);
+
+      // 更新本地缓存
+      try {
+        const { data: cacheData } = await supabase
+          .from('system_config')
+          .select('value')
+          .eq('key', `meeting_${meetingId}`)
+          .maybeSingle();
+
+        const updatedValue = {
+          ...(cacheData?.value || {}),
+          meetingId,
+          status: eventData.status || 'updated',
+          participantCount: eventData.participantCount || 0,
+          lastEventAt: new Date().toISOString(),
+          lastEventType: eventType,
+        };
+
+        await supabase
+          .from('system_config')
+          .upsert({
+            key: `meeting_${meetingId}`,
+            value: updatedValue,
+            updated_at: new Date().toISOString(),
+          });
+        console.log(`✅ 会议回调缓存已更新: meetingId=${meetingId}, eventType=${eventType}`);
+      } catch (cacheErr) {
+        console.warn(`⚠️ 回调更新缓存失败: ${cacheErr.message}`);
+      }
+    }
+
+    // 钉钉回调要求返回加密的 "success"
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 会议回调处理失败:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
