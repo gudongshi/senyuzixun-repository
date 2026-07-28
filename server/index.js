@@ -611,8 +611,9 @@ app.get('/api/dingtalk/login', async (req, res) => {
     });
 
     const user = userResp.data;
+    console.log('🔍 钉钉用户完整信息:', JSON.stringify(user, null, 2));
     const userId = user.userId || user.openId || '';
-    const openId = user.openId || '';
+    const openId = user.openId || user.open_id || user.openid || '';
     const userName = user.nick || user.name || userId || '未知用户';
 
     // 白名单校验：检查是否在任意一个白名单中
