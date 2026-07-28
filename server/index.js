@@ -615,10 +615,10 @@ app.get('/api/dingtalk/login', async (req, res) => {
     const userId = user.userId || user.openId || '';
     let openId = user.openId || user.open_id || user.openid || '';
 
-    // 如果 openId 仍然为空，通过 userId 查询用户详情
-    if (!openId && userId) {
+    // 如果 openId 为空或等于 userId（无效值），通过 userId 查询用户详情获取真正的 openId
+    if ((!openId || openId === userId) && userId) {
       try {
-        console.log(`📋 openId 为空，尝试通过 userId 查询: userId=${userId}`);
+        console.log(`📋 openId 无效（当前值: "${openId || '(空)'}"），尝试通过 userId 查询: userId=${userId}`);
         console.log(`📋 当前 accessToken: ${accessToken ? accessToken.slice(0, 20) + '...' : '(空)'}`);
         const userInfoResp = await axios.get(
           `https://api.dingtalk.com/v1.0/contact/users/${userId}`,
