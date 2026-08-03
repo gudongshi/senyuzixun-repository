@@ -351,6 +351,7 @@ const ALLOWED_USERS_DASHBOARD = [
   "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
   "JiPii1oD0VBcPc3eo4Nn3VPAiEiE", // 徐钢
   "JiPii1oD0VBcNGwSILSZyXvwiEiE", // 张劲
+  "FiiV6vwpt7us9WKiPgSvKqFwiEiE", // 张国尚（企业）
 ];
 
 // 项目管理后台访问白名单（项目操作人员）
@@ -361,6 +362,7 @@ const ALLOWED_USERS_MANAGER = [
   "zAjffiPGiPGnP1rbsiiCNfysQiEiE", // 何朝辉（企业）
   "JiPii1oD0VBcPc3eo4Nn3VPAiEiE", // 徐钢
   "JiPii1oD0VBcNGwSILSZyXvwiEiE", // 张劲
+  "FiiV6vwpt7us9WKiPgSvKqFwiEiE", // 张国尚（企业）
 ];
 
 // 合并所有授权用户（用于快速判断是否完全无权限）
