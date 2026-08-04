@@ -1581,27 +1581,25 @@ export default function Dashboard() {
     } else {
       setMeetingTitle('');
     }
-    // 获取通讯录成员列表
-    if (contacts.length === 0) {
-      setContactsLoading(true);
-      console.log('📋 获取钉钉通讯录成员列表...');
-      fetch('/api/dingtalk/contacts')
-        .then(res => res.json())
-        .then(result => {
-          if (result.success && result.data) {
-            console.log(`✅ 通讯录成员列表获取成功: ${result.data.length} 人`);
-            setContacts(result.data);
-          } else {
-            console.warn('⚠️ 获取通讯录成员列表失败:', result.error);
-          }
-        })
-        .catch(err => {
-          console.error('❌ 获取通讯录成员列表异常:', err.message);
-        })
-        .finally(() => {
-          setContactsLoading(false);
-        });
-    }
+    // 每次打开都刷新通讯录列表（确保数据最新）
+    console.log('📋 获取钉钉通讯录成员列表...');
+    setContactsLoading(true);
+    fetch('/api/dingtalk/contacts')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && result.data) {
+          console.log(`✅ 通讯录成员列表获取成功: ${result.data.length} 人`);
+          setContacts(result.data);
+        } else {
+          console.warn('⚠️ 获取通讯录成员列表失败:', result.error);
+        }
+      })
+      .catch(err => {
+        console.error('❌ 获取通讯录成员列表异常:', err.message);
+      })
+      .finally(() => {
+        setContactsLoading(false);
+      });
   };
 
   // 创建会议
