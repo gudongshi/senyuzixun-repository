@@ -453,19 +453,25 @@ async function getDingTalkMeetingInfo(accessToken, meetingId) {
 // 关闭钉钉会议
 async function closeDingTalkMeeting(accessToken, meetingId) {
   console.log(`📋 关闭钉钉会议: meetingId=${meetingId}`);
-  const response = await axios.post(
-    `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`,
-    {},
-    {
-      headers: {
-        'x-acs-dingtalk-access-token': accessToken,
-        'Content-Type': 'application/json',
-      },
-      timeout: 30000,
-    }
-  );
-  console.log(`✅ 会议已关闭: meetingId=${meetingId}`);
-  return response.data;
+  try {
+    const response = await axios.post(
+      `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`,
+      {},
+      {
+        headers: {
+          'x-acs-dingtalk-access-token': accessToken,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    console.log(`✅ 会议已关闭: meetingId=${meetingId}`);
+    return response.data;
+  } catch (err) {
+    const errDetail = err.response?.data || err.message;
+    console.error(`❌ 钉钉关闭会议 API 调用失败: meetingId=${meetingId}, error=${JSON.stringify(errDetail)}`);
+    throw err;
+  }
 }
 
 // ============================================================
@@ -4367,7 +4373,7 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
       for (const unionId of inviteeUnionIds) {
         try {
           await axios.post(
-            `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/invite`,
+            `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/invitees`,
             { inviteeUnionIdList: [unionId] },
             {
               headers: {
