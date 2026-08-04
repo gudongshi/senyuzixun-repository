@@ -4212,21 +4212,35 @@ app.get('/api/dingtalk/contacts', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
     }
 
-    // 获取根部门下的子部门列表
+    // 递归获取所有子部门 ID（包含所有层级）
+    async function getAllDepartmentIds(accessToken, parentDeptId) {
+      const allDeptIds = [];
+      try {
+        const deptResp = await axios.post(
+          'https://oapi.dingtalk.com/topapi/v2/department/listsub',
+          { dept_id: parentDeptId },
+          { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+        );
+        if (deptResp.data.errcode === 0 && deptResp.data.result) {
+          const childDepts = deptResp.data.result;
+          for (const dept of childDepts) {
+            allDeptIds.push(dept.dept_id);
+            // 递归获取子部门的子部门
+            const nestedIds = await getAllDepartmentIds(accessToken, dept.dept_id);
+            allDeptIds.push(...nestedIds);
+          }
+        }
+      } catch (err) {
+        console.warn(`⚠️ 获取部门 ${parentDeptId} 子部门失败: ${err.message}`);
+      }
+      return allDeptIds;
+    }
+
+    // 获取根部门下所有层级的子部门 ID
     let departmentIds = [];
     try {
-      const deptResp = await axios.post(
-        'https://oapi.dingtalk.com/topapi/v2/department/listsub',
-        { dept_id: 1 },
-        { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
-      );
-      if (deptResp.data.errcode === 0 && deptResp.data.result) {
-        departmentIds = deptResp.data.result.map(d => d.dept_id);
-        console.log(`✅ 获取部门列表成功: ${departmentIds.length} 个部门`);
-      } else {
-        console.warn(`⚠️ 获取部门列表失败: ${deptResp.data.errmsg}，尝试使用根部门`);
-        departmentIds = [1]; // 降级：使用根部门
-      }
+      departmentIds = await getAllDepartmentIds(accessToken, 1);
+      console.log(`✅ 获取部门列表成功: ${departmentIds.length} 个部门（含所有层级）`);
     } catch (deptErr) {
       console.warn(`⚠️ 获取部门列表异常: ${deptErr.message}，尝试使用根部门`);
       departmentIds = [1]; // 降级：使用根部门
