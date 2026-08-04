@@ -453,7 +453,7 @@ async function getDingTalkMeetingInfo(accessToken, meetingId) {
 // 关闭钉钉会议
 async function closeDingTalkMeeting(accessToken, meetingId) {
   console.log(`📋 关闭钉钉会议: meetingId=${meetingId}`);
-  const response = await axios.put(
+  const response = await axios.post(
     `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`,
     {},
     {
@@ -4361,6 +4361,28 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
     const meetingCode = meetingResult.meetingCode || '';
 
     console.log(`✅ 会议创建成功: openId=${openId}, meetingId=${meetingId}, meetingCode=${meetingCode}`);
+
+    // 会议创建成功后，单独邀请用户
+    if (inviteeUnionIds && inviteeUnionIds.length > 0) {
+      for (const unionId of inviteeUnionIds) {
+        try {
+          await axios.post(
+            `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/invite`,
+            { inviteeUnionIdList: [unionId] },
+            {
+              headers: {
+                'x-acs-dingtalk-access-token': accessToken,
+                'Content-Type': 'application/json',
+              },
+              timeout: 10000,
+            }
+          );
+          console.log(`✅ 邀请用户成功: unionId=${unionId}`);
+        } catch (inviteErr) {
+          console.warn(`⚠️ 邀请用户失败: unionId=${unionId}, error=${inviteErr.message}`);
+        }
+      }
+    }
 
     // 将会议信息缓存到 system_config 表
     const cacheValue = {
