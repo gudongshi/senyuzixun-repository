@@ -404,8 +404,8 @@ async function getDingTalkAccessToken() {
 
 // 创建钉钉视频会议
 async function createDingTalkMeeting(accessToken, userId, meetingData) {
-  const { meetingTitle, startTime, endTime } = meetingData;
-  console.log(`📋 创建钉钉视频会议: userId=${userId}, title="${meetingTitle}", startTime=${startTime}, endTime=${endTime}`);
+  const { meetingTitle, startTime, endTime, inviteeUnionIdList } = meetingData;
+  console.log(`📋 创建钉钉视频会议: userId=${userId}, title="${meetingTitle}", startTime=${startTime}, endTime=${endTime}, inviteeCount=${inviteeUnionIdList?.length || 0}`);
   try {
     const response = await axios.post(
       'https://api.dingtalk.com/v1.0/conference/videoConferences',
@@ -414,6 +414,7 @@ async function createDingTalkMeeting(accessToken, userId, meetingData) {
         startTime: startTime || new Date().toISOString(),
         endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         userId: userId,
+        inviteeUnionIdList: inviteeUnionIdList || [],
       },
       {
         headers: {
@@ -4197,14 +4198,100 @@ ${projectDetails}
 });
 
 // ============================================================
+// 钉钉通讯录成员列表接口
+// ============================================================
+
+// GET /api/dingtalk/contacts - 获取钉钉组织通讯录成员列表
+app.get('/api/dingtalk/contacts', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 GET /api/dingtalk/contacts - 获取钉钉通讯录成员列表');
+
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      console.error('❌ 获取通讯录失败: 无法获取钉钉 Access Token');
+      return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
+    }
+
+    // 获取根部门下的子部门列表
+    let departmentIds = [];
+    try {
+      const deptResp = await axios.post(
+        'https://oapi.dingtalk.com/topapi/v2/department/listsub',
+        { dept_id: 1 },
+        { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+      );
+      if (deptResp.data.errcode === 0 && deptResp.data.result) {
+        departmentIds = deptResp.data.result.map(d => d.dept_id);
+        console.log(`✅ 获取部门列表成功: ${departmentIds.length} 个部门`);
+      } else {
+        console.warn(`⚠️ 获取部门列表失败: ${deptResp.data.errmsg}，尝试使用根部门`);
+        departmentIds = [1]; // 降级：使用根部门
+      }
+    } catch (deptErr) {
+      console.warn(`⚠️ 获取部门列表异常: ${deptErr.message}，尝试使用根部门`);
+      departmentIds = [1]; // 降级：使用根部门
+    }
+
+    // 遍历所有部门获取成员，去重
+    const memberMap = new Map();
+    for (const deptId of departmentIds) {
+      try {
+        let cursor = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const userResp = await axios.post(
+            'https://oapi.dingtalk.com/topapi/v2/user/list',
+            { dept_id: deptId, cursor, size: 100 },
+            { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+          );
+          if (userResp.data.errcode === 0 && userResp.data.result) {
+            const userList = userResp.data.result.user_list || [];
+            for (const user of userList) {
+              const userId = user.userid;
+              if (!memberMap.has(userId)) {
+                memberMap.set(userId, {
+                  userId: userId,
+                  name: user.name || userId,
+                  unionId: user.unionid || user.union_id || '',
+                });
+                // 更新姓名缓存
+                if (user.name && !userNameCache.has(userId)) {
+                  userNameCache.set(userId, user.name);
+                }
+              }
+            }
+            hasMore = userResp.data.result.has_more || false;
+            cursor = userResp.data.result.next_cursor || 0;
+          } else {
+            console.warn(`⚠️ 获取部门 ${deptId} 成员列表失败: ${userResp.data.errmsg}`);
+            hasMore = false;
+          }
+        }
+      } catch (userErr) {
+        console.warn(`⚠️ 获取部门 ${deptId} 成员列表异常: ${userErr.message}`);
+      }
+    }
+
+    const contacts = Array.from(memberMap.values());
+    console.log(`✅ 通讯录成员列表获取成功: ${contacts.length} 人`);
+
+    res.json({ success: true, data: contacts });
+  } catch (err) {
+    console.error('❌ 获取通讯录成员列表失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 钉钉视频会议管理接口
 // ============================================================
 
 // 1. 创建视频会议
 app.post('/api/meeting/create', authMiddleware, async (req, res) => {
   try {
-    const { projectId, meetingTitle, startTime, duration } = req.body;
+    const { projectId, meetingTitle, startTime, duration, inviteeUnionIds } = req.body;
     console.log(`📋 POST /api/meeting/create - 创建视频会议: projectId=${projectId}, meetingTitle="${meetingTitle}"`);
+    console.log(`📋 邀请参会人员: ${inviteeUnionIds?.length || 0} 人`);
 
     // 校验必填字段
     if (!projectId) {
@@ -4246,6 +4333,7 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
         meetingTitle,
         startTime: meetingStartTime,
         endTime: meetingEndTime,
+        inviteeUnionIdList: inviteeUnionIds || [],
       });
     } catch (dingErr) {
       const errMsg = dingErr.response?.data || dingErr.message;
