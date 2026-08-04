@@ -4244,6 +4244,7 @@ app.get('/api/dingtalk/contacts', authMiddleware, async (req, res) => {
             { dept_id: deptId, cursor, size: 100 },
             { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
           );
+          console.log(`📋 部门 ${deptId} 成员列表响应:`, JSON.stringify(userResp.data, null, 2));
           if (userResp.data.errcode === 0 && userResp.data.result) {
             const userList = userResp.data.result.user_list || [];
             for (const user of userList) {
