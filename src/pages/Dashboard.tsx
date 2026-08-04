@@ -631,6 +631,7 @@ export default function Dashboard() {
   const [contacts, setContacts] = useState<{ userId: string; name: string; unionId: string }[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [selectedInvitees, setSelectedInvitees] = useState<string[]>([]); // 存储 unionId 列表
+  const [contactSearchTerm, setContactSearchTerm] = useState('');
 
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
@@ -1575,6 +1576,7 @@ export default function Dashboard() {
     setMeetingInfo(null);
     setMeetingLoading(false);
     setSelectedInvitees([]);
+    setContactSearchTerm('');
     if (selectedProjectId) {
       const project = projects.find(p => p.id === selectedProjectId);
       setMeetingTitle(project ? `${project.projectName} - 现场连线` : '');
@@ -2452,9 +2454,16 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* 邀请现场人员 */}
+                  {/* 邀请现场人员 - 搜索框 */}
                   <div>
                     <label className="block text-slate-400 text-sm mb-1.5">邀请现场人员</label>
+                    <input
+                      type="text"
+                      placeholder="输入姓名搜索..."
+                      value={contactSearchTerm}
+                      onChange={(e) => setContactSearchTerm(e.target.value)}
+                      className="w-full bg-slate-700/80 border border-slate-600 rounded-lg px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-red-500/50 transition-colors mb-2"
+                    />
                     <select
                       multiple
                       value={selectedInvitees}
@@ -2470,11 +2479,15 @@ export default function Dashboard() {
                       disabled={contactsLoading}
                     >
                       {contactsLoading && <option value="">加载中...</option>}
-                      {contacts.map(c => (
-                        <option key={c.unionId} value={c.unionId}>{c.name}</option>
-                      ))}
+                      {contacts
+                        .filter(c => c.name.includes(contactSearchTerm.trim()))
+                        .map(c => (
+                          <option key={c.unionId} value={c.unionId}>{c.name}</option>
+                        ))}
                     </select>
-                    <p className="text-xs text-slate-500 mt-1">按住 Ctrl 键可多选</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      按住 Ctrl 键可多选 | 共 {contacts.filter(c => c.name.includes(contactSearchTerm.trim())).length} 人
+                    </p>
                   </div>
 
                   {/* 创建按钮 */}
