@@ -2517,16 +2517,18 @@ export default function Dashboard() {
                     )}
                     {meetingInfo.status === 'active' && (
                       <button
-                        onClick={handleCloseMeeting}
-                        disabled={meetingLoading}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-red-500 text-white font-semibold text-sm hover:from-red-500 hover:to-red-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-500/30"
+                        onClick={() => {
+                          setMeetingModalOpen(false);
+                          setMeetingInfo(null);
+                          if (meetingStatusTimer) {
+                            clearInterval(meetingStatusTimer);
+                            setMeetingStatusTimer(null);
+                          }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-red-500 text-white font-semibold text-sm hover:from-red-500 hover:to-red-400 transition-all duration-300 shadow-lg shadow-red-500/30"
                       >
-                        {meetingLoading ? (
-                          <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                          <X size={16} />
-                        )}
-                        {meetingLoading ? '关闭中...' : '结束会议'}
+                        <X size={16} />
+                        结束会议
                       </button>
                     )}
                   </div>
