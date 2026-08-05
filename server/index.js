@@ -470,8 +470,8 @@ async function getDingTalkMeetingInfo(accessToken, meetingId) {
 }
 
 // 关闭钉钉会议
-async function closeDingTalkMeeting(accessToken, meetingId) {
-  console.log(`📋 关闭钉钉会议: meetingId=${meetingId}`);
+async function closeDingTalkMeeting(accessToken, meetingId, userId) {
+  console.log(`📋 关闭钉钉会议: meetingId=${meetingId}, userId=${userId}`);
 
   // 验证参数
   if (!meetingId) {
@@ -482,9 +482,13 @@ async function closeDingTalkMeeting(accessToken, meetingId) {
     console.error(`❌ 关闭会议参数无效: accessToken=${accessToken ? '(已提供)' : '(空)'}`);
     throw new Error('accessToken 不能为空');
   }
+  if (!userId) {
+    console.error(`❌ 关闭会议参数无效: userId=${userId || '(空)'}`);
+    throw new Error('userId 不能为空');
+  }
 
-  const url = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`;
-  const body = {};
+  const url = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/cancel`;
+  const body = { userId: userId };
   const headers = {
     'x-acs-dingtalk-access-token': accessToken,
     'Content-Type': 'application/json',
@@ -4562,9 +4566,15 @@ app.post('/api/meeting/close/:id', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
     }
 
-    console.log(`📋 关闭会议参数验证: meetingId=${meetingId}, accessToken=${accessToken ? accessToken.slice(0, 10) + '...' : '(空)'}`);
+    const openId = req.user?.openId;
+    if (!openId) {
+      console.error('❌ 关闭会议失败: 无法获取当前用户 openId');
+      return res.status(400).json({ success: false, error: '无法获取用户信息，请重新登录' });
+    }
+
+    console.log(`📋 关闭会议参数验证: meetingId=${meetingId}, accessToken=${accessToken ? accessToken.slice(0, 10) + '...' : '(空)'}, openId=${openId}`);
     try {
-      await closeDingTalkMeeting(accessToken, meetingId);
+      await closeDingTalkMeeting(accessToken, meetingId, openId);
     } catch (dingErr) {
       console.error(`❌ 钉钉关闭会议 API 失败: ${dingErr.message}`);
       if (dingErr.response) {
