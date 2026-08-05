@@ -4404,67 +4404,7 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
     const joinUrl = meetingResult.joinUrl || '';
     const meetingCode = meetingResult.meetingCode || '';
 
-    console.log(`✅ 会议创建成功: openId=${openId}, meetingId=${meetingId}, meetingCode=${meetingCode}`);
-
-    // 会议创建成功后，开始会议并邀请用户
-    if (inviteeUnionIds && inviteeUnionIds.length > 0) {
-      // 先开始会议（确保会议处于可邀请状态）
-      const startUrl = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/start`;
-      const startBody = { userId: openId };
-      const startHeaders = {
-        'x-acs-dingtalk-access-token': accessToken,
-        'Content-Type': 'application/json',
-      };
-      console.log(`📤 开始会议请求: URL=${startUrl}, method=POST, headers=${JSON.stringify(startHeaders)}, body=${JSON.stringify(startBody)}`);
-      console.log(`📋 开始会议参数验证: meetingId=${meetingId}, openId=${openId}`);
-      try {
-        const startResp = await axios.post(startUrl, startBody, { headers: startHeaders, timeout: 10000 });
-        console.log(`📥 开始会议响应: status=${startResp.status}, data=${JSON.stringify(startResp.data)}`);
-        console.log(`✅ 会议已开始: meetingId=${meetingId}`);
-      } catch (startErr) {
-        console.error(`❌ 开始会议失败: ${startErr.message}`);
-        if (startErr.response) {
-          console.error(`  状态码: ${startErr.response.status}`);
-          console.error(`  响应头: ${JSON.stringify(startErr.response.headers)}`);
-          console.error(`  响应体: ${JSON.stringify(startErr.response.data)}`);
-        } else if (startErr.request) {
-          console.error(`  无响应: ${startErr.request}`);
-        } else {
-          console.error(`  错误详情: ${startErr.stack}`);
-        }
-      }
-
-      // 逐个邀请用户
-      for (const unionId of inviteeUnionIds) {
-        const inviteUrl = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/inviteUsers`;
-        const inviteBody = {
-          userId: openId,
-          inviteeUnionIdList: [unionId],
-        };
-        const inviteHeaders = {
-          'x-acs-dingtalk-access-token': accessToken,
-          'Content-Type': 'application/json',
-        };
-        console.log(`📤 邀请用户请求: URL=${inviteUrl}, method=POST, headers=${JSON.stringify(inviteHeaders)}, body=${JSON.stringify(inviteBody)}`);
-        console.log(`📋 邀请用户参数验证: meetingId=${meetingId}, openId=${openId}, unionId=${unionId}`);
-        try {
-          const inviteResp = await axios.post(inviteUrl, inviteBody, { headers: inviteHeaders, timeout: 10000 });
-          console.log(`📥 邀请用户响应: status=${inviteResp.status}, data=${JSON.stringify(inviteResp.data)}`);
-          console.log(`✅ 邀请用户成功: unionId=${unionId}`);
-        } catch (inviteErr) {
-          console.error(`❌ 邀请用户失败: ${inviteErr.message}`);
-          if (inviteErr.response) {
-            console.error(`  状态码: ${inviteErr.response.status}`);
-            console.error(`  响应头: ${JSON.stringify(inviteErr.response.headers)}`);
-            console.error(`  响应体: ${JSON.stringify(inviteErr.response.data)}`);
-          } else if (inviteErr.request) {
-            console.error(`  无响应: ${inviteErr.request}`);
-          } else {
-            console.error(`  错误详情: ${inviteErr.stack}`);
-          }
-        }
-      }
-    }
+    console.log(`✅ 会议创建成功: openId=${openId}, meetingId=${meetingId}, meetingCode=${meetingCode}, 已邀请 ${inviteeUnionIds?.length || 0} 人`);
 
     // 将会议信息缓存到 system_config 表
     const cacheValue = {
