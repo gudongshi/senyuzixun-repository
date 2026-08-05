@@ -1664,8 +1664,12 @@ app.get('/api/stats/task-categories', async (req, res) => {
 // ============================================================
 app.get('/api/stats/user-ranking', async (req, res) => {
   try {
+    const organization = req.query.organization || '森宇';
+    const tableName = organization === '风控中心' ? 'tasks_center' : 'tasks';
+    console.log(`📋 GET /api/stats/user-ranking - 组织: ${organization}, 表: ${tableName}`);
+
     const { data, error } = await supabase
-      .from('tasks')
+      .from(tableName)
       .select('责任人, 状态, "当前进度(%)"');
 
     if (error) throw error;
@@ -1697,6 +1701,7 @@ app.get('/api/stats/user-ranking', async (req, res) => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
+    console.log(`✅ 用户排名获取成功: ${ranking.length} 人`);
     res.json({ success: true, data: ranking });
   } catch (err) {
     console.error('❌ 获取用户排名失败:', err);
@@ -1709,16 +1714,18 @@ app.get('/api/stats/user-ranking', async (req, res) => {
 // ============================================================
 app.post('/api/ai/user-analysis', async (req, res) => {
   try {
-    const { userName } = req.body;
+    const { userName, organization } = req.body;
     if (!userName) {
       return res.status(400).json({ success: false, error: '缺少 userName 参数' });
     }
 
-    console.log(`🔍 开始分析用户效能: ${userName}`);
+    const org = organization || '森宇';
+    const tableName = org === '风控中心' ? 'tasks_center' : 'tasks';
+    console.log(`📋 用户效能分析: userName=${userName}, organization=${org}, 表: ${tableName}`);
 
     // 查询该用户的所有任务
     const { data: tasks, error } = await supabase
-      .from('tasks')
+      .from(tableName)
       .select('*')
       .eq('责任人', userName);
 

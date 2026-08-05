@@ -627,6 +627,9 @@ export default function Dashboard() {
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingDuration, setMeetingDuration] = useState(60);
 
+  // ---- 任务效能组织切换 ----
+  const [rankingOrganization, setRankingOrganization] = useState<'森宇' | '风控中心'>('森宇');
+
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
 
@@ -1181,15 +1184,17 @@ export default function Dashboard() {
 
   // Fetch user ranking
   useEffect(() => {
-    fetch('/api/stats/user-ranking')
+    console.log(`📋 获取用户排名: organization=${rankingOrganization}`);
+    fetch(`/api/stats/user-ranking?organization=${encodeURIComponent(rankingOrganization)}`)
       .then(res => res.json())
       .then(result => {
         if (result.success && result.data && result.data.length > 0) {
+          console.log(`✅ 用户排名获取成功: ${result.data.length} 人`);
           setRankingData(result.data);
         }
       })
-      .catch(err => console.error('获取用户排名失败:', err));
-  }, []);
+      .catch(err => console.error('❌ 获取用户排名失败:', err));
+  }, [rankingOrganization]);
 
   // Fetch workload（人员负荷率）
   useEffect(() => {
@@ -2022,9 +2027,19 @@ export default function Dashboard() {
         {/* Right Panel — 任务效能 */}
         {/* ============================================================ */}
         <section className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm">
-          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center gap-2">
-            <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
-            任务效能
+          <h2 className="text-lg font-semibold text-cyan-400 mb-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-1 h-5 bg-gradient-to-b from-blue-700 to-cyan-400 rounded-sm"></span>
+              任务效能
+            </div>
+            <select
+              value={rankingOrganization}
+              onChange={(e) => setRankingOrganization(e.target.value as '森宇' | '风控中心')}
+              className="bg-slate-700 border border-cyan-500/30 text-cyan-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-cyan-400 transition-colors"
+            >
+              <option value="森宇">森宇</option>
+              <option value="风控中心">风控中心</option>
+            </select>
           </h2>
 
           <div ref={heatmapChartRef} className="w-full h-56 mb-5"></div>
@@ -2087,7 +2102,7 @@ export default function Dashboard() {
         </div>
 
         <div className="p-6 space-y-6">
-          <AIAnalysisContent target={selectedTarget} workloadData={workloadData} onTaskClick={handlePersonTaskClick} />
+          <AIAnalysisContent target={selectedTarget} workloadData={workloadData} onTaskClick={handlePersonTaskClick} organization={rankingOrganization} />
         </div>
       </div>
 
@@ -2545,7 +2560,7 @@ export default function Dashboard() {
 // ============================================================
 // Person Analysis Component (real API data)
 // ============================================================
-function PersonAnalysis({ target, onTaskClick }: { target: string; onTaskClick?: (taskId: number) => void }) {
+function PersonAnalysis({ target, onTaskClick, organization }: { target: string; onTaskClick?: (taskId: number) => void; organization?: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<{
@@ -2557,22 +2572,29 @@ function PersonAnalysis({ target, onTaskClick }: { target: string; onTaskClick?:
   useEffect(() => {
     setLoading(true);
     setError(null);
+    const org = organization || '森宇';
+    console.log(`📋 用户效能分析: userName=${target}, organization=${org}`);
     fetch('/api/ai/user-analysis', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userName: target })
+      body: JSON.stringify({ userName: target, organization: org })
     })
       .then(res => res.json())
       .then(result => {
         if (result.success) {
+          console.log(`✅ 用户效能分析成功: ${target}`);
           setData(result.data);
         } else {
+          console.error(`❌ 用户效能分析失败: ${result.error}`);
           setError(result.error || '分析失败');
         }
       })
-      .catch(err => setError(err.message || '网络错误'))
+      .catch(err => {
+        console.error(`❌ 用户效能分析网络错误: ${err.message}`);
+        setError(err.message || '网络错误');
+      })
       .finally(() => setLoading(false));
-  }, [target]);
+  }, [target, organization]);
 
   if (loading) {
     return (
@@ -3047,7 +3069,7 @@ function MonthlyTasksAnalysis() {
 // ============================================================
 // AI Analysis Content Component
 // ============================================================
-function AIAnalysisContent({ target, workloadData, onTaskClick }: { target: string; workloadData: { loadRate: number; projectCount: number; taskCount: number; businessPersonnel: number } | null; onTaskClick?: (taskId: number) => void }) {
+function AIAnalysisContent({ target, workloadData, onTaskClick, organization }: { target: string; workloadData: { loadRate: number; projectCount: number; taskCount: number; businessPersonnel: number } | null; onTaskClick?: (taskId: number) => void; organization?: string }) {
   const analyses: Record<string, JSX.Element> = {
     '进行中项目数': <ProjectsOverviewAnalysis />,
     '本月新增任务': <MonthlyTasksAnalysis />,
@@ -3057,7 +3079,7 @@ function AIAnalysisContent({ target, workloadData, onTaskClick }: { target: stri
 
   // Default analysis for person names — use real API data
   if (!analyses[target]) {
-    return <PersonAnalysis target={target} onTaskClick={onTaskClick} />;
+    return <PersonAnalysis target={target} onTaskClick={onTaskClick} organization={organization} />;
   }
 
   return analyses[target];
