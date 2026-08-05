@@ -634,6 +634,7 @@ export default function Dashboard() {
   const [isMuted, setIsMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const flvPlayerRef = useRef<any>(null);
+  const disconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ---- 任务效能组织切换 ----
   const [rankingOrganization, setRankingOrganization] = useState<'森宇' | '风控中心'>('森宇');
@@ -1599,15 +1600,33 @@ export default function Dashboard() {
           setIsPlaying(true); // 默认自动播放
           console.log('📋 flv.js 播放器开始加载...');
           player.on('statistics_info', () => {
-            console.log('✅ 视频流播放中');
+            console.log('✅ 视频流数据到达');
             setStreamStatus('playing');
             setIsPlaying(true);
+            // 重置断流计时器：5秒内未收到新数据则判定断流
+            if (disconnectTimerRef.current) {
+              clearTimeout(disconnectTimerRef.current);
+            }
+            disconnectTimerRef.current = setTimeout(() => {
+              console.warn('⚠️ 5秒未收到流数据，判定为断流');
+              setStreamStatus('disconnected');
+              setIsPlaying(false);
+              if (flvPlayerRef.current) {
+                flvPlayerRef.current.pause();
+              }
+            }, 5000);
           });
           player.on('error', () => {
             console.error('❌ flv.js 播放器错误');
+            if (disconnectTimerRef.current) {
+              clearTimeout(disconnectTimerRef.current);
+              disconnectTimerRef.current = null;
+            }
             setStreamStatus('disconnected');
-            player.pause();
             setIsPlaying(false);
+            if (flvPlayerRef.current) {
+              flvPlayerRef.current.pause();
+            }
           });
         } else {
           console.warn('⚠️ flv.js 不被当前浏览器支持');
@@ -1618,6 +1637,10 @@ export default function Dashboard() {
     }
 
     return () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
       if (flvPlayerRef.current) {
         console.log('📋 销毁 flv.js 播放器');
         flvPlayerRef.current.pause();
@@ -2701,6 +2724,11 @@ export default function Dashboard() {
                         if (flvPlayerRef.current) {
                           if (isPlaying) {
                             flvPlayerRef.current.pause();
+                            // 清除断流计时器，避免 statistics_info 自动恢复播放
+                            if (disconnectTimerRef.current) {
+                              clearTimeout(disconnectTimerRef.current);
+                              disconnectTimerRef.current = null;
+                            }
                           } else {
                             flvPlayerRef.current.play();
                           }
