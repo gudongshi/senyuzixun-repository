@@ -406,29 +406,48 @@ async function getDingTalkAccessToken() {
 async function createDingTalkMeeting(accessToken, userId, meetingData) {
   const { meetingTitle, startTime, endTime, inviteeUnionIdList } = meetingData;
   console.log(`📋 创建钉钉视频会议: userId=${userId}, title="${meetingTitle}", startTime=${startTime}, endTime=${endTime}, inviteeCount=${inviteeUnionIdList?.length || 0}`);
+
+  // 参数验证
+  if (!userId) {
+    console.error(`❌ 创建会议参数无效: userId=${userId || '(空)'}`);
+    throw new Error('userId 不能为空');
+  }
+  if (!meetingTitle) {
+    console.error(`❌ 创建会议参数无效: meetingTitle=${meetingTitle || '(空)'}`);
+    throw new Error('meetingTitle 不能为空');
+  }
+
+  const url = 'https://api.dingtalk.com/v1.0/conference/videoConferences';
+  const body = {
+    confTitle: meetingTitle,
+    startTime: startTime || new Date().toISOString(),
+    endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    userId: userId,
+    inviteeUnionIdList: inviteeUnionIdList || [],
+  };
+  const headers = {
+    'x-acs-dingtalk-access-token': accessToken,
+    'Content-Type': 'application/json',
+  };
+
+  console.log(`📤 创建会议请求: URL=${url}, method=POST, headers=${JSON.stringify(headers)}, body=${JSON.stringify(body)}`);
+
   try {
-    const response = await axios.post(
-      'https://api.dingtalk.com/v1.0/conference/videoConferences',
-      {
-        confTitle: meetingTitle,
-        startTime: startTime || new Date().toISOString(),
-        endTime: endTime || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        userId: userId,
-        inviteeUnionIdList: inviteeUnionIdList || [],
-      },
-      {
-        headers: {
-          'x-acs-dingtalk-access-token': accessToken,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-      }
-    );
+    const response = await axios.post(url, body, { headers, timeout: 30000 });
+    console.log(`📥 创建会议响应: status=${response.status}, data=${JSON.stringify(response.data)}`);
     console.log(`✅ 钉钉会议创建成功: userId=${userId}, conferenceId=${response.data.conferenceId}`);
     return response.data;
   } catch (err) {
-    const errDetail = err.response?.data || err.message;
-    console.error(`❌ 钉钉创建会议 API 调用失败: userId=${userId}, error=${JSON.stringify(errDetail).slice(0, 500)}`);
+    console.error(`❌ 钉钉创建会议 API 调用失败: ${err.message}`);
+    if (err.response) {
+      console.error(`  状态码: ${err.response.status}`);
+      console.error(`  响应头: ${JSON.stringify(err.response.headers)}`);
+      console.error(`  响应体: ${JSON.stringify(err.response.data)}`);
+    } else if (err.request) {
+      console.error(`  无响应: ${err.request}`);
+    } else {
+      console.error(`  错误详情: ${err.stack}`);
+    }
     throw err;
   }
 }
@@ -453,23 +472,42 @@ async function getDingTalkMeetingInfo(accessToken, meetingId) {
 // 关闭钉钉会议
 async function closeDingTalkMeeting(accessToken, meetingId) {
   console.log(`📋 关闭钉钉会议: meetingId=${meetingId}`);
+
+  // 验证参数
+  if (!meetingId) {
+    console.error(`❌ 关闭会议参数无效: meetingId=${meetingId || '(空)'}`);
+    throw new Error('meetingId 不能为空');
+  }
+  if (!accessToken) {
+    console.error(`❌ 关闭会议参数无效: accessToken=${accessToken ? '(已提供)' : '(空)'}`);
+    throw new Error('accessToken 不能为空');
+  }
+
+  const url = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`;
+  const body = {};
+  const headers = {
+    'x-acs-dingtalk-access-token': accessToken,
+    'Content-Type': 'application/json',
+  };
+
+  console.log(`📤 关闭会议请求: URL=${url}, method=POST, headers=${JSON.stringify(headers)}, body=${JSON.stringify(body)}`);
+
   try {
-    const response = await axios.post(
-      `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/stop`,
-      {},
-      {
-        headers: {
-          'x-acs-dingtalk-access-token': accessToken,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-      }
-    );
+    const response = await axios.post(url, body, { headers, timeout: 30000 });
+    console.log(`📥 关闭会议响应: status=${response.status}, data=${JSON.stringify(response.data)}`);
     console.log(`✅ 会议已关闭: meetingId=${meetingId}`);
     return response.data;
   } catch (err) {
-    const errDetail = err.response?.data || err.message;
-    console.error(`❌ 钉钉关闭会议 API 失败: ${JSON.stringify(err.response?.data)}`);
+    console.error(`❌ 钉钉关闭会议 API 失败: ${err.message}`);
+    if (err.response) {
+      console.error(`  状态码: ${err.response.status}`);
+      console.error(`  响应头: ${JSON.stringify(err.response.headers)}`);
+      console.error(`  响应体: ${JSON.stringify(err.response.data)}`);
+    } else if (err.request) {
+      console.error(`  无响应: ${err.request}`);
+    } else {
+      console.error(`  错误详情: ${err.stack}`);
+    }
     throw err;
   }
 }
@@ -4371,43 +4409,59 @@ app.post('/api/meeting/create', authMiddleware, async (req, res) => {
     // 会议创建成功后，开始会议并邀请用户
     if (inviteeUnionIds && inviteeUnionIds.length > 0) {
       // 先开始会议（确保会议处于可邀请状态）
+      const startUrl = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/start`;
+      const startBody = { userId: openId };
+      const startHeaders = {
+        'x-acs-dingtalk-access-token': accessToken,
+        'Content-Type': 'application/json',
+      };
+      console.log(`📤 开始会议请求: URL=${startUrl}, method=POST, headers=${JSON.stringify(startHeaders)}, body=${JSON.stringify(startBody)}`);
+      console.log(`📋 开始会议参数验证: meetingId=${meetingId}, openId=${openId}`);
       try {
-        await axios.post(
-          `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/start`,
-          { userId: openId },
-          {
-            headers: {
-              'x-acs-dingtalk-access-token': accessToken,
-              'Content-Type': 'application/json',
-            },
-            timeout: 10000,
-          }
-        );
+        const startResp = await axios.post(startUrl, startBody, { headers: startHeaders, timeout: 10000 });
+        console.log(`📥 开始会议响应: status=${startResp.status}, data=${JSON.stringify(startResp.data)}`);
         console.log(`✅ 会议已开始: meetingId=${meetingId}`);
       } catch (startErr) {
-        console.warn(`⚠️ 开始会议失败: meetingId=${meetingId}, error=${startErr.message}`);
+        console.error(`❌ 开始会议失败: ${startErr.message}`);
+        if (startErr.response) {
+          console.error(`  状态码: ${startErr.response.status}`);
+          console.error(`  响应头: ${JSON.stringify(startErr.response.headers)}`);
+          console.error(`  响应体: ${JSON.stringify(startErr.response.data)}`);
+        } else if (startErr.request) {
+          console.error(`  无响应: ${startErr.request}`);
+        } else {
+          console.error(`  错误详情: ${startErr.stack}`);
+        }
       }
 
       // 逐个邀请用户
       for (const unionId of inviteeUnionIds) {
+        const inviteUrl = `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/inviteUsers`;
+        const inviteBody = {
+          userId: openId,
+          inviteeUnionIdList: [unionId],
+        };
+        const inviteHeaders = {
+          'x-acs-dingtalk-access-token': accessToken,
+          'Content-Type': 'application/json',
+        };
+        console.log(`📤 邀请用户请求: URL=${inviteUrl}, method=POST, headers=${JSON.stringify(inviteHeaders)}, body=${JSON.stringify(inviteBody)}`);
+        console.log(`📋 邀请用户参数验证: meetingId=${meetingId}, openId=${openId}, unionId=${unionId}`);
         try {
-          await axios.post(
-            `https://api.dingtalk.com/v1.0/conference/videoConferences/${meetingId}/inviteUsers`,
-            {
-              userId: openId,
-              inviteeUnionIdList: [unionId],
-            },
-            {
-              headers: {
-                'x-acs-dingtalk-access-token': accessToken,
-                'Content-Type': 'application/json',
-              },
-              timeout: 10000,
-            }
-          );
+          const inviteResp = await axios.post(inviteUrl, inviteBody, { headers: inviteHeaders, timeout: 10000 });
+          console.log(`📥 邀请用户响应: status=${inviteResp.status}, data=${JSON.stringify(inviteResp.data)}`);
           console.log(`✅ 邀请用户成功: unionId=${unionId}`);
         } catch (inviteErr) {
-          console.warn(`⚠️ 邀请用户失败: unionId=${unionId}, error=${inviteErr.message}`);
+          console.error(`❌ 邀请用户失败: ${inviteErr.message}`);
+          if (inviteErr.response) {
+            console.error(`  状态码: ${inviteErr.response.status}`);
+            console.error(`  响应头: ${JSON.stringify(inviteErr.response.headers)}`);
+            console.error(`  响应体: ${JSON.stringify(inviteErr.response.data)}`);
+          } else if (inviteErr.request) {
+            console.error(`  无响应: ${inviteErr.request}`);
+          } else {
+            console.error(`  错误详情: ${inviteErr.stack}`);
+          }
         }
       }
     }
@@ -4568,11 +4622,18 @@ app.post('/api/meeting/close/:id', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
     }
 
+    console.log(`📋 关闭会议参数验证: meetingId=${meetingId}, accessToken=${accessToken ? accessToken.slice(0, 10) + '...' : '(空)'}`);
     try {
       await closeDingTalkMeeting(accessToken, meetingId);
     } catch (dingErr) {
-      const errMsg = dingErr.response?.data || dingErr.message;
-      console.error(`❌ 钉钉关闭会议 API 失败: ${JSON.stringify(errMsg).slice(0, 500)}`);
+      console.error(`❌ 钉钉关闭会议 API 失败: ${dingErr.message}`);
+      if (dingErr.response) {
+        console.error(`  状态码: ${dingErr.response.status}`);
+        console.error(`  响应头: ${JSON.stringify(dingErr.response.headers)}`);
+        console.error(`  响应体: ${JSON.stringify(dingErr.response.data)}`);
+      } else if (dingErr.request) {
+        console.error(`  无响应: ${dingErr.request}`);
+      }
       return res.status(502).json({ success: false, error: `钉钉会议关闭失败: ${dingErr.response?.data?.message || dingErr.message}` });
     }
 
