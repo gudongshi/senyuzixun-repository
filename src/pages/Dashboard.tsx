@@ -1586,7 +1586,7 @@ export default function Dashboard() {
           console.log('✅ flv.js 已支持，创建播放器');
           const player = flvjs.default.createPlayer({
             type: 'flv',
-            url: 'http://play.senyuzixun.com/live/site.flv?auth_key=1785913086-0-0-00261a4b46490c294911971859a2bc28',
+            url: 'https://play.senyuzixun.com/live/site.flv?auth_key=1785913086-0-0-00261a4b46490c294911971859a2bc28',
             isLive: true,
             enableWorker: true,
             enableStashBuffer: false,
