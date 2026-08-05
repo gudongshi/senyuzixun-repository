@@ -627,12 +627,6 @@ export default function Dashboard() {
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingDuration, setMeetingDuration] = useState(60);
 
-  // ---- 通讯录成员列表（邀请现场人员） ----
-  const [contacts, setContacts] = useState<{ userId: string; name: string; unionId: string }[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [selectedInvitees, setSelectedInvitees] = useState<string[]>([]); // 存储 unionId 列表
-  const [contactSearchTerm, setContactSearchTerm] = useState('');
-
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
 
@@ -1575,33 +1569,12 @@ export default function Dashboard() {
     setMeetingModalOpen(true);
     setMeetingInfo(null);
     setMeetingLoading(false);
-    setSelectedInvitees([]);
-    setContactSearchTerm('');
     if (selectedProjectId) {
       const project = projects.find(p => p.id === selectedProjectId);
       setMeetingTitle(project ? `${project.projectName} - 现场连线` : '');
     } else {
       setMeetingTitle('');
     }
-    // 每次打开都刷新通讯录列表（确保数据最新）
-    console.log('📋 获取钉钉通讯录成员列表...');
-    setContactsLoading(true);
-    fetch('/api/dingtalk/contacts')
-      .then(res => res.json())
-      .then(result => {
-        if (result.success && result.data) {
-          console.log(`✅ 通讯录成员列表获取成功: ${result.data.length} 人`);
-          setContacts(result.data);
-        } else {
-          console.warn('⚠️ 获取通讯录成员列表失败:', result.error);
-        }
-      })
-      .catch(err => {
-        console.error('❌ 获取通讯录成员列表异常:', err.message);
-      })
-      .finally(() => {
-        setContactsLoading(false);
-      });
   };
 
   // 创建会议
@@ -1625,7 +1598,7 @@ export default function Dashboard() {
           projectId: selectedProjectId,
           meetingTitle: meetingTitle.trim(),
           duration: meetingDuration,
-          inviteeUnionIds: selectedInvitees,
+          inviteeUnionIds: [],
         }),
       });
       const result = await resp.json();
@@ -2454,42 +2427,6 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* 邀请现场人员 - 搜索框 */}
-                  <div>
-                    <label className="block text-slate-400 text-sm mb-1.5">邀请现场人员</label>
-                    <input
-                      type="text"
-                      placeholder="输入姓名搜索..."
-                      value={contactSearchTerm}
-                      onChange={(e) => setContactSearchTerm(e.target.value)}
-                      className="w-full bg-slate-700/80 border border-slate-600 rounded-lg px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-red-500/50 transition-colors mb-2"
-                    />
-                    <select
-                      multiple
-                      value={selectedInvitees}
-                      onChange={(e) => {
-                        const options = e.target.options;
-                        const values: string[] = [];
-                        for (let i = 0; i < options.length; i++) {
-                          if (options[i].selected) values.push(options[i].value);
-                        }
-                        setSelectedInvitees(values);
-                      }}
-                      className="w-full bg-slate-700/80 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-red-500/50 transition-colors min-h-[80px]"
-                      disabled={contactsLoading}
-                    >
-                      {contactsLoading && <option value="">加载中...</option>}
-                      {contacts
-                        .filter(c => c.name.includes(contactSearchTerm.trim()))
-                        .map(c => (
-                          <option key={c.unionId} value={c.unionId}>{c.name}</option>
-                        ))}
-                    </select>
-                    <p className="text-xs text-slate-500 mt-1">
-                      按住 Ctrl 键可多选 | 共 {contacts.filter(c => c.name.includes(contactSearchTerm.trim())).length} 人
-                    </p>
-                  </div>
-
                   {/* 创建按钮 */}
                   <button
                     onClick={handleCreateMeeting}
@@ -2551,6 +2488,19 @@ export default function Dashboard() {
                       </div>
                     )}
                   </div>
+
+                  {/* 复制入会链接按钮 */}
+                  {meetingInfo.joinUrl && meetingInfo.status === 'active' && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(meetingInfo.joinUrl!);
+                        toast.success('入会链接已复制，请通过钉钉发送给现场人员');
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium transition-colors"
+                    >
+                      📋 复制入会链接
+                    </button>
+                  )}
 
                   {/* 操作按钮 */}
                   <div className="flex gap-3">
