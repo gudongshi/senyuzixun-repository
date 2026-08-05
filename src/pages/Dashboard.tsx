@@ -1596,14 +1596,18 @@ export default function Dashboard() {
           player.load();
           flvPlayerRef.current = player;
           setStreamStatus('loading');
+          setIsPlaying(true); // 默认自动播放
           console.log('📋 flv.js 播放器开始加载...');
           player.on('statistics_info', () => {
             console.log('✅ 视频流播放中');
             setStreamStatus('playing');
+            setIsPlaying(true);
           });
           player.on('error', () => {
             console.error('❌ flv.js 播放器错误');
             setStreamStatus('disconnected');
+            player.pause();
+            setIsPlaying(false);
           });
         } else {
           console.warn('⚠️ flv.js 不被当前浏览器支持');
@@ -1616,9 +1620,11 @@ export default function Dashboard() {
     return () => {
       if (flvPlayerRef.current) {
         console.log('📋 销毁 flv.js 播放器');
+        flvPlayerRef.current.pause();
         flvPlayerRef.current.destroy();
         flvPlayerRef.current = null;
         setStreamStatus('idle');
+        setIsPlaying(false);
       }
     };
   }, [liveMode]);
@@ -1628,6 +1634,8 @@ export default function Dashboard() {
     setMeetingModalOpen(true);
     setMeetingInfo(null);
     setMeetingLoading(false);
+    setStreamStatus('idle');
+    setIsPlaying(false);
     if (selectedProjectId) {
       const project = projects.find(p => p.id === selectedProjectId);
       setMeetingTitle(project ? `${project.projectName} - 现场连线` : '');
@@ -2410,10 +2418,15 @@ export default function Dashboard() {
           {/* Overlay */}
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50" onClick={() => {
             setMeetingModalOpen(false);
-            // 关闭模态框时清除轮询
+            // 关闭模态框时清除轮询和暂停视频流
             if (meetingStatusTimer) {
               clearInterval(meetingStatusTimer);
               setMeetingStatusTimer(null);
+            }
+            if (flvPlayerRef.current) {
+              flvPlayerRef.current.pause();
+              setIsPlaying(false);
+              setStreamStatus('idle');
             }
           }} />
 
@@ -2431,6 +2444,11 @@ export default function Dashboard() {
                   if (meetingStatusTimer) {
                     clearInterval(meetingStatusTimer);
                     setMeetingStatusTimer(null);
+                  }
+                  if (flvPlayerRef.current) {
+                    flvPlayerRef.current.pause();
+                    setIsPlaying(false);
+                    setStreamStatus('idle');
                   }
                 }}
                 className="w-8 h-8 rounded-full border border-red-400/50 text-red-400 hover:bg-red-500/20 hover:border-red-300 transition-all duration-300 flex items-center justify-center"
@@ -2619,6 +2637,11 @@ export default function Dashboard() {
                           if (meetingStatusTimer) {
                             clearInterval(meetingStatusTimer);
                             setMeetingStatusTimer(null);
+                          }
+                          if (flvPlayerRef.current) {
+                            flvPlayerRef.current.pause();
+                            setIsPlaying(false);
+                            setStreamStatus('idle');
                           }
                         }}
                         className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-red-500 text-white font-semibold text-sm hover:from-red-500 hover:to-red-400 transition-all duration-300 shadow-lg shadow-red-500/30"
