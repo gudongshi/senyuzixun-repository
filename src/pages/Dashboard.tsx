@@ -627,6 +627,14 @@ export default function Dashboard() {
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingDuration, setMeetingDuration] = useState(60);
 
+  // ---- 连线现场模式切换 ----
+  const [liveMode, setLiveMode] = useState<'meeting' | 'stream'>('meeting');
+  const [streamStatus, setStreamStatus] = useState<'idle' | 'loading' | 'playing' | 'disconnected'>('idle');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const flvPlayerRef = useRef<any>(null);
+
   // ---- 任务效能组织切换 ----
   const [rankingOrganization, setRankingOrganization] = useState<'森宇' | '风控中心'>('森宇');
 
@@ -1569,6 +1577,52 @@ export default function Dashboard() {
   // 会议管理（连线现场）处理函数
   // ============================================================
 
+  // flv.js 播放器初始化/销毁（现场视频流模式）
+  useEffect(() => {
+    if (liveMode === 'stream' && !flvPlayerRef.current && videoRef.current) {
+      console.log('📋 初始化 flv.js 播放器...');
+      import('flv.js').then(flvjs => {
+        if (flvjs.default.isSupported()) {
+          console.log('✅ flv.js 已支持，创建播放器');
+          const player = flvjs.default.createPlayer({
+            type: 'flv',
+            url: 'http://play.senyuzixun.com/live/site.flv?auth_key=1785913086-0-0-00261a4b46490c294911971859a2bc28',
+            isLive: true,
+            enableWorker: true,
+            enableStashBuffer: false,
+            stashInitialSize: 128,
+          });
+          player.attachMediaElement(videoRef.current!);
+          player.load();
+          flvPlayerRef.current = player;
+          setStreamStatus('loading');
+          console.log('📋 flv.js 播放器开始加载...');
+          player.on('statistics_info', () => {
+            console.log('✅ 视频流播放中');
+            setStreamStatus('playing');
+          });
+          player.on('error', () => {
+            console.error('❌ flv.js 播放器错误');
+            setStreamStatus('disconnected');
+          });
+        } else {
+          console.warn('⚠️ flv.js 不被当前浏览器支持');
+        }
+      }).catch(err => {
+        console.error('❌ flv.js 动态导入失败:', err.message);
+      });
+    }
+
+    return () => {
+      if (flvPlayerRef.current) {
+        console.log('📋 销毁 flv.js 播放器');
+        flvPlayerRef.current.destroy();
+        flvPlayerRef.current = null;
+        setStreamStatus('idle');
+      }
+    };
+  }, [liveMode]);
+
   // 打开会议模态框
   const handleOpenMeetingModal = () => {
     setMeetingModalOpen(true);
@@ -2387,6 +2441,33 @@ export default function Dashboard() {
 
             {/* Body */}
             <div className="p-5 space-y-4">
+              {/* 模式切换 Tab */}
+              <div className="flex gap-2 mb-4 border-b border-slate-700/50">
+                <button
+                  onClick={() => setLiveMode('meeting')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                    liveMode === 'meeting'
+                      ? 'border-red-500 text-red-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  📹 钉钉视频会议
+                </button>
+                <button
+                  onClick={() => setLiveMode('stream')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                    liveMode === 'stream'
+                      ? 'border-red-500 text-red-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  📡 现场视频流
+                </button>
+              </div>
+
+              {/* 钉钉视频会议模式 */}
+              {liveMode === 'meeting' && (
+                <>
               {/* 未创建会议时显示表单 */}
               {!meetingInfo && (
                 <>
@@ -2546,6 +2627,98 @@ export default function Dashboard() {
                         结束会议
                       </button>
                     )}
+                  </div>
+                </div>
+              )}
+                </>
+              )}
+
+              {/* 现场视频流模式 */}
+              {liveMode === 'stream' && (
+                <div className="space-y-3">
+                  {/* 播放器 */}
+                  <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                    <video
+                      ref={videoRef}
+                      className="w-full h-full"
+                      playsInline
+                      muted={isMuted}
+                    />
+                    {/* 状态覆盖层 */}
+                    {streamStatus === 'loading' && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                        <Loader2 className="size-10 text-cyan-400 animate-spin" />
+                        <span className="ml-3 text-slate-300">加载直播流...</span>
+                      </div>
+                    )}
+                    {streamStatus === 'disconnected' && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                        <div className="text-center">
+                          <div className="text-red-400 text-4xl mb-2">📡</div>
+                          <p className="text-slate-300">现场信号已断开</p>
+                          <p className="text-slate-500 text-xs mt-1">请确认现场推流是否正常</p>
+                        </div>
+                      </div>
+                    )}
+                    {streamStatus === 'idle' && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                        <div className="text-center">
+                          <div className="text-slate-500 text-4xl mb-2">📺</div>
+                          <p className="text-slate-400">等待直播流</p>
+                          <p className="text-slate-500 text-xs mt-1">请现场人员启动推流</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 控制栏 */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        if (flvPlayerRef.current) {
+                          if (isPlaying) {
+                            flvPlayerRef.current.pause();
+                          } else {
+                            flvPlayerRef.current.play();
+                          }
+                          setIsPlaying(!isPlaying);
+                        }
+                      }}
+                      className="px-4 py-1.5 rounded-lg bg-slate-700 text-slate-200 text-sm hover:bg-slate-600 transition-colors"
+                    >
+                      {isPlaying ? '⏸ 暂停' : '▶ 播放'}
+                    </button>
+                    <button
+                      onClick={() => setIsMuted(!isMuted)}
+                      className="px-4 py-1.5 rounded-lg bg-slate-700 text-slate-200 text-sm hover:bg-slate-600 transition-colors"
+                    >
+                      {isMuted ? '🔇 取消静音' : '🔊 静音'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (videoRef.current) {
+                          if (document.fullscreenElement) {
+                            document.exitFullscreen();
+                          } else {
+                            videoRef.current.requestFullscreen();
+                          }
+                        }
+                      }}
+                      className="px-4 py-1.5 rounded-lg bg-slate-700 text-slate-200 text-sm hover:bg-slate-600 transition-colors"
+                    >
+                      ⛶ 全屏
+                    </button>
+                    <span className="text-xs text-slate-500 ml-auto">
+                      状态: {streamStatus === 'playing' ? '🟢 播放中' : streamStatus === 'loading' ? '🟡 加载中' : streamStatus === 'disconnected' ? '🔴 已断开' : '⚪ 待连接'}
+                    </span>
+                  </div>
+
+                  {/* 推流提示 */}
+                  <div className="bg-slate-700/30 border border-slate-600/30 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">
+                      📋 如需切换现场画面，请现场人员使用 Larix Broadcaster 或钉钉三方推流功能，
+                      推流地址：<span className="text-cyan-400 font-mono">rtmp://push.senyuzixun.com/live/site?auth_key=1785913086-0-0-6e2068f233e268cf3fcb7a625477af22</span>
+                    </p>
                   </div>
                 </div>
               )}
