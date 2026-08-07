@@ -1590,8 +1590,9 @@ export default function Dashboard() {
             url: 'https://play.senyuzixun.com/live/site.flv?auth_key=1786065914-0-0-703a9996907763ab722bbe8fcf7a5a52',
             isLive: true,
             enableWorker: true,
-            enableStashBuffer: true,
-            stashInitialSize: 256,
+            enableStashBuffer: false,
+            stashInitialSize: 32,
+            lazyLoad: false,
             autoCleanupSourceBuffer: true,
           });
           player.attachMediaElement(videoRef.current!);
