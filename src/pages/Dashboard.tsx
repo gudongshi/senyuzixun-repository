@@ -1592,9 +1592,9 @@ export default function Dashboard() {
             isLive: true,
             enableWorker: true,
             enableStashBuffer: true,
-            stashInitialSize: 64,
+            stashInitialSize: 32,
             lazyLoad: true,
-            lazyLoadMaxDuration: 1,
+            lazyLoadMaxDuration: 0.5,
             deferLoadAfterSourceOpen: false,
             autoCleanupSourceBuffer: true,
           });
