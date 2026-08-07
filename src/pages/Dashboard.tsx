@@ -1587,11 +1587,12 @@ export default function Dashboard() {
           console.log('✅ flv.js 已支持，创建播放器');
           const player = flvjs.default.createPlayer({
             type: 'flv',
-            url: 'https://play.senyuzixun.com/live/site.flv?auth_key=1785913086-0-0-00261a4b46490c294911971859a2bc28',
+            url: 'https://play.senyuzixun.com/live/site.flv?auth_key=1786065914-0-0-703a9996907763ab722bbe8fcf7a5a52',
             isLive: true,
             enableWorker: true,
-            enableStashBuffer: false,
-            stashInitialSize: 128,
+            enableStashBuffer: true,
+            stashInitialSize: 256,
+            autoCleanupSourceBuffer: true,
           });
           player.attachMediaElement(videoRef.current!);
           player.load();
@@ -1603,18 +1604,16 @@ export default function Dashboard() {
             console.log('✅ 视频流数据到达');
             setStreamStatus('playing');
             setIsPlaying(true);
-            // 重置断流计时器：5秒内未收到新数据则判定断流
+            // 延长超时时间至 10 秒，避免短时波动误判断流
             if (disconnectTimerRef.current) {
               clearTimeout(disconnectTimerRef.current);
             }
             disconnectTimerRef.current = setTimeout(() => {
-              console.warn('⚠️ 5秒未收到流数据，判定为断流');
+              console.warn('⚠️ 10秒未收到流数据，判定为断流');
               setStreamStatus('disconnected');
               setIsPlaying(false);
-              if (flvPlayerRef.current) {
-                flvPlayerRef.current.pause();
-              }
-            }, 5000);
+              // 注意：不主动 pause()，只标记状态，让用户通过 UI 控制
+            }, 10000);
           });
           player.on('error', () => {
             console.error('❌ flv.js 播放器错误');
@@ -1624,9 +1623,7 @@ export default function Dashboard() {
             }
             setStreamStatus('disconnected');
             setIsPlaying(false);
-            if (flvPlayerRef.current) {
-              flvPlayerRef.current.pause();
-            }
+            // 注意：不主动 pause()，只标记状态，让用户通过 UI 控制
           });
         } else {
           console.warn('⚠️ flv.js 不被当前浏览器支持');
@@ -2446,6 +2443,10 @@ export default function Dashboard() {
               clearInterval(meetingStatusTimer);
               setMeetingStatusTimer(null);
             }
+            if (disconnectTimerRef.current) {
+              clearTimeout(disconnectTimerRef.current);
+              disconnectTimerRef.current = null;
+            }
             if (flvPlayerRef.current) {
               flvPlayerRef.current.pause();
               setIsPlaying(false);
@@ -2467,6 +2468,10 @@ export default function Dashboard() {
                   if (meetingStatusTimer) {
                     clearInterval(meetingStatusTimer);
                     setMeetingStatusTimer(null);
+                  }
+                  if (disconnectTimerRef.current) {
+                    clearTimeout(disconnectTimerRef.current);
+                    disconnectTimerRef.current = null;
                   }
                   if (flvPlayerRef.current) {
                     flvPlayerRef.current.pause();
@@ -2661,6 +2666,10 @@ export default function Dashboard() {
                             clearInterval(meetingStatusTimer);
                             setMeetingStatusTimer(null);
                           }
+                          if (disconnectTimerRef.current) {
+                            clearTimeout(disconnectTimerRef.current);
+                            disconnectTimerRef.current = null;
+                          }
                           if (flvPlayerRef.current) {
                             flvPlayerRef.current.pause();
                             setIsPlaying(false);
@@ -2703,6 +2712,19 @@ export default function Dashboard() {
                           <div className="text-red-400 text-4xl mb-2">📡</div>
                           <p className="text-slate-300">现场信号已断开</p>
                           <p className="text-slate-500 text-xs mt-1">请确认现场推流是否正常</p>
+                          <button
+                            onClick={() => {
+                              if (flvPlayerRef.current) {
+                                console.log('📋 手动重连视频流...');
+                                flvPlayerRef.current.load();
+                                setStreamStatus('loading');
+                                setIsPlaying(true);
+                              }
+                            }}
+                            className="mt-3 px-4 py-1.5 rounded-lg bg-cyan-600 text-white text-sm hover:bg-cyan-500 transition-colors"
+                          >
+                            🔄 重新连接
+                          </button>
                         </div>
                       </div>
                     )}
@@ -2722,13 +2744,13 @@ export default function Dashboard() {
                     <button
                       onClick={() => {
                         if (flvPlayerRef.current) {
+                          // 无论播放/暂停，先清除断流计时器，避免覆盖用户操作
+                          if (disconnectTimerRef.current) {
+                            clearTimeout(disconnectTimerRef.current);
+                            disconnectTimerRef.current = null;
+                          }
                           if (isPlaying) {
                             flvPlayerRef.current.pause();
-                            // 清除断流计时器，避免 statistics_info 自动恢复播放
-                            if (disconnectTimerRef.current) {
-                              clearTimeout(disconnectTimerRef.current);
-                              disconnectTimerRef.current = null;
-                            }
                           } else {
                             flvPlayerRef.current.play();
                           }
