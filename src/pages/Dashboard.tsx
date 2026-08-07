@@ -635,6 +635,7 @@ export default function Dashboard() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const flvPlayerRef = useRef<any>(null);
   const disconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const userPausedRef = useRef(false);
 
   // ---- 任务效能组织切换 ----
   const [rankingOrganization, setRankingOrganization] = useState<'森宇' | '风控中心'>('森宇');
@@ -1607,7 +1608,10 @@ export default function Dashboard() {
           player.on('statistics_info', () => {
             console.log('✅ 视频流数据到达');
             setStreamStatus('playing');
-            setIsPlaying(true);
+            // 仅在用户未手动暂停时才更新为播放状态
+            if (!userPausedRef.current) {
+              setIsPlaying(true);
+            }
             // 延长超时时间至 10 秒，避免短时波动误判断流
             if (disconnectTimerRef.current) {
               clearTimeout(disconnectTimerRef.current);
@@ -1616,6 +1620,7 @@ export default function Dashboard() {
               console.warn('⚠️ 10秒未收到流数据，判定为断流');
               setStreamStatus('disconnected');
               setIsPlaying(false);
+              userPausedRef.current = false; // 断流后重置标志
               // 注意：不主动 pause()，只标记状态，让用户通过 UI 控制
             }, 10000);
           });
@@ -1627,6 +1632,7 @@ export default function Dashboard() {
             }
             setStreamStatus('disconnected');
             setIsPlaying(false);
+            userPausedRef.current = false; // 错误后重置标志
             // 注意：不主动 pause()，只标记状态，让用户通过 UI 控制
           });
         } else {
@@ -1660,6 +1666,7 @@ export default function Dashboard() {
     setMeetingLoading(false);
     setStreamStatus('idle');
     setIsPlaying(false);
+    userPausedRef.current = false;
     if (selectedProjectId) {
       const project = projects.find(p => p.id === selectedProjectId);
       setMeetingTitle(project ? `${project.projectName} - 现场连线` : '');
@@ -2451,6 +2458,7 @@ export default function Dashboard() {
               clearTimeout(disconnectTimerRef.current);
               disconnectTimerRef.current = null;
             }
+            userPausedRef.current = false;
             if (flvPlayerRef.current) {
               flvPlayerRef.current.pause();
               setIsPlaying(false);
@@ -2477,6 +2485,7 @@ export default function Dashboard() {
                     clearTimeout(disconnectTimerRef.current);
                     disconnectTimerRef.current = null;
                   }
+                  userPausedRef.current = false;
                   if (flvPlayerRef.current) {
                     flvPlayerRef.current.pause();
                     setIsPlaying(false);
@@ -2674,6 +2683,7 @@ export default function Dashboard() {
                             clearTimeout(disconnectTimerRef.current);
                             disconnectTimerRef.current = null;
                           }
+                          userPausedRef.current = false;
                           if (flvPlayerRef.current) {
                             flvPlayerRef.current.pause();
                             setIsPlaying(false);
@@ -2755,8 +2765,10 @@ export default function Dashboard() {
                           }
                           if (isPlaying) {
                             flvPlayerRef.current.pause();
+                            userPausedRef.current = true;
                           } else {
                             flvPlayerRef.current.play();
+                            userPausedRef.current = false;
                           }
                           setIsPlaying(!isPlaying);
                         }
