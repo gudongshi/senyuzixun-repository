@@ -644,6 +644,13 @@ export default function Dashboard() {
   // ---- 经营总看板弹窗 ----
   const [overviewModalOpen, setOverviewModalOpen] = useState(false);
 
+  // 强制保留 OverviewModal 引用，防止 Vite Tree Shaking 移除该组件
+  useEffect(() => {
+    if (typeof OverviewModal === 'function') {
+      console.log('✅ OverviewModal 组件已就绪');
+    }
+  }, []);
+
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
 
