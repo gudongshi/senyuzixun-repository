@@ -5,6 +5,7 @@ import * as echarts from 'echarts';
 import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2, Video, Phone, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import OverviewModal from './OverviewModal';
 
 // ============================================================
 // Mock Data（降级数据，API 失败时使用）
@@ -639,6 +640,9 @@ export default function Dashboard() {
 
   // ---- 任务效能组织切换 ----
   const [rankingOrganization, setRankingOrganization] = useState<'森宇' | '风控中心'>('森宇');
+
+  // ---- 经营总看板弹窗 ----
+  const [overviewModalOpen, setOverviewModalOpen] = useState(false);
 
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
@@ -1818,27 +1822,38 @@ export default function Dashboard() {
             {formatDateTime(currentTime)}
           </span>
           {user && (
-            <button
-              onClick={async () => {
-                console.log('📋 用户点击退出登录');
-                try {
-                  const resp = await fetch('/api/dingtalk/logout', { method: 'POST' });
-                  const result = await resp.json();
-                  if (result.success) {
-                    console.log('✅ 退出登录成功，准备刷新页面');
-                    localStorage.clear();
-                    window.location.href = '/';
-                  } else {
-                    console.error('❌ 退出登录失败:', result.error);
+            <>
+              <button
+                onClick={() => {
+                  console.log('📋 打开经营总看板');
+                  setOverviewModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 text-sm hover:bg-amber-500/10 transition-colors"
+              >
+                📊 经营总看板
+              </button>
+              <button
+                onClick={async () => {
+                  console.log('📋 用户点击退出登录');
+                  try {
+                    const resp = await fetch('/api/dingtalk/logout', { method: 'POST' });
+                    const result = await resp.json();
+                    if (result.success) {
+                      console.log('✅ 退出登录成功，准备刷新页面');
+                      localStorage.clear();
+                      window.location.href = '/';
+                    } else {
+                      console.error('❌ 退出登录失败:', result.error);
+                    }
+                  } catch (err: any) {
+                    console.error('❌ 退出登录异常:', err.message);
                   }
-                } catch (err: any) {
-                  console.error('❌ 退出登录异常:', err.message);
-                }
-              }}
-              className="ml-3 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-sm hover:bg-red-500/10 transition-colors"
-            >
-              退出登录
-            </button>
+                }}
+                className="ml-3 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-sm hover:bg-red-500/10 transition-colors"
+              >
+                退出登录
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -2814,6 +2829,18 @@ export default function Dashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ============================================================ */}
+      {/* 经营总看板弹窗 */}
+      {/* ============================================================ */}
+      {overviewModalOpen && (
+        <OverviewModal
+          onClose={() => {
+            console.log('📋 关闭经营总看板');
+            setOverviewModalOpen(false);
+          }}
+        />
       )}
     </div>
   );
