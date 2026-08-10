@@ -2094,6 +2094,8 @@ const FIELD_MAP_TO_DB = {
   businessType: '业务类型',
   implementationStatus: '项目实施状态',
   projectDuration: '项目工期',
+  actualCost: '实际成本',
+  expenseType: '支出类型',
 };
 
 // 字段映射：中文数据库字段 → 英文响应
@@ -2127,6 +2129,8 @@ const FIELD_MAP_FROM_DB = {
   '业务类型': 'businessType',
   '项目实施状态': 'implementationStatus',
   '项目工期': 'projectDuration',
+  '实际成本': 'actualCost',
+  '支出类型': 'expenseType',
   'ai_analysis_result': 'aiAnalysisResult',
 };
 
@@ -3766,6 +3770,230 @@ app.get('/api/stats/workload', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ 获取人员负荷率失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// 统计接口：经营总看板
+// ============================================================
+app.get('/api/stats/overview', authMiddleware, async (req, res) => {
+  try {
+    const currentYear = new Date().getFullYear();
+    const year = parseInt(req.query.year) || currentYear;
+    const businessType = req.query.businessType || '';
+
+    console.log(`📋 GET /api/stats/overview - 年份: ${year}, 业务类型: ${businessType || '全部'}`);
+
+    // ============================================================
+    // 1. 查询所有未删除项目
+    // ============================================================
+    let projectQuery = supabase
+      .from('projects')
+      .select('*')
+      .neq(FIELD_MAP_TO_DB.projectStatus, '已删除');
+
+    if (businessType) {
+      projectQuery = projectQuery.eq(FIELD_MAP_TO_DB.businessType, businessType);
+    }
+
+    const { data: projects, error: projectError } = await projectQuery;
+    if (projectError) throw projectError;
+
+    const allProjects = projects || [];
+    const totalProjects = allProjects.length;
+
+    // 年份筛选辅助：签订日期在指定年份内
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
+    const isInYear = (p) => {
+      const signedDate = parseDate(p[FIELD_MAP_TO_DB.signedDate]);
+      if (!signedDate) return true;
+      return signedDate >= yearStart && signedDate <= yearEnd;
+    };
+
+    // KPI 和图表数据：年份筛选后的项目列表
+    const filteredProjects = allProjects.filter(isInYear);
+
+    // ============================================================
+    // 2. 查询月报数据（report_type = 'monthly'）
+    // ============================================================
+    const { data: monthlyReports, error: reportError } = await supabase
+      .from('weekly_reports')
+      .select('project_id, cumulative_completed_value, cumulative_direct_cost, report_date')
+      .eq('report_type', 'monthly')
+      .order('report_date', { ascending: false });
+
+    if (reportError) throw reportError;
+
+    // 每个 project_id 只保留最新一条（已按 report_date 降序排列）
+    const latestMonthlyMap = {};
+    for (const report of (monthlyReports || [])) {
+      if (!latestMonthlyMap[report.project_id]) {
+        latestMonthlyMap[report.project_id] = report;
+      }
+    }
+
+    // ============================================================
+    // 3. 查询 contract_payments 已付金额
+    // ============================================================
+    const { data: payments, error: paymentError } = await supabase
+      .from('contract_payments')
+      .select('已付金额');
+
+    if (paymentError) throw paymentError;
+
+    const paidAmount = (payments || []).reduce((sum, p) => {
+      const amount = parseFloat(p['已付金额']);
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+
+    // ============================================================
+    // 4. 计算 KPI 指标
+    // ============================================================
+    let contractAmount = 0;
+    let targetCost = 0;
+    let receivedAmount = 0;
+    let completedValue = 0;
+    let expenseContractAmount = 0;
+
+    for (const project of filteredProjects) {
+      const ca = parseFloat(project[FIELD_MAP_TO_DB.contractAmount]) || 0;
+      const tc = parseFloat(project[FIELD_MAP_TO_DB.targetCost]) || 0;
+      const ra = parseFloat(project[FIELD_MAP_TO_DB.receivedAmount]) || 0;
+
+      contractAmount += ca;
+      targetCost += tc;
+      receivedAmount += ra;
+
+      // 累计完成产值：从月报取
+      const monthlyReport = latestMonthlyMap[project.id];
+      if (monthlyReport) {
+        const cv = parseFloat(monthlyReport.cumulative_completed_value) || 0;
+        completedValue += cv;
+      }
+
+      // 支出类项目：业务类型 IN ('招标代理', '采购') 或 支出类型 IS NOT NULL
+      const bt = project[FIELD_MAP_TO_DB.businessType] || '';
+      const et = project[FIELD_MAP_TO_DB.expenseType] || '';
+      if (bt === '招标代理' || bt === '采购' || (et && et.trim() !== '')) {
+        expenseContractAmount += ca;
+      }
+    }
+
+    const paymentRate = contractAmount > 0
+      ? Math.round((receivedAmount / contractAmount) * 10000) / 100
+      : 0;
+    const expensePaymentRate = expenseContractAmount > 0
+      ? Math.round((paidAmount / expenseContractAmount) * 10000) / 100
+      : 0;
+
+    // ============================================================
+    // 5. 成本对比分析（按项目，Top 10）
+    // ============================================================
+    const costComparison = filteredProjects
+      .map(project => {
+        const projectName = project[FIELD_MAP_TO_DB.projectName] || '未知项目';
+        const tc = parseFloat(project[FIELD_MAP_TO_DB.targetCost]) || 0;
+        const actualCostRaw = parseFloat(project[FIELD_MAP_TO_DB.actualCost]) || 0;
+        const monthlyReport = latestMonthlyMap[project.id];
+        const cumulativeDirectCost = monthlyReport
+          ? (parseFloat(monthlyReport.cumulative_direct_cost) || 0)
+          : 0;
+        // actualCost：优先取 projects.实际成本，否则取月报累计直接成本
+        const actualCost = actualCostRaw > 0 ? actualCostRaw : cumulativeDirectCost;
+        const costProgress = tc > 0
+          ? Math.round((actualCost / tc) * 10000) / 100
+          : 0;
+        return { projectName, actualCost, targetCost: tc, costProgress };
+      })
+      .sort((a, b) => b.actualCost - a.actualCost)
+      .slice(0, 10);
+
+    // ============================================================
+    // 6. 支出分类分析（按 支出类型 分组）
+    // ============================================================
+    const expenseCategoryMap = {};
+    for (const project of filteredProjects) {
+      const et = (project[FIELD_MAP_TO_DB.expenseType] || '').trim();
+      const category = et || '未分类';
+      if (!expenseCategoryMap[category]) {
+        expenseCategoryMap[category] = { actualCost: 0, targetCost: 0 };
+      }
+      const tc = parseFloat(project[FIELD_MAP_TO_DB.targetCost]) || 0;
+      const actualCostRaw = parseFloat(project[FIELD_MAP_TO_DB.actualCost]) || 0;
+      const monthlyReport = latestMonthlyMap[project.id];
+      const cumulativeDirectCost = monthlyReport
+        ? (parseFloat(monthlyReport.cumulative_direct_cost) || 0)
+        : 0;
+      const actualCost = actualCostRaw > 0 ? actualCostRaw : cumulativeDirectCost;
+      expenseCategoryMap[category].targetCost += tc;
+      expenseCategoryMap[category].actualCost += actualCost;
+    }
+
+    const expenseCategory = Object.entries(expenseCategoryMap)
+      .map(([category, data]) => ({
+        category,
+        actualCost: data.actualCost,
+        targetCost: data.targetCost,
+        costProgress: data.targetCost > 0
+          ? Math.round((data.actualCost / data.targetCost) * 10000) / 100
+          : 0,
+      }))
+      .sort((a, b) => b.actualCost - a.actualCost);
+
+    // ============================================================
+    // 7. 年度指标（签订日期在当年）
+    // ============================================================
+    let yearlyNewContract = 0;
+    let yearlyNewExpenseContract = 0;
+    let yearlyNewCost = 0;
+
+    for (const project of allProjects) {
+      const signedDate = parseDate(project[FIELD_MAP_TO_DB.signedDate]);
+      if (signedDate && signedDate >= yearStart && signedDate <= yearEnd) {
+        const ca = parseFloat(project[FIELD_MAP_TO_DB.contractAmount]) || 0;
+        const tc = parseFloat(project[FIELD_MAP_TO_DB.targetCost]) || 0;
+        yearlyNewContract += ca;
+        yearlyNewCost += tc;
+
+        const bt = project[FIELD_MAP_TO_DB.businessType] || '';
+        const et = project[FIELD_MAP_TO_DB.expenseType] || '';
+        if (bt === '招标代理' || bt === '采购' || (et && et.trim() !== '')) {
+          yearlyNewExpenseContract += ca;
+        }
+      }
+    }
+
+    // ============================================================
+    // 8. 返回结果
+    // ============================================================
+    console.log(`✅ 经营总看板数据返回成功: ${totalProjects} 个项目`);
+
+    res.json({
+      success: true,
+      data: {
+        kpi: {
+          contractAmount,
+          targetCost,
+          receivedAmount,
+          paymentRate,
+          completedValue,
+          expenseContractAmount,
+          paidAmount,
+          expensePaymentRate,
+        },
+        costComparison,
+        expenseCategory,
+        yearlyNewContract,
+        yearlyNewExpenseContract,
+        yearlyNewCost,
+        totalProjects,
+        lastUpdated: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error(`❌ 获取经营总看板数据失败: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
