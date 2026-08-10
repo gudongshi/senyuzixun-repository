@@ -109,11 +109,13 @@ const KPI_CARDS: {
 // 主组件
 // ============================================================
 interface OverviewModalProps {
-  open: boolean;
+  open?: boolean;
   onClose: () => void;
 }
 
-export default function OverviewModal({ open, onClose }: OverviewModalProps) {
+export default function OverviewModal({ open = false, onClose }: OverviewModalProps) {
+  if (!open) return null;
+
   // ---- 状态 ----
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -431,7 +433,6 @@ export default function OverviewModal({ open, onClose }: OverviewModalProps) {
   // ============================================================
   // 关闭时重置
   // ============================================================
-  if (!open) return null;
 
   // ============================================================
   // 年份选项

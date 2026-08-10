@@ -2841,14 +2841,13 @@ export default function Dashboard() {
       {/* ============================================================ */}
       {/* 经营总看板弹窗 */}
       {/* ============================================================ */}
-      {overviewModalOpen && (
-        <OverviewModal
-          onClose={() => {
-            console.log('📋 关闭经营总看板');
-            setOverviewModalOpen(false);
-          }}
-        />
-      )}
+      <OverviewModal
+        open={overviewModalOpen}
+        onClose={() => {
+          console.log('📋 关闭经营总看板');
+          setOverviewModalOpen(false);
+        }}
+      />
     </div>
   );
 }
