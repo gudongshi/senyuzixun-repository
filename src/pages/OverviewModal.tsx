@@ -114,7 +114,8 @@ interface OverviewModalProps {
 }
 
 export default function OverviewModal({ open = false, onClose }: OverviewModalProps) {
-  if (!open) return null;
+  // 🔍 调试日志：每次渲染都输出 open 值
+  console.log('🔍 OverviewModal 渲染中, open=', open);
 
   // ---- 状态 ----
   const [data, setData] = useState<OverviewData | null>(null);
@@ -133,6 +134,7 @@ export default function OverviewModal({ open = false, onClose }: OverviewModalPr
   // 数据获取
   // ============================================================
   const fetchData = useCallback(async () => {
+    console.log('🔍 fetchData 被调用, year=', year, 'businessType=', businessType);
     setLoading(true);
     setError(null);
     console.log(`📋 GET /api/stats/overview - 年份: ${year}, 业务类型: ${businessType || '全部'}`);
@@ -144,6 +146,8 @@ export default function OverviewModal({ open = false, onClose }: OverviewModalPr
 
       const resp = await fetch(`/api/stats/overview?${params.toString()}`);
       const result = await resp.json();
+
+      console.log('🔍 API 响应:', JSON.stringify(result).slice(0, 200));
 
       if (result.success && result.data) {
         console.log(`✅ 经营总看板数据获取成功: ${result.data.totalProjects} 个项目`);
@@ -162,8 +166,12 @@ export default function OverviewModal({ open = false, onClose }: OverviewModalPr
 
   // ---- 监听 year / businessType 变化自动刷新 ----
   useEffect(() => {
+    console.log('🔍 useEffect[open,fetchData] 触发, open=', open);
     if (open) {
+      console.log('🔍 open=true，开始调用 fetchData');
       fetchData();
+    } else {
+      console.log('🔍 open=false，跳过数据获取');
     }
   }, [open, fetchData]);
 
@@ -171,6 +179,7 @@ export default function OverviewModal({ open = false, onClose }: OverviewModalPr
   // 图表渲染
   // ============================================================
   useEffect(() => {
+    console.log('🔍 useEffect[data,open] 图表渲染触发, data=', !!data, 'open=', open);
     if (!data || !open) return;
 
     // --- 成本对比分析图表 ---
@@ -431,14 +440,20 @@ export default function OverviewModal({ open = false, onClose }: OverviewModalPr
   }, []);
 
   // ============================================================
-  // 关闭时重置
-  // ============================================================
-
-  // ============================================================
   // 年份选项
   // ============================================================
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 4 }, (_, i) => currentYear - i);
+
+  // ============================================================
+  // open 为 false 时，在所有 hooks 之后返回 null
+  // ============================================================
+  if (!open) {
+    console.log('🔍 OverviewModal 因 open=false 提前返回 null');
+    return null;
+  }
+
+  console.log('🔍 OverviewModal open=true，开始渲染弹窗 DOM');
 
   // ============================================================
   // 渲染
