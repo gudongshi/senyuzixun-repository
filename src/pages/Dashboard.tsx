@@ -2,7 +2,7 @@ import TaskList from '../components/TaskList';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
-import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2, Video, Phone, Users } from 'lucide-react';
+import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2, Video, Phone, Users, Search, Edit3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
@@ -643,6 +643,18 @@ export default function Dashboard() {
   // ---- 经营总看板弹窗 ----
   const [overviewModalOpen, setOverviewModalOpen] = useState(false);
 
+  // ---- 在职人数 ----
+  const [employeeCount, setEmployeeCount] = useState<number>(0);
+  const [employeeCountSource, setEmployeeCountSource] = useState<string>('dingtalk');
+  const [orgModalOpen, setOrgModalOpen] = useState(false);
+  const [orgData, setOrgData] = useState<{ departments: any[]; members: any[]; departmentMembers?: Record<number, any[]> } | null>(null);
+  const [orgLoading, setOrgLoading] = useState(false);
+  const [selectedDeptId, setSelectedDeptId] = useState<number | null>(null);
+  const [orgSearchQuery, setOrgSearchQuery] = useState('');
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [adjustCount, setAdjustCount] = useState<string>('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
+
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
 
@@ -749,6 +761,52 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('[Dashboard] 获取项目统计数据失败:', err);
+    }
+  }, []);
+
+  // ============================================================
+  // 获取在职人数
+  // ============================================================
+  const fetchEmployeeCount = useCallback(async () => {
+    console.log('📋 获取集团在职人数...');
+    try {
+      const resp = await fetch('/api/stats/employee-count');
+      const result = await resp.json();
+      if (result.success && result.data) {
+        console.log(`✅ 在职人数: ${result.data.count}, 来源: ${result.data.source}`);
+        setEmployeeCount(result.data.count);
+        setEmployeeCountSource(result.data.source);
+      } else {
+        console.warn('⚠️ 获取在职人数失败:', result.error);
+      }
+    } catch (err: any) {
+      console.error('❌ 获取在职人数异常:', err.message);
+    }
+  }, []);
+
+  // ============================================================
+  // 获取组织架构数据
+  // ============================================================
+  const fetchOrgData = useCallback(async () => {
+    setOrgLoading(true);
+    console.log('📋 获取钉钉组织架构数据...');
+    try {
+      const resp = await fetch('/api/dingtalk/organization');
+      const result = await resp.json();
+      if (result.success && result.data) {
+        console.log(`✅ 组织架构数据: ${result.data.departments?.length || 0} 个部门, ${result.data.members?.length || 0} 名成员`);
+        setOrgData(result.data);
+        // 默认选中根部门
+        if (result.data.departments && result.data.departments.length > 0) {
+          setSelectedDeptId(result.data.departments[0].deptId);
+        }
+      } else {
+        console.warn('⚠️ 获取组织架构失败:', result.error);
+      }
+    } catch (err: any) {
+      console.error('❌ 获取组织架构异常:', err.message);
+    } finally {
+      setOrgLoading(false);
     }
   }, []);
 
@@ -1028,6 +1086,13 @@ export default function Dashboard() {
       fetchProjects(1);
     }
   }, [fetchProjectStats, fetchProjects]);
+
+  // ============================================================
+  // 页面加载时获取在职人数
+  // ============================================================
+  useEffect(() => {
+    fetchEmployeeCount();
+  }, [fetchEmployeeCount]);
 
   // ============================================================
   // 获取当前用户信息
@@ -1820,6 +1885,21 @@ export default function Dashboard() {
           <span className="text-cyan-400 text-lg font-medium tracking-wider drop-shadow-lg">
             {formatDateTime(currentTime)}
           </span>
+          {user && (
+            <div
+              onClick={() => {
+                console.log('📋 打开组织架构');
+                setOrgModalOpen(true);
+                fetchOrgData();
+              }}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg border border-blue-500/30 bg-blue-900/20 cursor-pointer hover:bg-blue-900/40 transition-colors"
+              title="点击查看组织架构"
+            >
+              <span className="text-slate-400 text-sm">👥 在职人数</span>
+              <span className="text-cyan-400 text-lg font-bold">{employeeCount}</span>
+              <span className="text-xs text-slate-500">人</span>
+            </div>
+          )}
           {user && (
             <>
               <button
@@ -2840,6 +2920,236 @@ export default function Dashboard() {
           setOverviewModalOpen(false);
         }}
       />
+
+      {/* ============================================================ */}
+      {/* 组织架构弹窗 */}
+      {/* ============================================================ */}
+      {orgModalOpen && (
+        <>
+          {/* Overlay */}
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40" onClick={() => { console.log('📋 关闭组织架构'); setOrgModalOpen(false); setOrgSearchQuery(''); }} />
+
+          {/* Modal */}
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+            <div className="bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-2 border-cyan-500/30 rounded-2xl shadow-2xl shadow-blue-900/50 w-full max-w-5xl max-h-[85vh] flex flex-col">
+              {/* Header */}
+              <div className="flex justify-between items-center p-5 border-b border-cyan-500/30 bg-slate-800/50 rounded-t-2xl">
+                <div>
+                  <h2 className="text-xl font-bold text-cyan-400">🏢 集团组织架构</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-slate-400 text-sm">在职人数：</span>
+                    <span className="text-cyan-400 font-bold text-lg">{employeeCount}</span>
+                    <span className="text-xs text-slate-500">人</span>
+                    {employeeCountSource === 'manual' ? (
+                      <span className="px-2 py-0.5 rounded text-xs border border-amber-500/30 bg-amber-900/20 text-amber-400">✏️ 手动设定</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-xs border border-blue-500/30 bg-blue-900/20 text-blue-400">📊 钉钉自动统计</span>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => { console.log('📋 关闭组织架构'); setOrgModalOpen(false); setOrgSearchQuery(''); }}
+                  className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center">
+                  <X size={22} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 flex overflow-hidden">
+                {orgLoading ? (
+                  <div className="flex items-center justify-center w-full py-20">
+                    <Loader2 className="size-8 text-cyan-400 animate-spin" />
+                  </div>
+                ) : orgData ? (
+                  <>
+                    {/* Left: Department Tree */}
+                    <div className="w-72 border-r border-slate-700/50 overflow-y-auto p-3">
+                      {/* Search */}
+                      <div className="relative mb-3">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-slate-500" />
+                        <input
+                          type="text"
+                          placeholder="搜索部门或成员..."
+                          value={orgSearchQuery}
+                          onChange={(e) => setOrgSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                        />
+                      </div>
+
+                      {/* Department Tree */}
+                      <div className="space-y-0.5">
+                        {orgData.departments.map((dept) => (
+                          <button
+                            key={dept.deptId}
+                            onClick={() => setSelectedDeptId(dept.deptId)}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+                              selectedDeptId === dept.deptId
+                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                : 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-200'
+                            }`}
+                          >
+                            <Building2 size={14} className="shrink-0" />
+                            <span className="truncate">{dept.name}</span>
+                            {orgData.departmentMembers?.[dept.deptId] && (
+                              <span className="ml-auto text-xs text-slate-600 shrink-0">
+                                {orgData.departmentMembers[dept.deptId].length}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Right: Member List */}
+                    <div className="flex-1 overflow-y-auto p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <h3 className="text-cyan-400 font-semibold text-sm">
+                          {orgData.departments.find(d => d.deptId === selectedDeptId)?.name || '选择部门'} · 成员列表
+                        </h3>
+                        <span className="text-xs text-slate-500">
+                          {(orgData.departmentMembers?.[selectedDeptId ?? 0] || []).length} 人
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {(orgData.departmentMembers?.[selectedDeptId ?? 0] || [])
+                          .filter(m => {
+                            if (!orgSearchQuery) return true;
+                            const q = orgSearchQuery.toLowerCase();
+                            return m.name.toLowerCase().includes(q) || m.userId.toLowerCase().includes(q);
+                          })
+                          .map((member) => (
+                            <div
+                              key={member.userId}
+                              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700/30 text-sm"
+                            >
+                              <Users size={14} className="text-slate-500 shrink-0" />
+                              <span className="text-slate-300 truncate">{member.name}</span>
+                            </div>
+                          ))}
+                      </div>
+
+                      {orgSearchQuery && (orgData.departmentMembers?.[selectedDeptId ?? 0] || []).filter(m => {
+                        const q = orgSearchQuery.toLowerCase();
+                        return m.name.toLowerCase().includes(q) || m.userId.toLowerCase().includes(q);
+                      }).length === 0 && (
+                        <div className="text-center py-10 text-slate-500 text-sm">
+                          该部门暂无匹配成员
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center w-full py-20 text-slate-500">
+                    ⚠️ 组织架构数据加载失败
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end items-center p-4 border-t border-slate-700/50 bg-slate-800/50 rounded-b-2xl">
+                <button
+                  onClick={() => {
+                    console.log('📋 打开调整在职人数弹窗');
+                    setAdjustCount(String(employeeCount));
+                    setAdjustModalOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/30 text-amber-400 text-sm hover:bg-amber-500/10 transition-colors"
+                >
+                  <Edit3 size={14} />
+                  调整在职人数
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============================================================ */}
+      {/* 调整在职人数弹窗 */}
+      {/* ============================================================ */}
+      {adjustModalOpen && (
+        <>
+          {/* Overlay */}
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]" onClick={() => { console.log('📋 关闭调整弹窗'); setAdjustModalOpen(false); }} />
+
+          {/* Modal */}
+          <div className="fixed inset-0 flex items-center justify-center z-[70] p-4">
+            <div className="bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border-2 border-cyan-500/30 rounded-2xl shadow-2xl shadow-blue-900/50 w-full max-w-md">
+              {/* Header */}
+              <div className="flex justify-between items-center p-5 border-b border-cyan-500/30 bg-slate-800/50 rounded-t-2xl">
+                <h2 className="text-lg font-bold text-cyan-400">✏️ 调整在职人数</h2>
+                <button onClick={() => { console.log('📋 关闭调整弹窗'); setAdjustModalOpen(false); }}
+                  className="w-8 h-8 rounded-full border-2 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 flex items-center justify-center">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">在职人数</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={adjustCount}
+                    onChange={(e) => setAdjustCount(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 text-lg font-bold focus:outline-none focus:border-cyan-500/50 transition-colors"
+                    placeholder="请输入在职人数"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 flex items-center gap-1">
+                  <span>💡</span>
+                  输入 <span className="text-amber-400 font-medium">0</span> 可恢复为钉钉自动统计
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end gap-3 p-5 border-t border-slate-700/50 bg-slate-800/50 rounded-b-2xl">
+                <button
+                  onClick={() => { console.log('📋 取消调整'); setAdjustModalOpen(false); }}
+                  className="px-4 py-2 rounded-lg border border-slate-600/50 text-slate-400 text-sm hover:bg-slate-700/50 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={async () => {
+                    console.log(`📋 确认调整在职人数: count=${adjustCount}`);
+                    setAdjustLoading(true);
+                    try {
+                      const resp = await fetch('/api/stats/employee-count', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ count: Number(adjustCount) }),
+                      });
+                      const result = await resp.json();
+                      if (result.success) {
+                        console.log('✅ 在职人数调整成功');
+                        toast.success('在职人数已更新');
+                        setAdjustModalOpen(false);
+                        // 刷新在职人数
+                        await fetchEmployeeCount();
+                      } else {
+                        console.error('❌ 调整在职人数失败:', result.error);
+                        toast.error(result.error || '调整失败');
+                      }
+                    } catch (err: any) {
+                      console.error('❌ 调整在职人数异常:', err.message);
+                      toast.error('调整失败，请稍后重试');
+                    } finally {
+                      setAdjustLoading(false);
+                    }
+                  }}
+                  disabled={adjustLoading}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-medium hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {adjustLoading && <Loader2 size={14} className="animate-spin" />}
+                  确认调整
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

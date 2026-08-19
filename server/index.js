@@ -4910,6 +4910,271 @@ app.post('/api/meeting/callback', async (req, res) => {
 });
 
 // ============================================================
+// GET /api/stats/employee-count - 获取当前集团在职人数
+// ============================================================
+app.get('/api/stats/employee-count', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 GET /api/stats/employee-count - 获取集团在职人数');
+
+    // 先查询是否有手动设置的值
+    const { data: configData, error: configError } = await supabase
+      .from('system_config')
+      .select('value')
+      .eq('key', 'employee_count_manual')
+      .maybeSingle();
+
+    if (configError) {
+      console.warn('⚠️ 查询 system_config employee_count_manual 失败:', configError.message);
+    }
+
+    if (configData && configData.value !== null && configData.value !== undefined) {
+      const manualCount = parseInt(configData.value, 10);
+      if (!isNaN(manualCount) && manualCount >= 0) {
+        console.log(`✅ 返回手动设置的在职人数: ${manualCount} (source=manual)`);
+        return res.json({ success: true, data: { count: manualCount, source: 'manual' } });
+      }
+    }
+
+    // 没有手动设置，从钉钉通讯录获取
+    console.log('📋 未找到手动设置，从钉钉通讯录获取在职人数...');
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      console.error('❌ 获取在职人数失败: 无法获取钉钉 Access Token');
+      return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
+    }
+
+    // 递归获取所有子部门 ID
+    async function getAllDeptIdsForCount(accessToken, parentDeptId) {
+      const allDeptIds = [];
+      try {
+        const deptResp = await axios.post(
+          'https://oapi.dingtalk.com/topapi/v2/department/listsub',
+          { dept_id: parentDeptId },
+          { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+        );
+        if (deptResp.data.errcode === 0 && deptResp.data.result) {
+          for (const dept of deptResp.data.result) {
+            allDeptIds.push(dept.dept_id);
+            const nestedIds = await getAllDeptIdsForCount(accessToken, dept.dept_id);
+            allDeptIds.push(...nestedIds);
+          }
+        }
+      } catch (err) {
+        console.warn(`⚠️ 获取部门 ${parentDeptId} 子部门失败: ${err.message}`);
+      }
+      return allDeptIds;
+    }
+
+    const departmentIds = await getAllDeptIdsForCount(accessToken, 1);
+    console.log(`✅ 获取部门列表成功: ${departmentIds.length} 个部门`);
+
+    // 遍历所有部门获取成员，去重
+    const memberMap = new Map();
+    for (const deptId of departmentIds) {
+      try {
+        let cursor = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const userResp = await axios.post(
+            'https://oapi.dingtalk.com/topapi/v2/user/list',
+            { dept_id: deptId, cursor, size: 100 },
+            { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+          );
+          if (userResp.data.errcode === 0 && userResp.data.result) {
+            const userList = userResp.data.result.list || [];
+            for (const user of userList) {
+              if (!memberMap.has(user.userid)) {
+                memberMap.set(user.userid, { userId: user.userid, name: user.name || user.userid });
+              }
+            }
+            hasMore = userResp.data.result.has_more || false;
+            cursor = userResp.data.result.next_cursor || 0;
+          } else {
+            console.warn(`⚠️ 获取部门 ${deptId} 成员列表失败: ${userResp.data.errmsg}`);
+            hasMore = false;
+          }
+        }
+      } catch (userErr) {
+        console.warn(`⚠️ 获取部门 ${deptId} 成员列表异常: ${userErr.message}`);
+      }
+    }
+
+    const count = memberMap.size;
+    console.log(`✅ 钉钉通讯录在职人数: ${count} 人 (source=dingtalk)`);
+    res.json({ success: true, data: { count, source: 'dingtalk' } });
+  } catch (err) {
+    console.error('❌ 获取在职人数失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// POST /api/stats/employee-count - 保存手动调整的在职人数
+// ============================================================
+app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
+  try {
+    const { count } = req.body;
+    console.log(`📋 POST /api/stats/employee-count - 保存手动在职人数: count=${count}`);
+
+    if (count === undefined || count === null || isNaN(Number(count)) || Number(count) < 0) {
+      console.warn(`⚠️ 参数校验失败: count=${count}，必须是有效的非负数字`);
+      return res.status(400).json({ success: false, error: 'count 必须是有效的非负数字' });
+    }
+
+    const numCount = Number(count);
+
+    if (numCount === 0) {
+      // 输入 0，删除手动设置，恢复钉钉自动统计
+      console.log('📋 输入为 0，删除手动设置，恢复钉钉自动统计');
+      const { error: deleteError } = await supabase
+        .from('system_config')
+        .delete()
+        .eq('key', 'employee_count_manual');
+      if (deleteError) {
+        console.error('❌ 删除手动设置失败:', deleteError.message);
+        return res.status(500).json({ success: false, error: deleteError.message });
+      }
+      console.log('✅ 手动设置已删除，系统将恢复钉钉自动统计');
+    } else {
+      // 保存手动设置
+      const { error: upsertError } = await supabase
+        .from('system_config')
+        .upsert({ key: 'employee_count_manual', value: numCount, updated_at: new Date().toISOString() });
+      if (upsertError) {
+        console.error('❌ 保存手动设置失败:', upsertError.message);
+        return res.status(500).json({ success: false, error: upsertError.message });
+      }
+      console.log(`✅ 手动在职人数已保存: ${numCount}`);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 保存在职人数失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
+// GET /api/dingtalk/organization - 获取钉钉组织架构树（含部门、成员）
+// ============================================================
+app.get('/api/dingtalk/organization', authMiddleware, async (req, res) => {
+  try {
+    console.log('📋 GET /api/dingtalk/organization - 获取钉钉组织架构');
+
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      console.error('❌ 获取组织架构失败: 无法获取钉钉 Access Token');
+      return res.status(500).json({ success: false, error: '钉钉认证失败，请稍后重试' });
+    }
+
+    // 递归获取所有子部门（含名称和层级）
+    async function getAllDepartments(accessToken, parentDeptId) {
+      const departments = [];
+      try {
+        const deptResp = await axios.post(
+          'https://oapi.dingtalk.com/topapi/v2/department/listsub',
+          { dept_id: parentDeptId },
+          { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+        );
+        if (deptResp.data.errcode === 0 && deptResp.data.result) {
+          for (const dept of deptResp.data.result) {
+            departments.push({
+              deptId: dept.dept_id,
+              name: dept.name,
+              parentId: dept.parent_id,
+            });
+            const children = await getAllDepartments(accessToken, dept.dept_id);
+            departments.push(...children);
+          }
+        }
+      } catch (err) {
+        console.warn(`⚠️ 获取部门 ${parentDeptId} 子部门失败: ${err.message}`);
+      }
+      return departments;
+    }
+
+    // 获取根部门信息
+    let rootDept = { deptId: 1, name: '森宇集团', parentId: 0 };
+    try {
+      const rootResp = await axios.post(
+        'https://oapi.dingtalk.com/topapi/v2/department/get',
+        { dept_id: 1 },
+        { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+      );
+      if (rootResp.data.errcode === 0 && rootResp.data.result) {
+        rootDept = {
+          deptId: rootResp.data.result.dept_id,
+          name: rootResp.data.result.name,
+          parentId: rootResp.data.result.parent_id,
+        };
+      }
+    } catch (err) {
+      console.warn(`⚠️ 获取根部门信息失败: ${err.message}`);
+    }
+
+    const departments = [rootDept, ...(await getAllDepartments(accessToken, 1))];
+    console.log(`✅ 获取部门列表成功: ${departments.length} 个部门`);
+
+    // 获取所有部门成员，按部门汇总
+    const departmentMembers = {}; // deptId -> members[]
+    const allMemberMap = new Map(); // userId -> member info
+
+    for (const dept of departments) {
+      const members = [];
+      try {
+        let cursor = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const userResp = await axios.post(
+            'https://oapi.dingtalk.com/topapi/v2/user/list',
+            { dept_id: dept.deptId, cursor, size: 100 },
+            { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
+          );
+          if (userResp.data.errcode === 0 && userResp.data.result) {
+            const userList = userResp.data.result.list || [];
+            for (const user of userList) {
+              const member = {
+                userId: user.userid,
+                name: user.name || user.userid,
+                unionId: user.unionid || user.union_id || '',
+                deptId: dept.deptId,
+              };
+              members.push(member);
+              if (!allMemberMap.has(user.userid)) {
+                allMemberMap.set(user.userid, member);
+              }
+            }
+            hasMore = userResp.data.result.has_more || false;
+            cursor = userResp.data.result.next_cursor || 0;
+          } else {
+            console.warn(`⚠️ 获取部门 ${dept.deptId} 成员列表失败: ${userResp.data.errmsg}`);
+            hasMore = false;
+          }
+        }
+      } catch (userErr) {
+        console.warn(`⚠️ 获取部门 ${dept.deptId} 成员列表异常: ${userErr.message}`);
+      }
+      departmentMembers[dept.deptId] = members;
+    }
+
+    const allMembers = Array.from(allMemberMap.values());
+    console.log(`✅ 组织架构获取成功: ${departments.length} 个部门, ${allMembers.length} 名成员`);
+
+    res.json({
+      success: true,
+      data: {
+        departments,
+        members: allMembers,
+        departmentMembers,
+      },
+    });
+  } catch (err) {
+    console.error('❌ 获取组织架构失败:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 启动服务器
 // ============================================================
 // ============================================================
