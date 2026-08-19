@@ -653,7 +653,9 @@ export default function Dashboard() {
   const [orgSearchQuery, setOrgSearchQuery] = useState('');
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [adjustCount, setAdjustCount] = useState<string>('');
+  const [adjustNewCount, setAdjustNewCount] = useState<string>('');
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [newEmployeeCount, setNewEmployeeCount] = useState<number>(0);
 
   // ---- 自动 AI 分析跟踪（避免重复触发）----
   const autoAnalyzedRef = useRef<Set<number>>(new Set());
@@ -773,9 +775,10 @@ export default function Dashboard() {
       const resp = await fetch('/api/stats/employee-count');
       const result = await resp.json();
       if (result.success && result.data) {
-        console.log(`✅ 在职人数: ${result.data.count}, 来源: ${result.data.source}`);
+        console.log(`✅ 在职人数: count=${result.data.count}, source=${result.data.source}, newCount=${result.data.newCount ?? 0}`);
         setEmployeeCount(result.data.count);
         setEmployeeCountSource(result.data.source);
+        setNewEmployeeCount(result.data.newCount ?? 0);
       } else {
         console.warn('⚠️ 获取在职人数失败:', result.error);
       }
@@ -2946,6 +2949,11 @@ export default function Dashboard() {
                       <span className="px-2 py-0.5 rounded text-xs border border-blue-500/30 bg-blue-900/20 text-blue-400">📊 钉钉自动统计</span>
                     )}
                   </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-slate-400 text-sm">本月新进人数：</span>
+                    <span className="text-amber-400 font-bold text-lg">{newEmployeeCount}</span>
+                    <span className="text-xs text-slate-500">人</span>
+                  </div>
                 </div>
                 <button onClick={() => { console.log('📋 关闭组织架构'); setOrgModalOpen(false); setOrgSearchQuery(''); }}
                   className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center">
@@ -3049,8 +3057,9 @@ export default function Dashboard() {
               <div className="flex justify-end items-center p-4 border-t border-slate-700/50 bg-slate-800/50 rounded-b-2xl">
                 <button
                   onClick={() => {
-                    console.log('📋 打开调整在职人数弹窗');
+                    console.log('📋 打开调整弹窗: employeeCount=' + employeeCount + ', newEmployeeCount=' + newEmployeeCount);
                     setAdjustCount(String(employeeCount));
+                    setAdjustNewCount(String(newEmployeeCount));
                     setAdjustModalOpen(true);
                   }}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/30 text-amber-400 text-sm hover:bg-amber-500/10 transition-colors"
@@ -3101,6 +3110,21 @@ export default function Dashboard() {
                   <span>💡</span>
                   输入 <span className="text-amber-400 font-medium">0</span> 可恢复为钉钉自动统计
                 </p>
+                <div className="border-t border-slate-700/50 pt-4">
+                  <label className="block text-sm text-slate-400 mb-2">本月新进人数</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={adjustNewCount}
+                    onChange={(e) => setAdjustNewCount(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 text-lg font-bold focus:outline-none focus:border-amber-500/50 transition-colors"
+                    placeholder="请输入本月新进人数"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 flex items-center gap-1">
+                  <span>💡</span>
+                  每月1号系统自动清零
+                </p>
               </div>
 
               {/* Footer */}
@@ -3113,18 +3137,18 @@ export default function Dashboard() {
                 </button>
                 <button
                   onClick={async () => {
-                    console.log(`📋 确认调整在职人数: count=${adjustCount}`);
+                    console.log(`📋 确认调整: count=${adjustCount}, newCount=${adjustNewCount}`);
                     setAdjustLoading(true);
                     try {
                       const resp = await fetch('/api/stats/employee-count', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ count: Number(adjustCount) }),
+                        body: JSON.stringify({ count: Number(adjustCount), newCount: Number(adjustNewCount) }),
                       });
                       const result = await resp.json();
                       if (result.success) {
-                        console.log('✅ 在职人数调整成功');
-                        toast.success('在职人数已更新');
+                        console.log('✅ 在职人数及本月新进人数调整成功');
+                        toast.success('已更新');
                         setAdjustModalOpen(false);
                         // 刷新在职人数
                         await fetchEmployeeCount();

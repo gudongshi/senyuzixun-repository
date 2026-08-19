@@ -4910,11 +4910,30 @@ app.post('/api/meeting/callback', async (req, res) => {
 });
 
 // ============================================================
-// GET /api/stats/employee-count - 获取当前集团在职人数
+// GET /api/stats/employee-count - 获取当前集团在职人数及本月新进人数
 // ============================================================
 app.get('/api/stats/employee-count', authMiddleware, async (req, res) => {
   try {
-    console.log('📋 GET /api/stats/employee-count - 获取集团在职人数');
+    console.log('📋 GET /api/stats/employee-count - 获取集团在职人数及本月新进人数');
+
+    // 查询本月新进人数（手动设定）
+    let newCount = 0;
+    const { data: newCountData, error: newCountError } = await supabase
+      .from('system_config')
+      .select('value')
+      .eq('key', 'monthly_new_employee_count')
+      .maybeSingle();
+
+    if (newCountError) {
+      console.warn('⚠️ 查询 system_config monthly_new_employee_count 失败:', newCountError.message);
+    }
+
+    if (newCountData && newCountData.value !== null && newCountData.value !== undefined) {
+      const parsed = parseInt(newCountData.value, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        newCount = parsed;
+      }
+    }
 
     // 先查询是否有手动设置的值
     const { data: configData, error: configError } = await supabase
@@ -4930,8 +4949,8 @@ app.get('/api/stats/employee-count', authMiddleware, async (req, res) => {
     if (configData && configData.value !== null && configData.value !== undefined) {
       const manualCount = parseInt(configData.value, 10);
       if (!isNaN(manualCount) && manualCount >= 0) {
-        console.log(`✅ 返回手动设置的在职人数: ${manualCount} (source=manual)`);
-        return res.json({ success: true, data: { count: manualCount, source: 'manual' } });
+        console.log(`✅ 返回手动设置: count=${manualCount} (source=manual), newCount=${newCount}`);
+        return res.json({ success: true, data: { count: manualCount, source: 'manual', newCount } });
       }
     }
 
@@ -5000,8 +5019,8 @@ app.get('/api/stats/employee-count', authMiddleware, async (req, res) => {
     }
 
     const count = memberMap.size;
-    console.log(`✅ 钉钉通讯录在职人数: ${count} 人 (source=dingtalk)`);
-    res.json({ success: true, data: { count, source: 'dingtalk' } });
+    console.log(`✅ 钉钉通讯录在职人数: ${count} 人 (source=dingtalk), newCount=${newCount}`);
+    res.json({ success: true, data: { count, source: 'dingtalk', newCount } });
   } catch (err) {
     console.error('❌ 获取在职人数失败:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -5009,13 +5028,14 @@ app.get('/api/stats/employee-count', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// POST /api/stats/employee-count - 保存手动调整的在职人数
+// POST /api/stats/employee-count - 保存手动调整的在职人数及本月新进人数
 // ============================================================
 app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
   try {
-    const { count } = req.body;
-    console.log(`📋 POST /api/stats/employee-count - 保存手动在职人数: count=${count}`);
+    const { count, newCount } = req.body;
+    console.log(`📋 POST /api/stats/employee-count - 保存手动设置: count=${count}, newCount=${newCount}`);
 
+    // 校验 count
     if (count === undefined || count === null || isNaN(Number(count)) || Number(count) < 0) {
       console.warn(`⚠️ 参数校验失败: count=${count}，必须是有效的非负数字`);
       return res.status(400).json({ success: false, error: 'count 必须是有效的非负数字' });
@@ -5025,7 +5045,7 @@ app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
 
     if (numCount === 0) {
       // 输入 0，删除手动设置，恢复钉钉自动统计
-      console.log('📋 输入为 0，删除手动设置，恢复钉钉自动统计');
+      console.log('📋 count=0，删除手动设置，恢复钉钉自动统计');
       const { error: deleteError } = await supabase
         .from('system_config')
         .delete()
@@ -5045,6 +5065,38 @@ app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
         return res.status(500).json({ success: false, error: upsertError.message });
       }
       console.log(`✅ 手动在职人数已保存: ${numCount}`);
+    }
+
+    // 处理 newCount（本月新进人数）
+    if (newCount !== undefined && newCount !== null) {
+      if (isNaN(Number(newCount)) || Number(newCount) < 0 || !Number.isInteger(Number(newCount))) {
+        console.warn(`⚠️ 参数校验失败: newCount=${newCount}，必须是有效的非负整数`);
+        return res.status(400).json({ success: false, error: 'newCount 必须是有效的非负整数' });
+      }
+
+      const numNewCount = Number(newCount);
+
+      if (numNewCount === 0) {
+        // 清零：删除或设置为 0
+        console.log('📋 newCount=0，将本月新进人数清零');
+        const { error: upsertError } = await supabase
+          .from('system_config')
+          .upsert({ key: 'monthly_new_employee_count', value: 0, updated_at: new Date().toISOString() });
+        if (upsertError) {
+          console.error('❌ 清零本月新进人数失败:', upsertError.message);
+          return res.status(500).json({ success: false, error: upsertError.message });
+        }
+        console.log('✅ 本月新进人数已清零');
+      } else {
+        const { error: upsertError } = await supabase
+          .from('system_config')
+          .upsert({ key: 'monthly_new_employee_count', value: numNewCount, updated_at: new Date().toISOString() });
+        if (upsertError) {
+          console.error('❌ 保存本月新进人数失败:', upsertError.message);
+          return res.status(500).json({ success: false, error: upsertError.message });
+        }
+        console.log(`✅ 本月新进人数已保存: ${numNewCount}`);
+      }
     }
 
     res.json({ success: true });
@@ -5210,6 +5262,25 @@ async function sendDingTalkMessage(message) {
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
   console.log(`✅ 钉钉 AppKey: ${DINGTALK_APP_KEY.slice(0, 8)}...`);
+});
+
+// ============================================================
+// 定时任务：每月1号凌晨 00:00 清零本月新进人数
+// ============================================================
+cron.schedule('0 0 1 * *', async () => {
+  console.log('📋 定时任务：每月1号清零本月新进人数');
+  try {
+    const { error: upsertError } = await supabase
+      .from('system_config')
+      .upsert({ key: 'monthly_new_employee_count', value: 0, updated_at: new Date().toISOString() });
+    if (upsertError) {
+      console.error('❌ 本月新进人数清零失败:', upsertError.message);
+    } else {
+      console.log('✅ 本月新进人数清零成功');
+    }
+  } catch (err) {
+    console.error('❌ 定时任务异常 - 本月新进人数清零失败:', err.message);
+  }
 });
 
 // ============================================================
