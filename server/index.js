@@ -5059,7 +5059,7 @@ app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
       // 保存手动设置
       const { error: upsertError } = await supabase
         .from('system_config')
-        .upsert({ key: 'employee_count_manual', value: numCount, updated_at: new Date().toISOString() });
+        .upsert({ key: 'employee_count_manual', value: numCount, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       if (upsertError) {
         console.error('❌ 保存手动设置失败:', upsertError.message);
         return res.status(500).json({ success: false, error: upsertError.message });
@@ -5081,7 +5081,7 @@ app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
         console.log('📋 newCount=0，将本月新进人数清零');
         const { error: upsertError } = await supabase
           .from('system_config')
-          .upsert({ key: 'monthly_new_employee_count', value: 0, updated_at: new Date().toISOString() });
+          .upsert({ key: 'monthly_new_employee_count', value: 0, updated_at: new Date().toISOString() }, { onConflict: 'key' });
         if (upsertError) {
           console.error('❌ 清零本月新进人数失败:', upsertError.message);
           return res.status(500).json({ success: false, error: upsertError.message });
@@ -5090,7 +5090,7 @@ app.post('/api/stats/employee-count', authMiddleware, async (req, res) => {
       } else {
         const { error: upsertError } = await supabase
           .from('system_config')
-          .upsert({ key: 'monthly_new_employee_count', value: numNewCount, updated_at: new Date().toISOString() });
+          .upsert({ key: 'monthly_new_employee_count', value: numNewCount, updated_at: new Date().toISOString() }, { onConflict: 'key' });
         if (upsertError) {
           console.error('❌ 保存本月新进人数失败:', upsertError.message);
           return res.status(500).json({ success: false, error: upsertError.message });
@@ -5272,7 +5272,7 @@ cron.schedule('0 0 1 * *', async () => {
   try {
     const { error: upsertError } = await supabase
       .from('system_config')
-      .upsert({ key: 'monthly_new_employee_count', value: 0, updated_at: new Date().toISOString() });
+      .upsert({ key: 'monthly_new_employee_count', value: 0, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (upsertError) {
       console.error('❌ 本月新进人数清零失败:', upsertError.message);
     } else {
