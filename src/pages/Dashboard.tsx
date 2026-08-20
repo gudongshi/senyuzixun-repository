@@ -1895,12 +1895,10 @@ export default function Dashboard() {
                 setOrgModalOpen(true);
                 fetchOrgData();
               }}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-lg border border-blue-500/30 bg-blue-900/20 cursor-pointer hover:bg-blue-900/40 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/30 text-blue-400 text-sm hover:bg-blue-500/10 transition-colors cursor-pointer"
               title="点击查看组织架构"
             >
-              <span>👥 在职人数</span>
-              <span className="font-bold">{employeeCount}</span>
-              <span className="text-xs opacity-70">人</span>
+              👥 在职人数 {employeeCount} 人
             </div>
           )}
           {user && (
