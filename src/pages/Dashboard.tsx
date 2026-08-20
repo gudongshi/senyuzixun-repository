@@ -1898,9 +1898,9 @@ export default function Dashboard() {
               className="flex items-center gap-2 px-4 py-1.5 rounded-lg border border-blue-500/30 bg-blue-900/20 cursor-pointer hover:bg-blue-900/40 transition-colors"
               title="点击查看组织架构"
             >
-              <span className="text-slate-400 text-sm">👥 在职人数</span>
-              <span className="text-cyan-400 text-lg font-bold">{employeeCount}</span>
-              <span className="text-xs text-slate-500">人</span>
+              <span>👥 在职人数</span>
+              <span className="font-bold">{employeeCount}</span>
+              <span className="text-xs opacity-70">人</span>
             </div>
           )}
           {user && (
