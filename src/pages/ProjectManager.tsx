@@ -1603,23 +1603,24 @@ function WeeklyReportFormModal({
   };
 
   const update = (f: string, v: string) => setForm(p => ({ ...p, [f]: v }));
-  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
-  const readOnlyClass = "w-full bg-slate-700/20 border border-slate-600/50 rounded-lg px-3 py-2 text-slate-400 text-sm cursor-not-allowed";
+  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-200 text-base focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+  const readOnlyClass = "w-full bg-slate-700/20 border border-slate-600/50 rounded-lg px-3 py-2.5 text-slate-400 text-base cursor-not-allowed";
   const labelClass = "block text-sm text-slate-400 mb-1";
   const sectionClass = "border-t border-slate-700/50 pt-4";
   const sectionTitleClass = "text-sm text-cyan-400 font-semibold mb-3";
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-10 overflow-y-auto">
-      <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-3xl mx-4 shadow-2xl my-10">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center overflow-hidden">
+      <div className="bg-slate-800 border border-blue-900/30 w-full h-full rounded-none md:w-full md:max-w-3xl md:h-auto md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
         </div>
 
-        <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="flex flex-col h-full">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[calc(100vh-120px)] md:max-h-none">
           {/* 基础字段 */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>周报日期 <span className="text-red-400">*</span></label>
               <input type="date" className={isView ? readOnlyClass : inputClass} value={form.reportDate}
@@ -1659,7 +1660,7 @@ function WeeklyReportFormModal({
             <textarea className={isView ? readOnlyClass : inputClass} rows={3} value={form.weeklySummary}
               onChange={e => update('weeklySummary', e.target.value)} disabled={isView} placeholder="请描述本周完成的主要工作" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>遇到的问题</label>
               <textarea className={isView ? readOnlyClass : inputClass} rows={2} value={form.issuesEncountered}
@@ -1677,7 +1678,7 @@ function WeeklyReportFormModal({
             <>
               <div className={sectionClass}>
                 <h3 className={sectionTitleClass}>📊 月报产值数据</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className={labelClass}>本月完成产值</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyCompletedValue} onChange={e => update('monthlyCompletedValue', e.target.value)} disabled={isView} /></div>
                   <div><label className={labelClass}>累计完成产值</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.cumulativeCompletedValue} onChange={e => update('cumulativeCompletedValue', e.target.value)} disabled={isView} /></div>
                   <div><label className={labelClass}>本月开票金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyInvoicedAmount} onChange={e => update('monthlyInvoicedAmount', e.target.value)} disabled={isView} /></div>
@@ -1691,7 +1692,7 @@ function WeeklyReportFormModal({
               {(isEngineering || isConsulting) && (
                 <div className={sectionClass}>
                   <h3 className={sectionTitleClass}>{isEngineering ? '🏗️ 工程咨询/项目管理' : '📐 造价咨询'}专用字段</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className={labelClass}>合同额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.contractAmount} onChange={e => update('contractAmount', e.target.value)} disabled={isView} /></div>
                     <div><label className={labelClass}>补充协议金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.supplementalAmount} onChange={e => update('supplementalAmount', e.target.value)} disabled={isView} /></div>
                     <div><label className={labelClass}>本月外部委托付款</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.monthlyExternalPayment} onChange={e => update('monthlyExternalPayment', e.target.value)} disabled={isView} /></div>
@@ -1707,7 +1708,7 @@ function WeeklyReportFormModal({
               {isBidding && (
                 <div className={sectionClass}>
                   <h3 className={sectionTitleClass}>📋 招标代理专用字段</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className={labelClass}>合同结算金额</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.contractSettlementAmount} onChange={e => update('contractSettlementAmount', e.target.value)} disabled={isView} placeholder="中标代理费" /></div>
                     <div><label className={labelClass}>文件费</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.documentFee} onChange={e => update('documentFee', e.target.value)} disabled={isView} /></div>
                     <div><label className={labelClass}>实收保证金</label><input type="number" className={isView ? readOnlyClass : inputClass} value={form.depositReceived} onChange={e => update('depositReceived', e.target.value)} disabled={isView} /></div>
@@ -1723,7 +1724,7 @@ function WeeklyReportFormModal({
               {/* 财务字段（只读） */}
               <div className={sectionClass}>
                 <h3 className={sectionTitleClass}>🏦 财务字段 <span className="text-xs text-amber-400 font-normal">（财务部维护，不可编辑）</span></h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className={labelClass}>本月直接成本</label><input type="number" className={readOnlyClass} value={form.monthlyDirectCost} readOnly disabled /></div>
                   <div><label className={labelClass}>本月部门管理成本</label><input type="number" className={readOnlyClass} value={form.monthlyDeptCost} readOnly disabled /></div>
                   <div><label className={labelClass}>本月公司分摊成本</label><input type="number" className={readOnlyClass} value={form.monthlyCompanyCost} readOnly disabled /></div>
@@ -1737,11 +1738,12 @@ function WeeklyReportFormModal({
             </>
           )}
 
+          </div>
           {!isView && (
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
-              <button type="button" onClick={onClose} className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
+            <div className="sticky bottom-0 flex justify-end gap-3 p-4 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
+              <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
               <button type="submit" disabled={loading}
-                className="px-5 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2">
+                className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2">
                 {loading && <Loader2 className="size-4 animate-spin" />}
                 {isEdit ? '保存修改' : '提交周报'}
               </button>
@@ -2133,7 +2135,7 @@ export default function ProjectManager() {
       {/* ============================================================ */}
       {/* Header */}
       {/* ============================================================ */}
-      <header className="flex justify-between items-center px-6 py-4 border-b border-cyan-500/20 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-30">
+      <header className="flex flex-wrap justify-between items-center px-6 py-4 gap-y-2 border-b border-cyan-500/20 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-30">
         <div className="flex items-center gap-4">
           <img
             src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg"
@@ -2146,7 +2148,7 @@ export default function ProjectManager() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           {/* 返回大屏 */}
           <a href="/"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-sm hover:bg-blue-900/20 transition-colors">
@@ -2275,7 +2277,7 @@ export default function ProjectManager() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-blue-900/30 bg-slate-800/80">
                       <th className="text-left px-5 py-3.5 text-slate-400 text-sm font-medium">项目名称</th>
