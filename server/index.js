@@ -722,11 +722,12 @@ app.get('/api/dingtalk/login', async (req, res) => {
 
     res.cookie('token', sessionToken, {
       httpOnly: true,
-      secure: false,
+      secure: true,
       maxAge: 7 * 24 * 3600 * 1000,
-      sameSite: 'lax',
+      sameSite: 'none',
       path: '/',
     });
+    console.log('✅ 登录 Cookie 已设置 (SameSite=None, Secure) — userId:', userId);
 
     res.json({
       success: true,
