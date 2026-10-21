@@ -567,6 +567,22 @@ function ProjectDetailDrawerSimple({
 // 主页面组件 Dashboard
 // ============================================================
 export default function Dashboard() {
+  // ── 临时测试后门：自动为所有 fetch 请求注入 x-test-bypass 头 ──
+  useEffect(() => {
+    const isTestBypass = new URLSearchParams(window.location.search).get('test_bypass') === '1';
+    if (isTestBypass) {
+      console.log('⚠️ [Dashboard] 检测到测试参数，已开启 fetch 后门自动注入');
+      const originalFetch = window.fetch;
+      window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
+        const headers = new Headers(init?.headers);
+        if (!headers.has('x-test-bypass')) {
+          headers.set('x-test-bypass', '1');
+        }
+        return originalFetch(input, { ...init, headers });
+      };
+    }
+  }, []);
+
   // ---- 图表 DOM refs ----
   const revenueChartRef = useRef<HTMLDivElement>(null);
   const progressChartRef = useRef<HTMLDivElement>(null);
