@@ -413,14 +413,21 @@ async function getDingTalkAccessToken() {
 // ============================================================
 async function getAITableToken() {
   try {
-    const res = await axios.get('https://oapi.dingtalk.com/gettoken', {
-      params: { appkey: AI_TABLE_APP_KEY, appsecret: AI_TABLE_APP_SECRET }
+    const res = await axios.post('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
+      appKey: AI_TABLE_APP_KEY,
+      appSecret: AI_TABLE_APP_SECRET
+    }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000
     });
-    if (res.data.errcode === 0) return res.data.access_token;
-    console.error('❌ 获取 AI 表格 Token 失败:', res.data.errmsg);
+
+    if (res.data && res.data.accessToken) {
+      return res.data.accessToken;
+    }
+    console.error('❌ 获取 AI 表格 Token 失败:', res.data);
     return null;
   } catch (err) {
-    console.error('❌ 请求 AI 表格 Token 异常:', err.message);
+    console.error('❌ 请求 AI 表格 Token 异常:', err.response?.data || err.message);
     return null;
   }
 }
