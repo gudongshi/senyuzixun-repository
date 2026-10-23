@@ -21,6 +21,16 @@ const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 const cron = require('node-cron');
 
+// ============================================================
+// AI 表格配置（钉钉 AI 表格同步）
+// ============================================================
+const AI_TABLE_APP_KEY = process.env.AI_TABLE_APP_KEY;
+const AI_TABLE_APP_SECRET = process.env.AI_TABLE_APP_SECRET;
+const AI_TABLE_BASE_ID = 'kDnRL6jAJMDLnZGLtXPEkd39VyMoPYe1';
+const AI_TABLE_SHEET_ID = 'CASi0xM';
+// ⚠️ 请替换为真实的系统管理员/测试人员的钉钉 unionId（openId）
+const AI_TABLE_OPERATOR_ID = 'RWATGRZfsEJGwSILSZyXvwiEiE';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -396,6 +406,176 @@ async function getDingTalkAccessToken() {
     console.error('❌ 获取钉钉 Token 异常:', err);
     return null;
   }
+}
+
+// ============================================================
+// AI 表格专属 Token
+// ============================================================
+async function getAITableToken() {
+  try {
+    const res = await axios.get('https://oapi.dingtalk.com/gettoken', {
+      params: { appkey: AI_TABLE_APP_KEY, appsecret: AI_TABLE_APP_SECRET }
+    });
+    if (res.data.errcode === 0) return res.data.access_token;
+    console.error('❌ 获取 AI 表格 Token 失败:', res.data.errmsg);
+    return null;
+  } catch (err) {
+    console.error('❌ 请求 AI 表格 Token 异常:', err.message);
+    return null;
+  }
+}
+
+// ============================================================
+// 全量同步项目数据到钉钉 AI 表格
+// ============================================================
+async function syncAllProjectsToAITable() {
+  console.log('\n========================================');
+  console.log('📋 开始全量同步项目数据到钉钉 AI 表格');
+  console.log('========================================\n');
+
+  // Step 1: 获取 Token
+  console.log('📋 Step 1: 获取 AI 表格 Token...');
+  const token = await getAITableToken();
+  if (!token) {
+    console.error('❌ 无法获取 AI 表格 Token，同步终止');
+    return;
+  }
+  console.log('✅ AI 表格 Token 获取成功');
+
+  // Step 2: 从 Supabase 拉取所有未删除的项目
+  console.log('📋 Step 2: 从 Supabase 拉取项目数据...');
+  const { data: projects, error } = await supabase
+    .from('projects')
+    .select('*')
+    .neq('项目状态', '已删除');
+
+  if (error) {
+    console.error('❌ 拉取项目数据失败:', error.message);
+    return;
+  }
+  console.log(`✅ 拉取项目数据成功，共 ${projects.length} 条`);
+
+  if (projects.length === 0) {
+    console.log('⚠️ 没有项目数据，跳过同步');
+    return;
+  }
+
+  // Step 3: 清空原有数据
+  console.log('📋 Step 3: 清空 AI 表格原有数据...');
+  const baseUrl = `https://api.dingtalk.com/v1.0/notable/bases/${AI_TABLE_BASE_ID}/sheets/${AI_TABLE_SHEET_ID}`;
+  const aiTableHeaders = {
+    'x-acs-dingtalk-access-token': token,
+    'Content-Type': 'application/json',
+  };
+  const operatorParams = { operatorId: AI_TABLE_OPERATOR_ID };
+
+  try {
+    // 3a. 查询所有现有记录
+    const existingRecordIds = [];
+    let hasMore = true;
+    let nextToken = null;
+
+    while (hasMore) {
+      const queryBody = { maxResults: 200 };
+      if (nextToken) queryBody.nextToken = nextToken;
+
+      const queryRes = await axios.post(
+        `${baseUrl}/records/search`,
+        queryBody,
+        { headers: aiTableHeaders, params: operatorParams, timeout: 30000 }
+      );
+
+      const records = queryRes.data?.records || [];
+      records.forEach(r => { if (r.recordId) existingRecordIds.push(r.recordId); });
+      console.log(`  📍 查询到 ${records.length} 条记录，累计 ${existingRecordIds.length} 条`);
+
+      if (queryRes.data?.hasMore && queryRes.data?.nextToken) {
+        nextToken = queryRes.data.nextToken;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    // 3b. 分批删除所有现有记录
+    if (existingRecordIds.length === 0) {
+      console.log('✅ 表格为空，无需清空');
+    } else {
+      const batchSize = 100;
+      for (let i = 0; i < existingRecordIds.length; i += batchSize) {
+        const batch = existingRecordIds.slice(i, i + batchSize);
+        await axios.post(
+          `${baseUrl}/records/batchDelete`,
+          { recordIds: batch },
+          { headers: aiTableHeaders, params: operatorParams, timeout: 30000 }
+        );
+        console.log(`  ✅ 已删除第 ${Math.floor(i / batchSize) + 1} 批，共 ${batch.length} 条`);
+      }
+      console.log(`✅ 原有数据已全部清空，共删除 ${existingRecordIds.length} 条`);
+    }
+  } catch (err) {
+    console.error('❌ 清空数据失败:', err.message);
+    if (err.response) {
+      console.error('   状态码:', err.response.status);
+      console.error('   响应体:', JSON.stringify(err.response.data).slice(0, 500));
+    }
+    return;
+  }
+
+  // Step 4: 格式化并分批插入
+  console.log('📋 Step 4: 格式化数据并分批插入...');
+  const insertRecords = projects.map(p => {
+    const fields = {
+      '项目名称': p['项目名称'] || '',
+      '合同编号': p['合同编号'] || '',
+      '服务类型': p['服务类别'] || '',
+      '业务类型': p['业务类型'] || '',
+      '所属部门': p['所属部门'] || '',
+      '合作单位': p['合作单位'] || '',
+      '客户ID': p['客户ID'] ? Number(p['客户ID']) : null,
+      '项目负责人': p['项目负责人'] || '',
+      '实际项目负责人': p['实际项目负责人'] || '',
+      '项目状态': p['项目状态'] || '进行中',
+      '项目实施状态': p['项目实施状态'] || '未开始',
+      '当前进度': p['当前进度'] ? Number(p['当前进度']) : 0,
+      '合同金额': p['合同金额'] ? Number(p['合同金额']) : 0,
+      '目标成本': p['目标成本'] ? Number(p['目标成本']) : 0,
+      '已收款': p['已收款'] ? Number(p['已收款']) : 0,
+      '已开票': p['已开票'] ? Number(p['已开票']) : 0,
+      '签订日期': p['签订日期'] ? new Date(p['签订日期']).getTime() : null,
+      '计划开始时间': p['计划开始时间'] ? new Date(p['计划开始时间']).getTime() : null,
+      '计划结束时间': p['计划结束日期'] ? new Date(p['计划结束日期']).getTime() : null,
+      '备注': p['备注'] || ''
+    };
+    return { fields };
+  });
+
+  const insertBatchSize = 100;
+  let insertCount = 0;
+
+  try {
+    for (let i = 0; i < insertRecords.length; i += insertBatchSize) {
+      const batch = insertRecords.slice(i, i + insertBatchSize);
+      const insertRes = await axios.post(
+        `${baseUrl}/records`,
+        { records: batch },
+        { headers: aiTableHeaders, params: operatorParams, timeout: 60000 }
+      );
+      insertCount += (insertRes.data?.records || batch).length;
+      console.log(`  ✅ 已插入第 ${Math.floor(i / insertBatchSize) + 1} 批，共 ${batch.length} 条`);
+    }
+    console.log(`✅ 数据插入完成，共 ${insertCount} 条`);
+  } catch (err) {
+    console.error('❌ 插入数据失败:', err.message);
+    if (err.response) {
+      console.error('   状态码:', err.response.status);
+      console.error('   响应体:', JSON.stringify(err.response.data).slice(0, 500));
+    }
+    return;
+  }
+
+  console.log('\n========================================');
+  console.log('✅ 全量同步项目数据到钉钉 AI 表格完成');
+  console.log('========================================\n');
 }
 
 // ============================================================
@@ -1521,6 +1701,20 @@ app.get('/api/overall-risk', async (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ============================================================
+// 手动触发：全量同步项目数据到钉钉 AI 表格（测试接口）
+// ============================================================
+app.get('/api/sync/ai-table', authMiddleware, async (req, res) => {
+  try {
+    // 异步执行同步，避免请求超时
+    console.log('🔧 手动触发 AI 表格全量同步...');
+    res.json({ success: true, message: '同步任务已触发，请查看服务端日志' });
+    await syncAllProjectsToAITable();
+  } catch (err) {
+    console.error('❌ 手动同步 AI 表格失败:', err);
+  }
 });
 
 // ============================================================
@@ -5445,4 +5639,12 @@ ${projectList}
   } catch (err) {
     console.error('❌ 周报提醒定时任务失败:', err);
   }
+});
+
+// ============================================================
+// 每天凌晨 2:00 全量同步项目数据到钉钉 AI 表格
+// ============================================================
+cron.schedule('0 2 * * *', async () => {
+  console.log('⏰ 定时任务启动：全量同步项目数据到钉钉 AI 表格');
+  await syncAllProjectsToAITable();
 });
