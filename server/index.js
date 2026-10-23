@@ -28,8 +28,8 @@ const AI_TABLE_APP_KEY = process.env.AI_TABLE_APP_KEY;
 const AI_TABLE_APP_SECRET = process.env.AI_TABLE_APP_SECRET;
 const AI_TABLE_BASE_ID = 'kDnRL6jAJMDLnZGLtXPEkd39VyMoPYe1';
 const AI_TABLE_SHEET_ID = 'CASi0xM';
-// ⚠️ 请替换为真实的系统管理员/测试人员的钉钉 unionId（openId）
-const AI_TABLE_OPERATOR_ID = 'RWATGRZfsEJGwSILSZyXvwiEiE';
+// ⚠️ 这里必须是 unionId，不能是 userId
+const AI_TABLE_OPERATOR_ID = process.env.AI_TABLE_OPERATOR_ID || 'FiiV6vwpt7us9WKiPgSvKqFwiEiE';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
