@@ -462,7 +462,7 @@ async function syncAllProjectsToAITable() {
 
   // Step 3: 清空原有数据
   console.log('📋 Step 3: 清空 AI 表格原有数据...');
-  const baseUrl = `https://api.dingtalk.com/v1.0/notable/bases/${AI_TABLE_BASE_ID}/sheets/${AI_TABLE_SHEET_ID}`;
+  const baseUrl = `https://api.dingtalk.io/v1.0/notable/bases/${AI_TABLE_BASE_ID}/sheets/${AI_TABLE_SHEET_ID}`;
   const aiTableHeaders = {
     'x-acs-dingtalk-access-token': token,
     'Content-Type': 'application/json',
