@@ -473,23 +473,24 @@ async function syncAllProjectsToAITable() {
     // 3a. 查询所有现有记录
     const existingRecordIds = [];
     let hasMore = true;
-    let pageToken = null;
+    let nextToken = null;
 
     while (hasMore) {
-      const queryParams = { pageSize: 200, ...operatorParams };
-      if (pageToken) queryParams.pageToken = pageToken;
+      const queryBody = { maxResults: 100 }; // 钉钉该接口单页最大100条
+      if (nextToken) queryBody.nextToken = nextToken;
 
-      const queryRes = await axios.get(
-        `${baseUrl}/records`,
-        { headers: aiTableHeaders, params: queryParams, timeout: 30000 }
+      const queryRes = await axios.post(
+        `${baseUrl}/records/list`,
+        queryBody,
+        { headers: aiTableHeaders, params: operatorParams, timeout: 30000 }
       );
 
       const records = queryRes.data?.records || [];
       records.forEach(r => { if (r.recordId) existingRecordIds.push(r.recordId); });
       console.log(`  📍 查询到 ${records.length} 条记录，累计 ${existingRecordIds.length} 条`);
 
-      if (queryRes.data?.hasMore && queryRes.data?.pageToken) {
-        pageToken = queryRes.data.pageToken;
+      if (queryRes.data?.hasMore && queryRes.data?.nextToken) {
+        nextToken = queryRes.data.nextToken;
       } else {
         hasMore = false;
       }
