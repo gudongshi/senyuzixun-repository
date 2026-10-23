@@ -473,24 +473,23 @@ async function syncAllProjectsToAITable() {
     // 3a. 查询所有现有记录
     const existingRecordIds = [];
     let hasMore = true;
-    let nextToken = null;
+    let pageToken = null;
 
     while (hasMore) {
-      const queryBody = { maxResults: 200 };
-      if (nextToken) queryBody.nextToken = nextToken;
+      const queryParams = { pageSize: 200, ...operatorParams };
+      if (pageToken) queryParams.pageToken = pageToken;
 
-      const queryRes = await axios.post(
-        `${baseUrl}/records/search`,
-        queryBody,
-        { headers: aiTableHeaders, params: operatorParams, timeout: 30000 }
+      const queryRes = await axios.get(
+        `${baseUrl}/records`,
+        { headers: aiTableHeaders, params: queryParams, timeout: 30000 }
       );
 
       const records = queryRes.data?.records || [];
       records.forEach(r => { if (r.recordId) existingRecordIds.push(r.recordId); });
       console.log(`  📍 查询到 ${records.length} 条记录，累计 ${existingRecordIds.length} 条`);
 
-      if (queryRes.data?.hasMore && queryRes.data?.nextToken) {
-        nextToken = queryRes.data.nextToken;
+      if (queryRes.data?.hasMore && queryRes.data?.pageToken) {
+        pageToken = queryRes.data.pageToken;
       } else {
         hasMore = false;
       }
@@ -504,7 +503,7 @@ async function syncAllProjectsToAITable() {
       for (let i = 0; i < existingRecordIds.length; i += batchSize) {
         const batch = existingRecordIds.slice(i, i + batchSize);
         await axios.post(
-          `${baseUrl}/records/batchDelete`,
+          `${baseUrl}/records/delete`,
           { recordIds: batch },
           { headers: aiTableHeaders, params: operatorParams, timeout: 30000 }
         );
