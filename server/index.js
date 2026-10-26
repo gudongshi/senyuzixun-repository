@@ -155,6 +155,29 @@ async function callAI(prompt) {
   return parsed;
 }
 
+// 纯文本模式 AI 调用（不解析 JSON，直接返回文本）
+async function callAIText(prompt) {
+  console.log('⏳ 正在调用通义千问 API（文本模式）...');
+  const response = await axios.post(
+    DASHSCOPE_URL,
+    {
+      model: 'qwen-turbo',
+      input: { messages: [{ role: 'user', content: prompt }] },
+      parameters: { result_format: 'message' }
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    }
+  );
+  console.log('✅ 通义千问 API 响应成功（文本模式）');
+  const resultText = response.data.output.choices[0].message.content;
+  return resultText;
+}
+
 async function updateOverallRiskIndex() {
   try {
     const { data: tasks, error } = await supabase
@@ -5473,6 +5496,31 @@ async function sendDingTalkMessage(message) {
     return { success: false, error: err.message };
   }
 }
+
+// ============================================================
+// AI 智能问答助手（后续接入 RAGFlow 知识库）
+// ============================================================
+app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
+  try {
+    const { question } = req.body;
+    if (!question || !question.trim()) {
+      return res.status(400).json({ success: false, error: '问题不能为空' });
+    }
+
+    console.log('📋 AI 知识库问答收到问题:', question.slice(0, 100));
+
+    const prompt = `你是一个企业知识库助手。当前公司知识库尚未完全接入，请基于你的通用知识简要回答用户问题。用户问题：${question}`;
+
+    console.log('⏳ 正在调用 AI 文本分析...');
+    const answer = await callAIText(prompt);
+
+    console.log(`✅ AI 问答完成，回答长度: ${answer.length}`);
+    res.json({ success: true, data: { answer } });
+  } catch (err) {
+    console.error('❌ AI 知识库问答失败:', err.message);
+    res.status(500).json({ success: false, error: 'AI 分析暂时不可用，请稍后重试' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
