@@ -532,15 +532,15 @@ async function syncAllProjectsToAITable() {
   console.log('📋 Step 4: 格式化数据并分批插入...');
   const insertRecords = projects.map(p => {
     const fields = {
-      '项目名称': p['项目名称'] || '',
-      '合同编号': p['合同编号'] || '',
-      '服务类型': p['服务类别'] || '',
-      '业务类型': p['业务类型'] || '',
-      '所属部门': p['所属部门'] || '',
-      '合作单位': p['合作单位'] || '',
+      '项目名称': p['项目名称'] || null,
+      '合同编号': p['合同编号'] || null,
+      '服务类型': p['服务类别'] || null,
+      '业务类型': p['业务类型'] || null,
+      '所属部门': p['所属部门'] || null,
+      '合作单位': p['合作单位'] || null,
       '客户ID': p['客户ID'] ? Number(p['客户ID']) : null,
-      '项目负责人': p['项目负责人'] || '',
-      '实际项目负责人': p['实际项目负责人'] || '',
+      '项目负责人': p['项目负责人'] || null,
+      '实际项目负责人': p['实际项目负责人'] || null,
       '项目状态': p['项目状态'] || '进行中',
       '项目实施状态': p['项目实施状态'] || '未开始',
       '当前进度': p['当前进度'] ? Number(p['当前进度']) : 0,
@@ -551,7 +551,7 @@ async function syncAllProjectsToAITable() {
       '签订日期': p['签订日期'] ? new Date(p['签订日期']).getTime() : null,
       '计划开始时间': p['计划开始时间'] ? new Date(p['计划开始时间']).getTime() : null,
       '计划结束时间': p['计划结束日期'] ? new Date(p['计划结束日期']).getTime() : null,
-      '备注': p['备注'] || ''
+      '备注': p['备注'] || null
     };
     return { fields };
   });
