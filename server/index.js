@@ -29,7 +29,7 @@ const AI_TABLE_APP_SECRET = 'rr6JypP2GIMXid8TgRq0yq4Hbcdjks04_or4Su3gKGO4qg9KTw2
 const AI_TABLE_BASE_ID = 'kDnRL6jAJMDLnZGLtXPEkd39VyMoPYe1';
 const AI_TABLE_SHEET_ID = 'CASi0xM';
 // ⚠️ 这里必须是 unionId，不能是 userId
-const AI_TABLE_OPERATOR_ID = process.env.AI_TABLE_OPERATOR_ID || 'FiiV6vwpt7us9WKiPgSvKqFwiEiE';
+const AI_TABLE_OPERATOR_ID = process.env.AI_TABLE_OPERATOR_ID || 'wpiiEHH567gzWIYyVs0VxfAiEiE'; // 赵莘的 unionId
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -469,7 +469,7 @@ async function syncAllProjectsToAITable() {
 
   // Step 3: 清空原有数据
   console.log('📋 Step 3: 清空 AI 表格原有数据...');
-  const baseUrl = `https://api.dingtalk.io/v1.0/notable/bases/${AI_TABLE_BASE_ID}/sheets/${AI_TABLE_SHEET_ID}`;
+  const baseUrl = `https://api.dingtalk.com/v1.0/notable/bases/${AI_TABLE_BASE_ID}/sheets/${AI_TABLE_SHEET_ID}`;
   const aiTableHeaders = {
     'x-acs-dingtalk-access-token': token,
     'Content-Type': 'application/json',
