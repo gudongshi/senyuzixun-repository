@@ -161,7 +161,7 @@ async function callAIText(prompt) {
   const response = await axios.post(
     DASHSCOPE_URL,
     {
-      model: 'qwen-turbo',
+      model: 'qwen-plus',
       input: { messages: [{ role: 'user', content: prompt }] },
       parameters: { result_format: 'message' }
     },
