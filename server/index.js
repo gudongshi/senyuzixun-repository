@@ -5540,7 +5540,7 @@ cron.schedule('30 8 * * *', async () => {
             .eq('id', task.id);
           taskSuccessCount++;
           console.log(`✅ 任务 ${task.id} 分析完成，风险等级: ${result.riskLevel}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 1500)); // 延迟1.5秒，避免 429 限流
         }
       } catch (err) {
         taskFailCount++;
@@ -5588,9 +5588,9 @@ cron.schedule('30 8 * * *', async () => {
         projectFailCount++;
         console.error(`❌ 项目分析 (${index}/${totalProjects}): projectId=${project.id} → 异常: ${err.message}`);
       }
-      // 间隔 500ms 避免 API 限流
+      // 延迟1.5秒，避免 429 限流
       if (i < projectList.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
     }
 
