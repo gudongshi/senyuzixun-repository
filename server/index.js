@@ -25,7 +25,7 @@ const cron = require('node-cron');
 // AI 表格配置（钉钉 AI 表格同步）
 // ============================================================
 const AI_TABLE_APP_KEY = 'dingxkgcyynzesxyewt0';
-const AI_TABLE_APP_SECRET = 'rr6JypP2GIMXid8TgRq0yq4Hbcdjks04_or4Su3gKGO4qg9KTw25B84ueAzDUyDI';
+const AI_TABLE_APP_SECRET = 'ZxGiOrk120alq32nZ2rY2-EGjzb-CGQBccxvmrSR0hEKmHDssrQwe7114rXWgTTf';
 const AI_TABLE_BASE_ID = 'kDnRL6jAJMDLnZGLtXPEkd39VyMoPYe1';
 const AI_TABLE_SHEET_ID = 'CASi0xM';
 // ⚠️ 这里必须是 unionId，不能是 userId
