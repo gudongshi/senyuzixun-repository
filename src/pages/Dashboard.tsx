@@ -704,6 +704,7 @@ export default function Dashboard() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('AI 正在理解您的问题...');
   const [chatHistory, setChatHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -721,6 +722,15 @@ export default function Dashboard() {
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput('');
     setChatLoading(true);
+    setLoadingText('🤔 AI 正在理解您的问题...');
+
+    const loadingTimer = setInterval(() => {
+      setLoadingText(prev => {
+        if (prev.includes('理解')) return '📊 正在检索数据库...';
+        if (prev.includes('检索')) return '📝 正在生成分析报告...';
+        return prev;
+      });
+    }, 1500);
 
     try {
       const resp = await fetch('/api/ai/knowledge-chat', {
@@ -795,6 +805,7 @@ export default function Dashboard() {
       console.error('❌ AI 问答请求失败:', err.message);
       setChatMessages(prev => [...prev, { role: 'ai', content: '网络错误，请稍后重试。' }]);
     } finally {
+      clearInterval(loadingTimer);
       setChatLoading(false);
     }
   }, [chatInput, chatLoading]);
@@ -3399,7 +3410,7 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div
-                      className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                      className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
                         msg.role === 'user'
                           ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-md'
                           : 'bg-slate-700/60 text-slate-200 rounded-bl-md border border-slate-600/30'
@@ -3416,9 +3427,9 @@ export default function Dashboard() {
                 ))
               )}
               {chatLoading && (
-                <div className="flex items-center gap-2 text-slate-500 text-xs pl-9">
+                <div className="flex items-center gap-2 text-slate-400 text-xs pl-9 animate-pulse">
                   <Loader2 className="size-3 animate-spin" />
-                  <span>AI 思考中...</span>
+                  <span>{loadingText}</span>
                 </div>
               )}
               <div ref={chatMessagesEndRef} />
