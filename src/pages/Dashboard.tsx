@@ -1180,41 +1180,42 @@ export default function Dashboard() {
   }, []);
 
   // ============================================================
-  // 自动触发未分析项目的 AI 分析（后台异步，不阻塞 UI）
   // ============================================================
-  useEffect(() => {
-    if (projects.length === 0) return;
-
-    const unanalyzed = projects.filter(p => {
-      const ai = (p as any).ai_analysis_result;
-      return !ai || !ai.riskLevel;
-    });
-
-    if (unanalyzed.length === 0) return;
-
-    console.log(`📋 发现 ${unanalyzed.length} 个未分析项目，开始后台异步 AI 分析...`);
-
-    unanalyzed.forEach((p, index) => {
-      setTimeout(() => {
-        if (autoAnalyzedRef.current.has(p.id)) return;
-        autoAnalyzedRef.current.add(p.id);
-
-        console.log(`📋 自动触发项目 AI 分析: id=${p.id}, name=${p.projectName}`);
-        fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' })
-          .then(res => res.json())
-          .then(result => {
-            if (result.success) {
-              console.log(`✅ 项目 ${p.id} AI 分析完成: ${result.data?.riskLevel}`);
-            } else {
-              console.warn(`⚠️ 项目 ${p.id} AI 分析失败: ${result.error}`);
-            }
-          })
-          .catch(err => {
-            console.error(`❌ 项目 ${p.id} AI 分析异常:`, err.message);
-          });
-      }, index * 500); // 间隔 500ms 避免限流
-    });
-  }, [projects]);
+  // 【已禁用】自动触发未分析项目的 AI 分析（避免 429 限流影响正常问答）
+  // ============================================================
+  // useEffect(() => {
+  //   if (projects.length === 0) return;
+  //
+  //   const unanalyzed = projects.filter(p => {
+  //     const ai = (p as any).ai_analysis_result;
+  //     return !ai || !ai.riskLevel;
+  //   });
+  //
+  //   if (unanalyzed.length === 0) return;
+  //
+  //   console.log(`📋 发现 ${unanalyzed.length} 个未分析项目，开始后台异步 AI 分析...`);
+  //
+  //   unanalyzed.forEach((p, index) => {
+  //     setTimeout(() => {
+  //       if (autoAnalyzedRef.current.has(p.id)) return;
+  //       autoAnalyzedRef.current.add(p.id);
+  //
+  //       console.log(`📋 自动触发项目 AI 分析: id=${p.id}, name=${p.projectName}`);
+  //       fetch(`/api/ai/project-analysis/${p.id}`, { method: 'POST' })
+  //         .then(res => res.json())
+  //         .then(result => {
+  //           if (result.success) {
+  //             console.log(`✅ 项目 ${p.id} AI 分析完成: ${result.data?.riskLevel}`);
+  //           } else {
+  //             console.warn(`⚠️ 项目 ${p.id} AI 分析失败: ${result.error}`);
+  //           }
+  //         })
+  //         .catch(err => {
+  //           console.error(`❌ 项目 ${p.id} AI 分析异常:`, err.message);
+  //         });
+  //     }, index * 500); // 间隔 500ms 避免限流
+  //   });
+  // }, [projects]);
 
   // ============================================================
   // 高风险项目抽屉：projects 更新后自动触发综合诊断
@@ -3242,7 +3243,7 @@ export default function Dashboard() {
       {/* Floating Ball */}
       <button
         onClick={() => setChatOpen(true)}
-        className={`fixed bottom-8 right-8 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group ${
+        className={`fixed bottom-8 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group ${
           chatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
         title="AI 智能助手"
