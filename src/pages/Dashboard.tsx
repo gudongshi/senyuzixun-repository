@@ -709,10 +709,12 @@ export default function Dashboard() {
   const handleSendChat = useCallback(async () => {
     const question = chatInput.trim();
     if (!question || chatLoading) return;
+
     const userMsg: ChatMessage = { role: 'user', content: question };
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput('');
     setChatLoading(true);
+
     try {
       const resp = await fetch('/api/ai/knowledge-chat', {
         method: 'POST',
@@ -720,8 +722,36 @@ export default function Dashboard() {
         body: JSON.stringify({ question }),
       });
       const result = await resp.json();
+
       if (result.success) {
-        setChatMessages(prev => [...prev, { role: 'ai', content: result.data.answer }]);
+        let aiText = result.data.answer;
+        console.log('🔍 前端已收到 AI 回复:', aiText); // 加了醒目的日志
+
+        // 强制拦截动作
+        const kpiMatch = aiText.match(/\[ACTION:OPEN_KPI:(.*?)\]/);
+        if (kpiMatch) {
+          const userName = kpiMatch[1].trim();
+          console.log(`🤖 成功解析动作：打开 ${userName} 的效能面板`);
+
+          // 直接设置底层状态
+          setSelectedTarget(userName);
+          setAiPanelOpen(true);
+
+          aiText = aiText.replace(/\[ACTION:OPEN_KPI:.*?\]/g, '').trim();
+          setChatOpen(false);
+        }
+
+        if (aiText.includes('[ACTION:OPEN_OVERVIEW]')) {
+          console.log(`🤖 成功解析动作：打开经营总看板`);
+          setOverviewModalOpen(true);
+          aiText = aiText.replace(/\[ACTION:OPEN_OVERVIEW\]/g, '').trim();
+          setChatOpen(false);
+        }
+
+        // 如果有剩余文本，再添加到消息列表
+        if (aiText) {
+          setChatMessages(prev => [...prev, { role: 'ai', content: aiText }]);
+        }
       } else {
         setChatMessages(prev => [...prev, { role: 'ai', content: '抱歉，AI 回答暂时不可用，请稍后重试。' }]);
       }
