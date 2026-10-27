@@ -772,19 +772,6 @@ async function getUserNameByUserId(userId) {
 // JWT 验证中间件
 // ============================================================
 function authMiddleware(req, res, next) {
-  // ── 临时测试后门：前端 ?test_bypass=1 或请求头 x-test-bypass: 1 放行 ──
-  const bypassParam = req.query?.test_bypass;
-  const bypassHeader = req.headers['x-test-bypass'];
-  if (bypassParam === '1' || bypassHeader === '1') {
-    console.warn('⚠️ [安全警告] 请求使用了测试后门放行，请勿在生产环境长期开启！');
-    req.user = {
-      userId: 'test_user',
-      name: '测试员',
-      roles: { dashboard: true, manager: true },
-    };
-    return next();
-  }
-
   const token = req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
   if (!token) {
     return res.status(401).json({ success: false, error: '未登录' });
@@ -5554,7 +5541,7 @@ ${taskDataStr || '暂无任务数据'}
 【输出格式要求（极其重要）】
 1. 绝对不准输出你的分析过程和判断逻辑！不要解释"状态不为进行中且进度未达100%"这种废话。
 2. 如果用户查询任务列表，请直接给出最终的清单。
-3. 必须使用 Markdown 格式！请用 `1. ` 或 `- ` 进行分行列表，每条任务单独一行，适当使用加粗。如果不使用分行，用户将无法阅读！
+3. 必须使用 Markdown 格式！请用 "1. " 或 "- " 进行分行列表，每条任务单独一行，适当使用加粗。如果不使用分行，用户将无法阅读！
 用户问题：${question}`;
 
     console.log('⏳ 正在调用 AI 文本分析...');

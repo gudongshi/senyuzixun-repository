@@ -3,11 +3,13 @@ import { useState, useEffect, createContext, useContext, type ReactNode } from '
 // ============================================================
 // AuthGate — 登录守卫组件
 //
-// 1. 挂载后调用 GET /api/dingtalk/me 检测登录态
-// 2. 已登录 → 通过 UserContext 提供用户信息（含 roles），渲染 children
-// 3. 未登录 → 显示「钉钉登录」按钮，跳转钉钉 OAuth 授权页
-// 4. 检测中 → 全屏 loading spinner
-// 5. 无任何角色权限 → 显示"您没有访问任何模块的权限"
+// 1. URL 带 ?test_bypass=1 → 跳过钉钉登录，注入测试用户（临时后门）
+// 2. 本地开发环境 → 注入 mock 用户
+// 3. 挂载后调用 GET /api/dingtalk/me 检测登录态
+// 4. 已登录 → 通过 UserContext 提供用户信息（含 roles），渲染 children
+// 5. 未登录 → 显示「钉钉登录」按钮，跳转钉钉 OAuth 授权页
+// 6. 检测中 → 全屏 loading spinner
+// 7. 无任何角色权限 → 显示"您没有访问任何模块的权限"
 // ============================================================
 
 const APP_ID = import.meta.env.VITE_DINGTALK_APP_ID as string;
