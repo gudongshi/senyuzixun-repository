@@ -5509,6 +5509,25 @@ app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
 
     console.log('📋 AI 知识库问答收到问题:', question.slice(0, 100));
 
+    // 查库：如果问题涉及任务，拉取未完成任务列表
+    let taskDataStr = '';
+    const taskKeywords = ['未完成', '待办', '进行中', '任务', '进度'];
+    if (taskKeywords.some(kw => question.includes(kw))) {
+      try {
+        const { data: tasks, error } = await supabase
+          .from('tasks')
+          .select('任务名称, 责任人, "当前进度(%)", 状态')
+          .in('状态', ['进行中', '未开始'])
+          .limit(30);
+        if (!error && tasks && tasks.length > 0) {
+          taskDataStr = JSON.stringify(tasks);
+          console.log(`📦 查库：获取到 ${tasks.length} 条未完成任务`);
+        }
+      } catch (e) {
+        console.error('查库获取未完成任务失败:', e.message);
+      }
+    }
+
     const prompt = `你现在是"森宇项目指挥大屏"的内置 AI 控制助手。你已经拥有控制当前大屏界面的最高权限！请绝对不要输出"我无法操作"、"请联系管理员"或解释你的权限限制。
 
 【系统动作指令】
@@ -5520,7 +5539,15 @@ app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
 2. 当用户要求查看"经营总看板"或"总体经营情况"时，你必须在回答的最开头输出：
 [ACTION:OPEN_OVERVIEW] 正在为您打开经营总看板...
 
-3. 对于其他不涉及上述操作的普通问题，正常回答即可。
+3. 当用户要求查看某个"任务"的详情时（例如："打开任务的不良资产盘活方案"、"看看围护结构的进度"），你必须在回答最开头输出：
+[ACTION:OPEN_TASK:任务名称]
+【注意】提取任务名时请去掉引号，仅保留文字，不准纠错。
+
+4. 对于其他不涉及上述操作的普通问题，正常回答即可。
+
+【数据查询上下文】
+如果你收到了下面的任务数据，请根据这些数据回答用户的问题，不要自己编造：
+${taskDataStr || '暂无任务数据'}
 
 请严格遵守以上规则，直接输出执行结果。
 用户问题：${question}`;

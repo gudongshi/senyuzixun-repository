@@ -704,11 +704,18 @@ export default function Dashboard() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+  const wasAiTriggered = useRef<boolean>(false);
 
   const handleSendChat = useCallback(async () => {
     const question = chatInput.trim();
     if (!question || chatLoading) return;
+
+    // 存入历史 & 重置光标
+    setChatHistory(prev => [question, ...prev.filter(q => q !== question)]);
+    setHistoryIndex(-1);
 
     const userMsg: ChatMessage = { role: 'user', content: question };
     setChatMessages(prev => [...prev, userMsg]);
@@ -725,7 +732,7 @@ export default function Dashboard() {
 
       if (result.success) {
         let aiText = result.data.answer;
-        console.log('🔍 前端已收到 AI 回复:', aiText); // 加了醒目的日志
+        console.log('🔍 前端已收到 AI 回复:', aiText);
 
         // 强制拦截动作
         const kpiMatch = aiText.match(/\[ACTION:OPEN_KPI:(.*?)\]/);
@@ -733,7 +740,8 @@ export default function Dashboard() {
           const userName = kpiMatch[1].trim();
           console.log(`🤖 成功解析动作：打开 ${userName} 的效能面板`);
 
-          // 直接设置底层状态
+          wasAiTriggered.current = true; // 标记 AI 触发
+
           setSelectedTarget(userName);
           setAiPanelOpen(true);
 
@@ -743,9 +751,37 @@ export default function Dashboard() {
 
         if (aiText.includes('[ACTION:OPEN_OVERVIEW]')) {
           console.log(`🤖 成功解析动作：打开经营总看板`);
+
+          wasAiTriggered.current = true; // 标记 AI 触发
+
           setOverviewModalOpen(true);
           aiText = aiText.replace(/\[ACTION:OPEN_OVERVIEW\]/g, '').trim();
           setChatOpen(false);
+        }
+
+        // 拦截打开任务详情
+        const taskMatch = aiText.match(/\[ACTION:OPEN_TASK:(.*?)\]/);
+        if (taskMatch) {
+          const taskName = taskMatch[1].trim();
+          console.log(`🤖 成功解析动作：打开任务详情 ${taskName}`);
+
+          wasAiTriggered.current = true;
+          setChatOpen(false);
+
+          // 异步请求任务详情
+          fetch(`/api/tasks?search=${encodeURIComponent(taskName)}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.success && data.data && data.data.length > 0) {
+                const targetTask = data.data.find((t: any) => t['任务名称'] === taskName) || data.data[0];
+                setSelectedTaskForDrawer(targetTask);
+                setTaskDrawerOpen(true);
+              } else {
+                toast.error(`未找到任务：${taskName}`);
+              }
+            });
+
+          aiText = aiText.replace(/\[ACTION:OPEN_TASK:.*?\]/g, '').trim();
         }
 
         // 如果有剩余文本，再添加到消息列表
@@ -2360,7 +2396,13 @@ export default function Dashboard() {
       {aiPanelOpen && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 transition-opacity duration-300"
-          onClick={() => setAiPanelOpen(false)}
+          onClick={() => {
+            setAiPanelOpen(false);
+            if (wasAiTriggered.current) {
+              setChatOpen(true);
+              wasAiTriggered.current = false;
+            }
+          }}
         />
       )}
 
@@ -2375,7 +2417,13 @@ export default function Dashboard() {
             AI 深度诊断面板
           </h2>
           <button
-            onClick={() => setAiPanelOpen(false)}
+            onClick={() => {
+              setAiPanelOpen(false);
+              if (wasAiTriggered.current) {
+                setChatOpen(true);
+                wasAiTriggered.current = false;
+              }
+            }}
             className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center"
           >
             <X size={22} />
@@ -2393,7 +2441,13 @@ export default function Dashboard() {
       <ProjectDetailDrawerSimple
         open={projectDrawerOpen}
         project={selectedProject}
-        onClose={() => setProjectDrawerOpen(false)}
+        onClose={() => {
+          setProjectDrawerOpen(false);
+          if (wasAiTriggered.current) {
+            setChatOpen(true);
+            wasAiTriggered.current = false;
+          }
+        }}
       />
 
       {/* ============================================================ */}
@@ -2401,7 +2455,13 @@ export default function Dashboard() {
       {/* ============================================================ */}
       <TaskDetailDrawer
         open={taskDrawerOpen}
-        onClose={() => setTaskDrawerOpen(false)}
+        onClose={() => {
+          setTaskDrawerOpen(false);
+          if (wasAiTriggered.current) {
+            setChatOpen(true);
+            wasAiTriggered.current = false;
+          }
+        }}
         task={selectedTaskForDrawer}
       />
 
@@ -3012,6 +3072,10 @@ export default function Dashboard() {
         onClose={() => {
           console.log('📋 关闭经营总看板');
           setOverviewModalOpen(false);
+          if (wasAiTriggered.current) {
+            setChatOpen(true);
+            wasAiTriggered.current = false;
+          }
         }}
       />
 
@@ -3371,6 +3435,28 @@ export default function Dashboard() {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSendChat();
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      if (historyIndex < chatHistory.length - 1) {
+                        const nextIdx = historyIndex + 1;
+                        setHistoryIndex(nextIdx);
+                        setChatInput(chatHistory[nextIdx]);
+                      }
+                      return;
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      if (historyIndex > 0) {
+                        const nextIdx = historyIndex - 1;
+                        setHistoryIndex(nextIdx);
+                        setChatInput(chatHistory[nextIdx]);
+                      } else if (historyIndex === 0) {
+                        setHistoryIndex(-1);
+                        setChatInput('');
+                      }
+                      return;
                     }
                   }}
                   placeholder="输入你的问题..."
