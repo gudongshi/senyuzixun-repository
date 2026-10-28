@@ -2588,7 +2588,9 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
     // 数据隔离：普通员工仅查询自己负责的项目
     const isExecutive = req.user?.roles?.dashboard === true;
     if (!isExecutive && req.user?.name) {
-      query = query.eq('项目负责人', req.user.name);
+      // 去掉"（企业）"后缀进行模糊匹配
+      const cleanName = req.user.name.replace(/（企业）|\(企业\)/g, '').trim();
+      query = query.ilike('项目负责人', `%${cleanName}%`);
       console.log(`🛡️ 数据隔离：普通员工 ${req.user.name} 仅查询自己的项目`);
     }
 
@@ -2792,7 +2794,8 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
     // 数据隔离：普通员工仅查询自己负责的任务
     const isExecutive = req.user?.roles?.dashboard === true;
     if (!isExecutive && req.user?.name) {
-      query = query.eq('责任人', req.user.name);
+      const cleanName = req.user.name.replace(/（企业）|\(企业\)/g, '').trim();
+      query = query.ilike('责任人', `%${cleanName}%`);
       console.log(`🛡️ 数据隔离：普通员工 ${req.user.name} 仅查询自己的任务`);
     }
 
@@ -5523,7 +5526,8 @@ app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
           .limit(30);
 
         if (!isExecutive && req.user?.name) {
-          taskQuery = taskQuery.eq('责任人', req.user.name);
+          const cleanName = req.user.name.replace(/（企业）|\(企业\)/g, '').trim();
+          taskQuery = taskQuery.ilike('责任人', `%${cleanName}%`);
           console.log(`🛡️ AI查库隔离：普通员工 ${req.user.name} 仅查询自己的任务`);
         }
 
