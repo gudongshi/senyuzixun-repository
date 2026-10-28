@@ -2046,6 +2046,9 @@ export default function ProjectManager() {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
 
+  // AI 触发标记：任务面板关闭后自动恢复聊天窗口
+  const wasAiTriggered = useRef<boolean>(false);
+
   // 任务详情抽屉（AI 触发 OPEN_TASK 时使用）
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [selectedTaskForDrawer, setSelectedTaskForDrawer] = useState<any>(null);
@@ -2095,14 +2098,15 @@ export default function ProjectManager() {
         let aiText = result.data.answer;
         console.log('🔍 [工作台] 前端已收到 AI 回复:', aiText);
 
-        // OPEN_KPI —— 工作台不支持效能面板，静默移除
-        if (aiText.includes('[ACTION:OPEN_KPI:')) {
-          aiText = aiText.replace(/\[ACTION:OPEN_KPI:.*?\]/g, '').trim();
+        // OPEN_KPI —— 工作台不支持效能面板，强制覆盖为警告
+        const kpiMatch = aiText.match(/\[ACTION:OPEN_KPI:(.*?)\]/);
+        if (kpiMatch) {
+          aiText = '⚠️ 您当前处于员工工作台，无权限访问人员效能面板。如需查阅，请前往指挥大屏。';
         }
 
-        // OPEN_OVERVIEW —— 工作台不支持经营总看板，静默移除
+        // OPEN_OVERVIEW —— 工作台不支持经营总看板，强制覆盖为警告
         if (aiText.includes('[ACTION:OPEN_OVERVIEW]')) {
-          aiText = aiText.replace(/\[ACTION:OPEN_OVERVIEW\]/g, '').trim();
+          aiText = '⚠️ 您当前处于员工工作台，无权限访问经营总看板。如需查阅，请前往指挥大屏。';
         }
 
         // OPEN_TASK —— 打开任务详情
@@ -2110,6 +2114,9 @@ export default function ProjectManager() {
         if (taskMatch) {
           const taskName = taskMatch[1].trim();
           console.log(`🤖 [工作台] 成功解析动作：打开任务详情 ${taskName}`);
+
+          // 标记 AI 触发了面板，关闭后需恢复聊天
+          wasAiTriggered.current = true;
           setChatOpen(false);
 
           fetch(`/api/tasks?search=${encodeURIComponent(taskName)}`)
@@ -2698,7 +2705,15 @@ export default function ProjectManager() {
       <TaskDetailDrawer
         open={taskDrawerOpen}
         task={selectedTaskForDrawer}
-        onClose={() => { setTaskDrawerOpen(false); setSelectedTaskForDrawer(null); }}
+        onClose={() => {
+          setTaskDrawerOpen(false);
+          setSelectedTaskForDrawer(null);
+          // AI 触发的任务面板关闭后，自动恢复聊天窗口
+          if (wasAiTriggered.current) {
+            setChatOpen(true);
+            wasAiTriggered.current = false;
+          }
+        }}
       />
     </div>
   );
