@@ -3,8 +3,10 @@ import { toast } from 'sonner';
 import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
-  Loader2, AlertTriangle, TrendingUp, Bot, Users, DollarSign
+  Loader2, AlertTriangle, TrendingUp, Bot, Users, DollarSign,
+  Send
 } from 'lucide-react';
+import TaskDetailDrawer from '../components/TaskDetailDrawer';
 
 // ============================================================
 // 类型定义
@@ -126,6 +128,11 @@ interface UserInfo {
   userId: string;
   name: string;
   loginTime: number;
+}
+
+interface ChatMessage {
+  role: 'user' | 'ai';
+  content: string;
 }
 
 // ============================================================
@@ -2029,6 +2036,20 @@ export default function ProjectManager() {
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // ---- AI 智能问答助手 ----
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('AI 正在理解您的问题...');
+  const [chatHistory, setChatHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 任务详情抽屉（AI 触发 OPEN_TASK 时使用）
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [selectedTaskForDrawer, setSelectedTaskForDrawer] = useState<any>(null);
+
   // 用户状态
   const [user, setUser] = useState<UserInfo | null>(null);
 
@@ -2039,6 +2060,94 @@ export default function ProjectManager() {
       .then(d => { if (d.success) setUser(d.user); })
       .catch(() => {});
   }, []);
+
+  // ---- AI 智能问答：发送消息 ----
+  const handleSendChat = useCallback(async () => {
+    const question = chatInput.trim();
+    if (!question || chatLoading) return;
+
+    setChatHistory(prev => [question, ...prev.filter(q => q !== question)]);
+    setHistoryIndex(-1);
+
+    const userMsg: ChatMessage = { role: 'user', content: question };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+    setLoadingText('🤔 AI 正在理解您的问题...');
+
+    const loadingTimer = setInterval(() => {
+      setLoadingText(prev => {
+        if (prev.includes('理解')) return '📊 正在检索数据库...';
+        if (prev.includes('检索')) return '📝 正在生成分析报告...';
+        return prev;
+      });
+    }, 1500);
+
+    try {
+      const resp = await fetch('/api/ai/knowledge-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const result = await resp.json();
+
+      if (result.success) {
+        let aiText = result.data.answer;
+        console.log('🔍 [工作台] 前端已收到 AI 回复:', aiText);
+
+        // OPEN_KPI —— 工作台不支持效能面板，静默移除
+        if (aiText.includes('[ACTION:OPEN_KPI:')) {
+          aiText = aiText.replace(/\[ACTION:OPEN_KPI:.*?\]/g, '').trim();
+        }
+
+        // OPEN_OVERVIEW —— 工作台不支持经营总看板，静默移除
+        if (aiText.includes('[ACTION:OPEN_OVERVIEW]')) {
+          aiText = aiText.replace(/\[ACTION:OPEN_OVERVIEW\]/g, '').trim();
+        }
+
+        // OPEN_TASK —— 打开任务详情
+        const taskMatch = aiText.match(/\[ACTION:OPEN_TASK:(.*?)\]/);
+        if (taskMatch) {
+          const taskName = taskMatch[1].trim();
+          console.log(`🤖 [工作台] 成功解析动作：打开任务详情 ${taskName}`);
+          setChatOpen(false);
+
+          fetch(`/api/tasks?search=${encodeURIComponent(taskName)}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.success && data.data && data.data.length > 0) {
+                const targetTask = data.data.find((t: any) => t['任务名称'] === taskName) || data.data[0];
+                setSelectedTaskForDrawer(targetTask);
+                setTaskDrawerOpen(true);
+              } else {
+                toast.error(`未找到任务：${taskName}`);
+              }
+            });
+
+          aiText = aiText.replace(/\[ACTION:OPEN_TASK:.*?\]/g, '').trim();
+        }
+
+        if (aiText) {
+          setChatMessages(prev => [...prev, { role: 'ai', content: aiText }]);
+        }
+      } else {
+        setChatMessages(prev => [...prev, { role: 'ai', content: '抱歉，AI 回答暂时不可用，请稍后重试。' }]);
+      }
+    } catch (err: any) {
+      console.error('❌ [工作台] AI 问答请求失败:', err.message);
+      setChatMessages(prev => [...prev, { role: 'ai', content: '网络错误，请稍后重试。' }]);
+    } finally {
+      clearInterval(loadingTimer);
+      setChatLoading(false);
+    }
+  }, [chatInput, chatLoading]);
+
+  // 聊天消息自动滚动到底部
+  useEffect(() => {
+    if (chatOpen) {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, chatOpen]);
 
   // 获取项目列表
   const fetchProjects = useCallback(async (page = 1) => {
@@ -2160,7 +2269,7 @@ export default function ProjectManager() {
             onError={(e) => (e.currentTarget.style.display = 'none')}
           />
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-cyan-400 bg-clip-text text-transparent">
-            森宇集团 · 项目管理后台
+            森宇集团 · 员工工作台
           </h1>
         </div>
 
@@ -2179,12 +2288,7 @@ export default function ProjectManager() {
             客户管理
           </a>
 
-          {/* 财务数据 */}
-          <a href="/financial-data"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 text-sm hover:bg-emerald-900/20 transition-colors">
-            <DollarSign size={16} />
-            财务数据
-          </a>
+          {/* 财务数据 —— 工作台暂不开放高管专属入口，已隐藏 */}
 
           {/* 用户信息 */}
           {user && (
@@ -2438,6 +2542,163 @@ export default function ProjectManager() {
         onConfirm={handleDeleteConfirm}
         onCancel={() => { setDeleteConfirmOpen(false); setDeletingProject(null); }}
         loading={deleting}
+      />
+
+      {/* ============================================================ */}
+      {/* AI 智能问答助手 —— 悬浮球 + 聊天面板 */}
+      {/* ============================================================ */}
+
+      {/* Floating Ball */}
+      <button
+        onClick={() => setChatOpen(true)}
+        className={`fixed bottom-8 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group ${
+          chatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+        title="AI 智能助手"
+      >
+        <span className="absolute inset-0 rounded-full bg-cyan-400/30 animate-ping [animation-duration:3s]" />
+        <Bot className="size-7 text-white relative z-10" />
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse" />
+      </button>
+
+      {/* Chat Panel */}
+      {chatOpen && (
+        <>
+          {/* Overlay */}
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+            onClick={() => setChatOpen(false)}
+          />
+
+          {/* Panel */}
+          <div className="fixed bottom-24 right-8 w-[420px] max-w-[90vw] h-[600px] max-h-[70vh] bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border border-cyan-500/30 rounded-2xl z-50 shadow-2xl shadow-blue-900/50 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-cyan-500/30 bg-slate-800/50 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-700 flex items-center justify-center">
+                  <Bot className="size-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-cyan-400 leading-tight">
+                    🤖 森宇专属智能助手
+                  </h3>
+                  <p className="text-[10px] text-slate-500">Powered by 通义千问</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setChatOpen(false)}
+                className="w-7 h-7 rounded-full border border-slate-600/50 text-slate-500 hover:text-cyan-400 hover:border-cyan-400/50 transition-all duration-200 flex items-center justify-center"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+              {chatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <Bot className="size-10 text-slate-600 mb-2" />
+                  <p className="text-slate-500 text-sm">我是你的专属智能助手</p>
+                  <p className="text-slate-600 text-xs mt-1">可以问我关于公司、项目或系统的问题</p>
+                </div>
+              ) : (
+                chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    {msg.role === 'ai' && (
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 flex items-center justify-center shrink-0 mr-2 mt-1">
+                        <Bot className="size-3.5 text-white" />
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                        msg.role === 'user'
+                          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-md'
+                          : 'bg-slate-700/60 text-slate-200 rounded-bl-md border border-slate-600/30'
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                    {msg.role === 'user' && (
+                      <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center shrink-0 ml-2 mt-1">
+                        <Users className="size-3.5 text-slate-300" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+              {chatLoading && (
+                <div className="flex items-center gap-2 text-slate-400 text-xs pl-9 animate-pulse">
+                  <Loader2 className="size-3 animate-spin" />
+                  <span>{loadingText}</span>
+                </div>
+              )}
+              <div ref={chatMessagesEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="px-4 py-3 border-t border-slate-700/50 bg-slate-800/60 shrink-0">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendChat();
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      if (historyIndex < chatHistory.length - 1) {
+                        const nextIdx = historyIndex + 1;
+                        setHistoryIndex(nextIdx);
+                        setChatInput(chatHistory[nextIdx]);
+                      }
+                      return;
+                    }
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      if (historyIndex > 0) {
+                        const nextIdx = historyIndex - 1;
+                        setHistoryIndex(nextIdx);
+                        setChatInput(chatHistory[nextIdx]);
+                      } else if (historyIndex === 0) {
+                        setHistoryIndex(-1);
+                        setChatInput('');
+                      }
+                      return;
+                    }
+                  }}
+                  placeholder="输入你的问题..."
+                  disabled={chatLoading}
+                  className="flex-1 px-3.5 py-2 bg-slate-700/50 border border-slate-600/50 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSendChat}
+                  disabled={!chatInput.trim() || chatLoading}
+                  className="w-9 h-9 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white flex items-center justify-center shrink-0 hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {chatLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 任务详情抽屉（AI 触发 OPEN_TASK 时使用） */}
+      <TaskDetailDrawer
+        open={taskDrawerOpen}
+        task={selectedTaskForDrawer}
+        onClose={() => { setTaskDrawerOpen(false); setSelectedTaskForDrawer(null); }}
       />
     </div>
   );
