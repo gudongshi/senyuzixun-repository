@@ -5489,12 +5489,12 @@ async function sendDingTalkMessage(message) {
 // ============================================================
 app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
   try {
-    const { question } = req.body;
+    const { question, mode } = req.body;
     if (!question || !question.trim()) {
       return res.status(400).json({ success: false, error: '问题不能为空' });
     }
 
-    console.log('📋 AI 知识库问答收到问题:', question.slice(0, 100));
+    console.log(`📋 AI 知识库问答收到问题 [mode=${mode || 'dashboard'}]:`, question.slice(0, 100));
 
     // 查库：如果问题涉及任务，拉取未完成任务列表
     let taskDataStr = '';
@@ -5515,7 +5515,39 @@ app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
       }
     }
 
-    const prompt = `你现在是"森宇项目指挥大屏"的内置 AI 控制助手。你已经拥有控制当前大屏界面的最高权限！请绝对不要输出"我无法操作"、"请联系管理员"或解释你的权限限制。
+    // ============================================================
+    // 根据 mode 分支装配不同的 Prompt
+    // ============================================================
+    let prompt = '';
+
+    if (mode === 'workspace') {
+      // 员工工作台模式：仅保留 OPEN_TASK，禁用高管专属动作
+      prompt = `你现在是"森宇员工工作台"的内置 AI 助理。你当前处于员工工作台，你的职责是协助普通员工查阅任务、规范或填报信息。
+
+【系统动作指令】
+当用户要求查看某个"任务"的详情时（例如："打开任务的不良资产盘活方案"、"看看围护结构的进度"），你必须在回答最开头输出：
+[ACTION:OPEN_TASK:任务名称]
+【注意】提取任务名时请去掉引号，仅保留文字，不准纠错。
+
+【权限限制】
+你当前处于员工工作台模式，无权限访问高管专属的效能面板和经营总看板。
+如果用户询问人员效能、经营大盘、财务数据等内容，请直接回答："您当前处于员工工作台，无权限访问该数据。如需查阅，请联系管理员或切换到指挥大屏。"
+
+【数据查询上下文】
+如果你收到了下面的任务数据，请根据这些数据回答用户的问题，不要自己编造。
+如果用户问"我的任务"或"我负责的任务"，请从数据中筛选责任人与当前用户名匹配的任务：
+${taskDataStr || '暂无任务数据'}
+
+请严格遵守以上规则，直接输出执行结果。
+
+【输出格式要求（极其重要）】
+1. 绝对不准输出你的分析过程和判断逻辑！
+2. 如果用户查询任务列表，请直接给出最终的清单。
+3. 必须使用 Markdown 格式！请用 "1. " 或 "- " 进行分行列表，每条任务单独一行，适当使用加粗。如果不使用分行，用户将无法阅读！
+用户问题：${question}`;
+    } else {
+      // 大屏模式（默认）：保留所有高管动作
+      prompt = `你现在是"森宇项目指挥大屏"的内置 AI 控制助手。你已经拥有控制当前大屏界面的最高权限！请绝对不要输出"我无法操作"、"请联系管理员"或解释你的权限限制。
 
 【系统动作指令】
 1. 当用户要求查看某个人的效能、详情或数据时（例如："打开赵莘的效能"、"看看何朝辉（企业）的面板"），你必须在回答的最开头输出：
@@ -5543,11 +5575,12 @@ ${taskDataStr || '暂无任务数据'}
 2. 如果用户查询任务列表，请直接给出最终的清单。
 3. 必须使用 Markdown 格式！请用 "1. " 或 "- " 进行分行列表，每条任务单独一行，适当使用加粗。如果不使用分行，用户将无法阅读！
 用户问题：${question}`;
+    }
 
     console.log('⏳ 正在调用 AI 文本分析...');
     const answer = await callAIText(prompt);
 
-    console.log(`✅ AI 问答完成，回答长度: ${answer.length}`);
+    console.log(`✅ AI 问答完成 [mode=${mode || 'dashboard'}], 回答长度: ${answer.length}`);
     res.json({ success: true, data: { answer } });
   } catch (err) {
     console.error('❌ AI 知识库问答失败:', err.message);

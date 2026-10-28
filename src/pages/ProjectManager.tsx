@@ -2087,7 +2087,7 @@ export default function ProjectManager() {
       const resp = await fetch('/api/ai/knowledge-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, mode: 'workspace' }),
       });
       const result = await resp.json();
 

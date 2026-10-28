@@ -736,7 +736,7 @@ export default function Dashboard() {
       const resp = await fetch('/api/ai/knowledge-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, mode: 'dashboard' }),
       });
       const result = await resp.json();
 
@@ -2052,6 +2052,12 @@ export default function Dashboard() {
               >
                 📊 经营总看板
               </button>
+              <a
+                href="/project-manager"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/30 text-blue-400 text-sm hover:bg-blue-500/10 transition-colors"
+              >
+                💼 员工工作台
+              </a>
               <button
                 onClick={async () => {
                   console.log('📋 用户点击退出登录');
