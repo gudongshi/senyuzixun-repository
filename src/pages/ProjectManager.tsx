@@ -2370,9 +2370,74 @@ export default function ProjectManager() {
       </div>
 
       {/* ============================================================ */}
+      {/* 个人数据看板 */}
+      {/* ============================================================ */}
+      <div className="px-6 pb-4 space-y-4">
+        {/* 公告横幅 */}
+        <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-3 flex items-center gap-2 text-blue-300 text-sm">
+          📢 集团公告：欢迎使用全新的森宇员工工作台，如有系统问题请联系信息部。
+        </div>
+
+        {/* 数据卡片 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* 卡片一：我的项目 */}
+          <div className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm hover:border-cyan-500/30 transition-colors">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="size-10 rounded-xl bg-cyan-900/30 flex items-center justify-center">
+                <Building2 className="size-5 text-cyan-400" />
+              </div>
+              <h3 className="text-slate-300 text-sm font-medium">我的项目</h3>
+            </div>
+            <p className="text-3xl font-bold text-cyan-400">{projects.length}</p>
+            <p className="text-slate-500 text-xs mt-1">查看我负责的所有项目</p>
+          </div>
+
+          {/* 卡片二：快捷填报 */}
+          <div
+            className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm hover:border-emerald-500/30 transition-colors cursor-pointer"
+            onClick={() => {
+              console.log('📋 快捷填报：打开周报管理');
+              // 滚动到周报管理区块
+              const el = document.getElementById('weekly-report-manager');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="size-10 rounded-xl bg-emerald-900/30 flex items-center justify-center">
+                <FileText className="size-5 text-emerald-400" />
+              </div>
+              <h3 className="text-slate-300 text-sm font-medium">快捷填报</h3>
+            </div>
+            <p className="text-3xl font-bold text-emerald-400">填写周报</p>
+            <p className="text-slate-500 text-xs mt-1">点击直接填报我的项目周报</p>
+          </div>
+
+          {/* 卡片三：AI 智能助理 */}
+          <div
+            className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm hover:border-purple-500/30 transition-colors cursor-pointer"
+            onClick={() => {
+              console.log('🤖 用户点击 AI 智能助理卡片');
+              setChatOpen(true);
+            }}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="size-10 rounded-xl bg-purple-900/30 flex items-center justify-center">
+                <Bot className="size-5 text-purple-400" />
+              </div>
+              <h3 className="text-slate-300 text-sm font-medium">AI 智能助理</h3>
+            </div>
+            <p className="text-3xl font-bold text-purple-400">需要帮忙？</p>
+            <p className="text-slate-500 text-xs mt-1">点击右下角蓝球，随时向我提问</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================ */}
       {/* Weekly Report Manager */}
       {/* ============================================================ */}
+      <div id="weekly-report-manager">
       <WeeklyReportManager projects={projects} user={user} />
+      </div>
 
       {/* ============================================================ */}
       {/* Project Table */}
