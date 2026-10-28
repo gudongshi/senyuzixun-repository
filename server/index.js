@@ -2585,6 +2585,13 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
 
     let query = supabase.from('projects').select('*', { count: 'exact' });
 
+    // 数据隔离：普通员工仅查询自己负责的项目
+    const isExecutive = req.user?.roles?.dashboard === true;
+    if (!isExecutive && req.user?.name) {
+      query = query.eq('项目负责人', req.user.name);
+      console.log(`🛡️ 数据隔离：普通员工 ${req.user.name} 仅查询自己的项目`);
+    }
+
     // 筛选条件
     if (status) {
       query = query.eq('项目状态', status);
@@ -2781,6 +2788,13 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
 
     // 构建查询
     let query = supabase.from(tableName).select('*', { count: 'exact' });
+
+    // 数据隔离：普通员工仅查询自己负责的任务
+    const isExecutive = req.user?.roles?.dashboard === true;
+    if (!isExecutive && req.user?.name) {
+      query = query.eq('责任人', req.user.name);
+      console.log(`🛡️ 数据隔离：普通员工 ${req.user.name} 仅查询自己的任务`);
+    }
 
     // 关键词搜索
     if (search) {
@@ -5501,11 +5515,19 @@ app.post('/api/ai/knowledge-chat', authMiddleware, async (req, res) => {
     const taskKeywords = ['未完成', '待办', '进行中', '任务', '进度'];
     if (taskKeywords.some(kw => question.includes(kw))) {
       try {
-        const { data: tasks, error } = await supabase
+        const isExecutive = req.user?.roles?.dashboard === true;
+        let taskQuery = supabase
           .from('tasks')
           .select('任务名称, 责任人, "当前进度(%)", 状态')
           .in('状态', ['进行中', '未开始'])
           .limit(30);
+
+        if (!isExecutive && req.user?.name) {
+          taskQuery = taskQuery.eq('责任人', req.user.name);
+          console.log(`🛡️ AI查库隔离：普通员工 ${req.user.name} 仅查询自己的任务`);
+        }
+
+        const { data: tasks, error } = await taskQuery;
         if (!error && tasks && tasks.length > 0) {
           taskDataStr = JSON.stringify(tasks);
           console.log(`📦 查库：获取到 ${tasks.length} 条未完成任务`);
