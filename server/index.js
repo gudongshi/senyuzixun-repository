@@ -1182,6 +1182,45 @@ app.post('/api/dingtalk/logout', (req, res) => {
 });
 
 // ============================================================
+// 钉钉企业公告
+// ============================================================
+app.get('/api/dingtalk/announcements', authMiddleware, async (req, res) => {
+  try {
+    console.log(`📋 获取钉钉企业公告: userId=${req.user.userId}, name=${req.user.name}`);
+
+    const accessToken = await getDingTalkAccessToken();
+    if (!accessToken) {
+      console.error('❌ 获取公告失败: 无法获取钉钉 Access Token');
+      return res.json({ success: true, announcements: [] });
+    }
+
+    const resp = await axios.post(
+      'https://oapi.dingtalk.com/topapi/blackboard/list',
+      { userid: req.user.userId },
+      { params: { access_token: accessToken }, timeout: 10000 }
+    );
+
+    if (resp.data.errcode !== 0) {
+      console.error('❌ 钉钉公告 API 返回错误:', resp.data);
+      return res.json({ success: true, announcements: [] });
+    }
+
+    const rawList = resp.data.result?.blackboard_list || resp.data.result?.list || [];
+    const announcements = rawList.map((item) => ({
+      id: item.blackboard_id || item.id || '',
+      title: item.title || '无标题',
+      date: item.gmt_create || item.create_time || '',
+    }));
+
+    console.log(`✅ 获取公告成功: 共 ${announcements.length} 条`);
+    res.json({ success: true, announcements });
+  } catch (err) {
+    console.error('❌ 获取公告异常:', err.message);
+    res.json({ success: true, announcements: [] });
+  }
+});
+
+// ============================================================
 // 钉钉 AI 表格 Webhook（自定义中间件 + 完整字段提取）
 // ============================================================
 app.post('/api/ai-table-webhook', (req, res, next) => {

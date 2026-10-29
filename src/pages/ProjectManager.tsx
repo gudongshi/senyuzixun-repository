@@ -2064,6 +2064,17 @@ export default function ProjectManager() {
       .catch(() => {});
   }, []);
 
+  // 公告数据
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+
+  // 获取钉钉企业公告
+  useEffect(() => {
+    fetch('/api/dingtalk/announcements')
+      .then(r => r.json())
+      .then(d => { if (d.success && d.announcements) setAnnouncements(d.announcements); })
+      .catch(() => {});
+  }, []);
+
   // ---- AI 智能问答：发送消息 ----
   const handleSendChat = useCallback(async () => {
     const question = chatInput.trim();
@@ -2374,9 +2385,29 @@ export default function ProjectManager() {
       {/* ============================================================ */}
       <div className="px-6 pb-4 space-y-4">
         {/* 公告横幅 */}
-        <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-3 flex items-center gap-2 text-blue-300 text-sm">
-          📢 集团公告：欢迎使用全新的森宇员工工作台，如有系统问题请联系信息部。
-        </div>
+        {announcements.length > 0 ? (
+          (() => {
+            const latest = announcements[0];
+            const dateStr = latest.date
+              ? new Date(latest.date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+              : '';
+            return (
+              <div
+                className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-3 flex items-center gap-2 text-blue-300 text-sm cursor-pointer hover:bg-blue-900/30 transition-colors"
+                onClick={() => toast.info('请前往钉钉工作台查看公告详情')}
+                title="点击查看详情提示"
+              >
+                📢 <span className="font-medium">最新公告：</span>
+                <span className="flex-1 truncate">{latest.title}</span>
+                {dateStr && <span className="text-blue-500 text-xs whitespace-nowrap">({dateStr})</span>}
+              </div>
+            );
+          })()
+        ) : (
+          <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-3 flex items-center gap-2 text-blue-300 text-sm">
+            📢 集团公告：欢迎使用全新的森宇员工工作台，如有系统问题请联系信息部。
+          </div>
+        )}
 
         {/* 数据卡片 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
