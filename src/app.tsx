@@ -82,6 +82,51 @@ const App = () => {
 };
 
 /**
+ * 无大屏权限时先弹 Toast 提示，再重定向到其他页面
+ */
+function DashboardRedirect({ to, userName }: { to: string; userName: string }) {
+  const [countdown, setCountdown] = useState(3);
+
+  useEffect(() => {
+    // 倒计时
+    const timer = setInterval(() => {
+      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    // 3秒后跳转
+    const redirectTimer = setTimeout(() => {
+      window.location.href = to;
+    }, 3000);
+
+    return () => {
+      clearInterval(timer);
+      clearTimeout(redirectTimer);
+    };
+  }, [to]);
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-200 p-4">
+      <div className="bg-red-900/20 border border-red-500/30 rounded-2xl p-8 max-w-md w-full shadow-2xl shadow-red-900/20 text-center animate-in fade-in zoom-in duration-300">
+        <div className="text-red-400 text-5xl mb-4">🔒</div>
+        <h2 className="text-2xl font-bold text-red-400 mb-2">访问受限</h2>
+        <p className="text-slate-400 text-sm mb-6">
+          尊敬的 {userName}，您当前处于【员工工作台】，没有访问【集团指挥大屏】的权限。
+        </p>
+        <div className="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden">
+          <div
+            className="bg-red-500 h-2 rounded-full transition-all duration-1000 ease-linear"
+            style={{ width: `${(countdown / 3) * 100}%` }}
+          ></div>
+        </div>
+        <p className="text-xs text-slate-500">
+          {countdown} 秒后自动为您跳转回员工工作台...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 路由守卫组件（必须在 AuthGate / UserContext.Provider 内部使用）
  */
 function AppRoutes() {
@@ -120,7 +165,7 @@ function AppRoutes() {
           dashboard ? (
             <Dashboard />
           ) : (
-            <Navigate to={manager ? '/project-manager' : '/'} replace />
+            <DashboardRedirect to={manager ? '/project-manager' : '/'} userName={user.name} />
           )
         }
       />
