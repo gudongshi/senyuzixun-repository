@@ -85,7 +85,7 @@ const App = () => {
  * 无大屏权限时先弹 Toast 提示，再重定向到其他页面
  */
 function DashboardRedirect({ to, userName }: { to: string; userName: string }) {
-  const [countdown, setCountdown] = useState(3);
+  const [countdown, setCountdown] = useState(6);
 
   useEffect(() => {
     // 倒计时
@@ -93,10 +93,10 @@ function DashboardRedirect({ to, userName }: { to: string; userName: string }) {
       setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
 
-    // 3秒后跳转
+    // 6秒后自动跳转
     const redirectTimer = setTimeout(() => {
       window.location.href = to;
-    }, 3000);
+    }, 6000);
 
     return () => {
       clearInterval(timer);
@@ -112,15 +112,24 @@ function DashboardRedirect({ to, userName }: { to: string; userName: string }) {
         <p className="text-slate-400 text-sm mb-6">
           尊敬的 {userName}，您当前处于【员工工作台】，没有访问【集团指挥大屏】的权限。
         </p>
-        <div className="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden">
+
+        <div className="w-full bg-slate-800 rounded-full h-2 mb-4 overflow-hidden">
           <div
             className="bg-red-500 h-2 rounded-full transition-all duration-1000 ease-linear"
-            style={{ width: `${(countdown / 3) * 100}%` }}
+            style={{ width: `${(countdown / 6) * 100}%` }}
           ></div>
         </div>
-        <p className="text-xs text-slate-500">
+
+        <p className="text-xs text-slate-500 mb-6">
           {countdown} 秒后自动为您跳转回员工工作台...
         </p>
+
+        <button
+          onClick={() => { window.location.href = to; }}
+          className="w-full py-2.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-medium hover:from-cyan-500 hover:to-blue-500 transition-all shadow-lg shadow-blue-900/30"
+        >
+          立即返回员工工作台
+        </button>
       </div>
     </div>
   );
