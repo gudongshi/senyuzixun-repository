@@ -1195,7 +1195,7 @@ app.get('/api/dingtalk/announcements', authMiddleware, async (req, res) => {
     }
 
     const resp = await axios.post(
-      'https://oapi.dingtalk.com/topapi/blackboard/list',
+      'https://oapi.dingtalk.com/topapi/blackboard/listtopten',
       { userid: req.user.userId },
       { params: { access_token: accessToken }, timeout: 10000 }
     );
