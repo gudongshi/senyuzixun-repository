@@ -1118,19 +1118,24 @@ app.get('/api/dingtalk/login', async (req, res) => {
 
     const userName = user.nick || user.name || userId || '未知用户';
 
-    // 白名单校验：检查是否在任意一个白名单中
-    if (!ALL_ALLOWED_USERS.includes(userId)) {
-      console.warn(`⛔ 拒绝访问: ${userName} (${userId}) 不在白名单中`);
+    // 白名单校验：检查是否在任意一个白名单中（兼容 userId 和 unionId）
+    const isAllowed = ALL_ALLOWED_USERS.includes(userId) ||
+                      ALL_ALLOWED_USERS.includes(openId) ||
+                      ALLOWED_USERS_MANAGER.includes(openId) ||
+                      ALLOWED_USERS_MANAGER.includes(userId);
+
+    if (!isAllowed) {
+      console.warn(`⛔ 拒绝访问: ${userName} (userId=${userId}, openId=${openId}) 不在白名单中`);
       return res.status(403).json({
         success: false,
         error: '您暂无访问权限，请联系管理员'
       });
     }
-    console.log(`✅ 白名单校验通过: ${userName} (${userId}), openId=${openId}`);
+    console.log(`✅ 白名单校验通过: ${userName} (userId=${userId}), openId=${openId}`);
 
     const roles = {
-      dashboard: ALLOWED_USERS_DASHBOARD.includes(userId),
-      manager: ALLOWED_USERS_MANAGER.includes(userId),
+      dashboard: ALLOWED_USERS_DASHBOARD.includes(userId) || ALLOWED_USERS_DASHBOARD.includes(openId),
+      manager: ALLOWED_USERS_MANAGER.includes(userId) || ALLOWED_USERS_MANAGER.includes(openId),
     };
 
     const sessionToken = jwt.sign(
