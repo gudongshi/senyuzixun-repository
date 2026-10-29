@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext, type ReactNode } from 'react';
+import { toast } from 'sonner';
 
 // ============================================================
 // AuthGate — 登录守卫组件
@@ -89,6 +90,31 @@ export function AuthGate({ children, loginError }: AuthGateProps) {
       cancelled = true;
     };
   }, []);
+
+  // ============================================================
+  // 智能重定向：非高管用户访问大屏首页 → 跳转员工工作台
+  // ============================================================
+  // 记录是否已触发过 Toast，避免 React 严格模式重复执行
+  const toastShownRef = { current: false };
+
+  useEffect(() => {
+    if (
+      user &&
+      !user.roles.dashboard &&
+      window.location.pathname === '/'
+    ) {
+      if (toastShownRef.current) return;
+      toastShownRef.current = true;
+
+      console.log(`🔀 智能重定向：用户 ${user.name} 无大屏权限，跳转至员工工作台`);
+      toast.error('🔒 您没有访问指挥大屏的权限，正在为您跳转至员工工作台...', {
+        duration: 3000,
+      });
+      setTimeout(() => {
+        window.location.href = '/project-manager';
+      }, 1200);
+    }
+  }, [user]);
 
   // ── 检测中 ──
   if (loading) {
