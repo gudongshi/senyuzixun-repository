@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // 强制加载 .env 并打印调试信息
 // ============================================================
 const dotenv = require('dotenv');
@@ -40,6 +40,26 @@ const PORT = process.env.PORT || 3000;
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
 
+// ============================================================
+// 429 限流自动重试辅助函数
+// ============================================================
+async function retryRequest(fn, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      // 如果是 429 限流错误，且还没到最后一次
+      if (err.response && err.response.status === 429 && i < maxRetries - 1) {
+        const waitTime = Math.pow(2, i) * 2000; // 第1次等2秒，第2次等4秒
+        console.warn(`⚠️ 触发 429 限流，${waitTime / 1000}秒后自动重试 (${i + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      throw err; // 其他错误或重试耗尽，直接抛出
+    }
+  }
+}
+
 async function callRiskAnalysis(taskData) {
   const prompt = `
 你是一个项目风险分析专家。请根据以下任务信息，分析该任务的风险等级和潜在风险点，并以 JSON 格式返回结果。
@@ -77,7 +97,7 @@ async function callRiskAnalysis(taskData) {
 
   try {
     console.log('⏳ 正在调用通义千问 API...');
-    const response = await axios.post(
+    const response = await retryRequest(() => axios.post(
       DASHSCOPE_URL,
       {
         model: 'qwen-turbo',
@@ -91,7 +111,7 @@ async function callRiskAnalysis(taskData) {
         },
         timeout: 30000
       }
-    );
+    ));
 
     console.log('✅ 通义千问 API 响应成功');
     const resultText = response.data.output.choices[0].message.content;
@@ -126,7 +146,7 @@ async function callRiskAnalysis(taskData) {
 // ============================================================
 async function callAI(prompt) {
   console.log('⏳ 正在调用通义千问 API...');
-  const response = await axios.post(
+  const response = await retryRequest(() => axios.post(
     DASHSCOPE_URL,
     {
       model: 'qwen-turbo',
@@ -140,7 +160,7 @@ async function callAI(prompt) {
       },
       timeout: 30000
     }
-  );
+  ));
   console.log('✅ 通义千问 API 响应成功');
   const resultText = response.data.output.choices[0].message.content;
   console.log('📝 AI 原始响应:', resultText.slice(0, 200));
@@ -158,7 +178,7 @@ async function callAI(prompt) {
 // 纯文本模式 AI 调用（不解析 JSON，直接返回文本）
 async function callAIText(prompt) {
   console.log('⏳ 正在调用通义千问 API（文本模式）...');
-  const response = await axios.post(
+  const response = await retryRequest(() => axios.post(
     DASHSCOPE_URL,
     {
       model: 'qwen-plus',
@@ -172,7 +192,7 @@ async function callAIText(prompt) {
       },
       timeout: 30000
     }
-  );
+  ));
   console.log('✅ 通义千问 API 响应成功（文本模式）');
   const resultText = response.data.output.choices[0].message.content;
   return resultText;
@@ -947,7 +967,7 @@ async function getUserNameByUserId(userId) {
   }
   try {
     const url = 'https://oapi.dingtalk.com/topapi/v2/user/get';
-    const response = await axios.post(
+    const response = await retryRequest(() => axios.post(
       url,
       { userid: userId },
       { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
@@ -5729,7 +5749,7 @@ async function sendDingTalkMessage(message) {
       console.warn('⚠️ DINGTALK_WEBHOOK_URL 未配置，跳过发送');
       return { success: false, error: 'webhook未配置' };
     }
-    const response = await axios.post(webhookUrl, {
+    const response = await retryRequest(() => axios.post(webhookUrl, {
       msgtype: 'markdown',
       markdown: {
         title: '📋 周报提交提醒',
