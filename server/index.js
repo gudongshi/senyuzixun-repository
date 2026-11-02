@@ -971,7 +971,7 @@ async function getUserNameByUserId(userId) {
       url,
       { userid: userId },
       { params: { access_token: accessToken }, headers: { 'Content-Type': 'application/json' } }
-    );
+    ));
     if (response.data.errcode === 0 && response.data.result) {
       const userName = response.data.result.name;
       if (userName) {
@@ -5755,7 +5755,7 @@ async function sendDingTalkMessage(message) {
         title: '📋 周报提交提醒',
         text: message,
       },
-    });
+    }));
     if (response.data.errcode === 0) {
       console.log('✅ 钉钉消息发送成功');
       return { success: true };
@@ -5877,6 +5877,20 @@ ${taskDataStr || '暂无任务数据'}
     const answer = await callAIText(prompt);
 
     console.log(`✅ AI 问答完成 [mode=${mode || 'dashboard'}], 回答长度: ${answer.length}`);
+
+    // 全量审计日志留存（异步，不阻塞回答返回）
+    supabase.from('ai_chat_logs').insert({
+      user_id: req.user.userId,
+      user_name: req.user.name,
+      mode: mode || 'dashboard',
+      question: question,
+      answer: answer
+    }).then(({ error }) => {
+      if (error) console.error('❌ AI 审计日志写入失败:', error.message);
+    }).catch(err => {
+      console.error('❌ AI 审计日志异常:', err.message);
+    });
+
     res.json({ success: true, data: { answer } });
   } catch (err) {
     console.error('❌ AI 知识库问答失败:', err.message);
