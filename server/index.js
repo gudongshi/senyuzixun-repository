@@ -5898,6 +5898,55 @@ ${taskDataStr || '暂无任务数据'}
   }
 });
 
+// ============================================================
+// 人员资质查询（模糊搜索 + 精确筛选）
+// ============================================================
+app.get('/api/staff/qualifications', authMiddleware, async (req, res) => {
+  try {
+    const { keyword, title, major } = req.query;
+
+    console.log('📋 GET /api/staff/qualifications - 人员资质查询');
+    console.log(`📋 查询参数: keyword="${keyword || ''}", title="${title || ''}", major="${major || ''}"`);
+
+    let query = supabase.from('staff_qualifications').select('*', { count: 'exact' });
+
+    // 模糊搜索：姓名、证书类型、职称、证书专业
+    if (keyword && keyword.trim()) {
+      const kw = `%${keyword.trim()}%`;
+      query = query.or(
+        `name.ilike.${kw},cert_type.ilike.${kw},title.ilike.${kw},cert_major.ilike.${kw}`
+      );
+    }
+
+    // 精确筛选：职称
+    if (title && title.trim()) {
+      query = query.eq('title', title.trim());
+    }
+
+    // 精确筛选：证书专业
+    if (major && major.trim()) {
+      query = query.eq('cert_major', major.trim());
+    }
+
+    const { data, count, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ 人员资质查询失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 人员资质查询成功，共 ${count} 条记录`);
+    res.json({
+      success: true,
+      data: data || [],
+      total: count || 0
+    });
+  } catch (err) {
+    console.error('❌ 人员资质查询异常:', err.message);
+    res.status(500).json({ success: false, error: '查询人员资质失败，请稍后重试' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
   console.log(`✅ 钉钉 AppKey: ${DINGTALK_APP_KEY.slice(0, 8)}...`);
