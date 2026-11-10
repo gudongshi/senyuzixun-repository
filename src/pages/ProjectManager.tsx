@@ -4,9 +4,10 @@ import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
   Loader2, AlertTriangle, TrendingUp, Bot, Users, DollarSign,
-  Send
+  Send, ShieldCheck
 } from 'lucide-react';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
+import StaffQualificationManager from '../components/StaffQualificationManager';
 
 // ============================================================
 // 类型定义
@@ -2072,7 +2073,9 @@ export default function ProjectManager() {
   // ---- 人员资质查询 ----
   const [qualModalOpen, setQualModalOpen] = useState(false);
   const [reportManagerModalOpen, setReportManagerModalOpen] = useState(false);
-  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [staffQualManagerOpen, setStaffQualManagerOpen] = useState(false);
+
+    const [qualifications, setQualifications] = useState<any[]>([]);
   const [qualTotal, setQualTotal] = useState(0);
   const [qualKeyword, setQualKeyword] = useState('');
   const [qualLoading, setQualLoading] = useState(false);
@@ -2390,6 +2393,18 @@ export default function ProjectManager() {
             <Users size={14} className="md:size-4" />
             客户管理
           </a>
+
+          {/* 人员资质管理 —— 仅高管角色可见 */}
+          {user?.roles?.dashboard && (
+            <button
+              onClick={() => setStaffQualManagerOpen(true)}
+              className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 text-xs md:text-sm hover:bg-amber-900/20 transition-colors"
+              title="人员资质管理"
+            >
+              <ShieldCheck size={14} className="md:size-4" />
+              资质管理
+            </button>
+          )}
 
           {/* 财务数据 —— 工作台暂不开放高管专属入口，已隐藏 */}
 
@@ -3106,6 +3121,12 @@ export default function ProjectManager() {
             wasAiTriggered.current = false;
           }
         }}
+      />
+
+      {/* 人员资质管理弹窗 */}
+      <StaffQualificationManager
+        open={staffQualManagerOpen}
+        onClose={() => setStaffQualManagerOpen(false)}
       />
     </div>
   );
