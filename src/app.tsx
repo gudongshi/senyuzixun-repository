@@ -173,8 +173,10 @@ function AppRoutes() {
         element={
           dashboard ? (
             <Dashboard />
+          ) : manager ? (
+            <Navigate to="/project-manager" replace />
           ) : (
-            <DashboardRedirect to={manager ? '/project-manager' : '/'} userName={user.name} />
+            <DashboardRedirect to="/" userName={user.name} />
           )
         }
       />

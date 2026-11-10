@@ -3441,6 +3441,11 @@ export default function Dashboard() {
               <div ref={chatMessagesEndRef} />
             </div>
 
+            {/* 免责声明 */}
+            <div className="text-[10px] text-slate-500 text-center pb-2">
+              本回答基于系统检索生成，以现行规范原文与公司正式制度为准，关键决策须人工复核。
+            </div>
+
             {/* Input */}
             <div className="px-4 py-3 border-t border-slate-700/50 bg-slate-800/60 shrink-0">
               <div className="flex items-center gap-2">

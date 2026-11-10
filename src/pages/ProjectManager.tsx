@@ -2036,6 +2036,14 @@ export default function ProjectManager() {
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // ---- 人员资质查询 ----
+  const [qualModalOpen, setQualModalOpen] = useState(false);
+  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [qualTotal, setQualTotal] = useState(0);
+  const [qualKeyword, setQualKeyword] = useState('');
+  const [qualLoading, setQualLoading] = useState(false);
+  const [qualSearched, setQualSearched] = useState(false);  // 是否已执行过搜索
+
   // ---- AI 智能问答助手 ----
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -2261,6 +2269,49 @@ export default function ProjectManager() {
     }
   };
 
+  // 人员资质搜索（空关键词 = 拉取全部）
+  const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
+    const keyword = (forcedKeyword ?? qualKeyword).trim();
+
+    console.log(`📋 人员资质查询: keyword="${keyword || '(全部)'}"`);
+    setQualLoading(true);
+    setQualSearched(true);
+
+    try {
+      const url = keyword
+        ? `/api/staff/qualifications?keyword=${encodeURIComponent(keyword)}`
+        : '/api/staff/qualifications';
+      const resp = await fetch(url);
+      const result = await resp.json();
+
+      if (result.success) {
+        setQualifications(result.data || []);
+        setQualTotal(result.total || 0);
+        console.log(`✅ 人员资质查询成功: total=${result.total}, data=${result.data?.length || 0}`);
+      } else {
+        console.error('❌ 人员资质查询失败:', result.error);
+        setQualifications([]);
+        setQualTotal(0);
+        toast.error(result.error || '查询失败');
+      }
+    } catch (err: any) {
+      console.error('❌ 人员资质查询异常:', err.message);
+      setQualifications([]);
+      setQualTotal(0);
+      toast.error('网络异常，请稍后重试');
+    } finally {
+      setQualLoading(false);
+    }
+  }, [qualKeyword]);
+
+  // 弹窗打开时自动拉取全部人员数据
+  useEffect(() => {
+    if (qualModalOpen) {
+      console.log('📋 资质查询弹窗已打开，自动拉取全部人员数据');
+      handleQualSearch('');
+    }
+  }, [qualModalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 登出
   const handleLogout = async () => {
     try {
@@ -2410,7 +2461,7 @@ export default function ProjectManager() {
         )}
 
         {/* 数据卡片 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           {/* 卡片一：我的项目 */}
           <div className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm hover:border-cyan-500/30 transition-colors">
             <div className="flex items-center gap-3 mb-3">
@@ -2459,6 +2510,24 @@ export default function ProjectManager() {
             </div>
             <p className="text-3xl font-bold text-purple-400">需要帮忙？</p>
             <p className="text-slate-500 text-xs mt-1">点击右下角蓝球，随时向我提问</p>
+          </div>
+
+          {/* 卡片四：资质查询 */}
+          <div
+            className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm hover:border-amber-500/30 transition-colors cursor-pointer"
+            onClick={() => {
+              console.log('🔍 用户点击资质查询卡片');
+              setQualModalOpen(true);
+            }}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="size-10 rounded-xl bg-amber-900/30 flex items-center justify-center">
+                <Search className="size-5 text-amber-400" />
+              </div>
+              <h3 className="text-slate-300 text-sm font-medium">🔍 资质查询</h3>
+            </div>
+            <p className="text-3xl font-bold text-amber-400">人员资质</p>
+            <p className="text-slate-500 text-xs mt-1">查询集团人员证书、职称等资质信息</p>
           </div>
         </div>
       </div>
@@ -2741,6 +2810,11 @@ export default function ProjectManager() {
               <div ref={chatMessagesEndRef} />
             </div>
 
+            {/* 免责声明 */}
+            <div className="text-[10px] text-slate-500 text-center pb-2">
+              本回答基于系统检索生成，以现行规范原文与公司正式制度为准，关键决策须人工复核。
+            </div>
+
             {/* Input */}
             <div className="px-4 py-3 border-t border-slate-700/50 bg-slate-800/60 shrink-0">
               <div className="flex items-center gap-2">
@@ -2791,6 +2865,184 @@ export default function ProjectManager() {
                     <Send className="size-4" />
                   )}
                 </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============================================================ */}
+      {/* 人员资质查询弹窗 */}
+      {/* ============================================================ */}
+      {qualModalOpen && (
+        <>
+          {/* Overlay */}
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+            onClick={() => { setQualModalOpen(false); setQualSearched(false); }}
+          />
+
+          {/* Panel */}
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 overflow-y-auto">
+            <div className="relative w-full max-w-5xl mx-4 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border border-cyan-500/30 rounded-2xl shadow-2xl shadow-blue-900/50 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/30 bg-slate-800/50">
+                <div className="flex items-center gap-3">
+                  <div className="size-10 rounded-xl bg-amber-900/30 flex items-center justify-center">
+                    <Search className="size-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-200">🔍 集团人员资质库</h3>
+                    <p className="text-xs text-slate-500">按姓名、职称、证书或专业搜索集团人员资质信息</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setQualModalOpen(false); setQualSearched(false); }}
+                  className="w-8 h-8 rounded-full border border-slate-600/50 text-slate-500 hover:text-slate-300 hover:border-slate-500 transition-all flex items-center justify-center"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-4">
+                {/* Search Bar */}
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={qualKeyword}
+                    onChange={e => setQualKeyword(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleQualSearch(); }}
+                    placeholder="输入姓名、职称、证书或专业，如：土建、高级工程师..."
+                    className="flex-1 bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
+                  />
+                  <button
+                    onClick={handleQualSearch}
+                    disabled={qualLoading}
+                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-medium hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+                  >
+                    {qualLoading ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        搜索中...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="size-4" />
+                        搜索
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Result Stats */}
+                {qualSearched && !qualLoading && (
+                  <div className="flex items-center gap-2">
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-600 to-transparent" />
+                    <span className="text-sm text-slate-400 whitespace-nowrap">
+                      {qualTotal > 0 ? (
+                        <>共计找到 <span className="text-amber-400 font-bold text-lg">{qualTotal}</span> 名匹配人员</>
+                      ) : (
+                        '未找到符合条件的人员'
+                      )}
+                    </span>
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-600 to-transparent" />
+                  </div>
+                )}
+
+                {/* Loading */}
+                {qualLoading && (
+                  <div className="flex items-center justify-center py-20">
+                    <Loader2 className="size-10 text-cyan-400 animate-spin" />
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {qualSearched && !qualLoading && qualTotal === 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Search className="size-14 text-slate-600 mb-4" />
+                    <p className="text-slate-400 text-lg font-medium mb-1">未找到符合条件的人员</p>
+                    <p className="text-slate-600 text-sm">请尝试更换关键词后重新搜索</p>
+                  </div>
+                )}
+
+                {/* Result Grid */}
+                {qualSearched && !qualLoading && qualifications.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+                    {qualifications.map((q: any) => (
+                      <div
+                        key={q.id}
+                        className="bg-slate-800/60 border border-blue-900/30 rounded-xl p-4 hover:border-amber-500/30 transition-colors"
+                      >
+                        {/* 姓名 + 职称 */}
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-base font-bold text-slate-200">{q.name}</h4>
+                          {q.title && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-500/30">
+                              {q.title}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 证书类型 + 人员状态 */}
+                        <div className="flex items-center gap-2 mb-3 text-xs text-slate-400">
+                          {q.cert_type && (
+                            <span className="px-2 py-0.5 rounded-md bg-cyan-900/30 text-cyan-300 border border-cyan-500/20">
+                              {q.cert_type}
+                            </span>
+                          )}
+                          {q.status && (
+                            <span className={`px-2 py-0.5 rounded-md border ${
+                              q.status === '公司在职'
+                                ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/20'
+                                : 'bg-slate-700/50 text-slate-400 border-slate-600/30'
+                            }`}>
+                              {q.status}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 专业标签 */}
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {q.cert_major && (
+                            <span className="text-xs px-2 py-0.5 rounded-md bg-amber-900/20 text-amber-300 border border-amber-500/20">
+                              📌 {q.cert_major}
+                            </span>
+                          )}
+                          {q.register_major && (
+                            <span className="text-xs px-2 py-0.5 rounded-md bg-purple-900/20 text-purple-300 border border-purple-500/20">
+                              🏷 {q.register_major}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 学历 + 证书状态 + 有效期 */}
+                        <div className="space-y-1 text-xs text-slate-500">
+                          {q.education && (
+                            <div className="flex justify-between">
+                              <span>学历</span>
+                              <span className="text-slate-400">{q.education}</span>
+                            </div>
+                          )}
+                          {q.cert_status && (
+                            <div className="flex justify-between">
+                              <span>证书状态</span>
+                              <span className={q.cert_status === '正常注册' ? 'text-emerald-400' : 'text-yellow-400'}>
+                                {q.cert_status}
+                              </span>
+                            </div>
+                          )}
+                          {q.cert_expire_date && (
+                            <div className="flex justify-between">
+                              <span>有效期至</span>
+                              <span className="text-slate-400">{q.cert_expire_date}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
