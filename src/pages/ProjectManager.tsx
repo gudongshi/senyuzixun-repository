@@ -697,7 +697,7 @@ function ProjectFormModal({
               onChange={e => updateField('remark', e.target.value)} placeholder="请输入备注" />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 pb-24 md:pb-4 border-t border-slate-700/50">
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
             <button type="button" onClick={onClose}
               className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
               取消
@@ -926,7 +926,7 @@ function WeeklyReportModal({
             </select>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 pb-24 md:pb-4 border-t border-slate-700/50">
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
             <button type="button" onClick={onClose}
               className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
               取消
@@ -1747,7 +1747,7 @@ function WeeklyReportFormModal({
 
           </div>
           {!isView && (
-            <div className="sticky bottom-0 flex justify-end gap-3 p-4 md:pb-4 pb-28 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
+            <div className="sticky bottom-0 flex justify-end gap-3 p-4 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
               <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
               <button type="submit" disabled={loading}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2">
@@ -2772,7 +2772,7 @@ export default function ProjectManager() {
       /* Floating Ball */}
       <button
         onClick={() => setChatOpen(true)}
-        className="fixed bottom-8 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group"
+        className="fixed bottom-20 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group"
         title="AI 智能助手"
       >
         <span className="absolute inset-0 rounded-full bg-cyan-400/30 animate-ping [animation-duration:3s]" />
