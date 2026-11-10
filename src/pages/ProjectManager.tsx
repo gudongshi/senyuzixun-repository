@@ -1766,10 +1766,11 @@ function WeeklyReportFormModal({
 // WeeklyReportManager 子组件（周报管理区块）
 // ============================================================
 function WeeklyReportManager({
-  projects, user
+  projects, user, onModalOpenChange
 }: {
   projects: Project[];
   user: UserInfo | null;
+  onModalOpenChange?: (open: boolean) => void;
 }) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [reports, setReports] = useState<WeeklyReportFull[]>([]);
@@ -1783,6 +1784,11 @@ function WeeklyReportManager({
   const [deletingReport, setDeletingReport] = useState<WeeklyReportFull | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
+
+  // 同步周报管理区的弹窗状态给父组件，用于隐藏 AI 悬浮球
+  useEffect(() => {
+    onModalOpenChange?.(reportModalOpen || deleteConfirmOpen);
+  }, [reportModalOpen, deleteConfirmOpen, onModalOpenChange]);
 
   const selectedProject = projects.find(p => p.id.toString() === selectedProjectId);
   const projectBusinessType = selectedProject?.businessType || '';
@@ -2065,6 +2071,7 @@ export default function ProjectManager() {
 
   // ---- 人员资质查询 ----
   const [qualModalOpen, setQualModalOpen] = useState(false);
+  const [reportManagerModalOpen, setReportManagerModalOpen] = useState(false);
   const [qualifications, setQualifications] = useState<any[]>([]);
   const [qualTotal, setQualTotal] = useState(0);
   const [qualKeyword, setQualKeyword] = useState('');
@@ -2356,8 +2363,8 @@ export default function ProjectManager() {
       {/* ============================================================ */}
       {/* Header */}
       {/* ============================================================ */}
-      <header className="flex flex-wrap justify-between items-center px-4 md:px-6 py-3 md:py-4 gap-y-2 gap-x-2 border-b border-cyan-500/20 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-30">
-        <div className="flex items-center gap-2 md:gap-4">
+      <header className="flex flex-col md:flex-row md:justify-between md:items-center px-4 md:px-6 py-3 md:py-4 gap-y-2 border-b border-cyan-500/20 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-30">
+        <div className="flex items-center justify-center md:justify-start gap-2 md:gap-4">
           <img
             src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg"
             alt="森宇集团 Logo"
@@ -2369,7 +2376,7 @@ export default function ProjectManager() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-1.5 md:gap-4 flex-wrap">
+        <div className="flex items-center justify-between md:justify-end gap-1 md:gap-4">
           {/* 返回大屏 */}
           <a href="/"
             className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-xs md:text-sm hover:bg-blue-900/20 transition-colors">
@@ -2509,9 +2516,16 @@ export default function ProjectManager() {
             className="bg-slate-800/60 border border-blue-900/30 rounded-2xl p-5 backdrop-blur-sm hover:border-emerald-500/30 transition-colors cursor-pointer"
             onClick={() => {
               console.log('📋 快捷填报：打开周报管理');
-              // 滚动到周报管理区块
+              // 滚动到周报管理区块顶部，并自动展开折叠的面板
               const el = document.getElementById('weekly-report-manager');
-              if (el) el.scrollIntoView({ behavior: 'smooth' });
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // 自动展开周报管理（默认折叠状态）
+                setTimeout(() => {
+                  const expandBtn = el.querySelector('button');
+                  if (expandBtn) expandBtn.click();
+                }, 500);
+              }
             }}
           >
             <div className="flex items-center gap-3 mb-3">
@@ -2566,7 +2580,7 @@ export default function ProjectManager() {
       {/* Weekly Report Manager */}
       {/* ============================================================ */}
       <div id="weekly-report-manager">
-      <WeeklyReportManager projects={projects} user={user} />
+      <WeeklyReportManager projects={projects} user={user} onModalOpenChange={setReportManagerModalOpen} />
       </div>
 
       {/* ============================================================ */}
@@ -2750,18 +2764,22 @@ export default function ProjectManager() {
       {/* AI 智能问答助手 —— 悬浮球 + 聊天面板 */}
       {/* ============================================================ */}
 
-      {/* Floating Ball */}
+      {/* 当任意弹窗打开时隐藏悬浮球，避免遮挡操作区 */}
+      {!(() => {
+        const anyModalOpen = formModalOpen || weeklyReportModalOpen || deleteConfirmOpen || qualModalOpen || chatOpen || reportManagerModalOpen;
+        return anyModalOpen;
+      })() && (
+      /* Floating Ball */}
       <button
         onClick={() => setChatOpen(true)}
-        className={`fixed bottom-8 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group ${
-          chatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
+        className="fixed bottom-8 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group"
         title="AI 智能助手"
       >
         <span className="absolute inset-0 rounded-full bg-cyan-400/30 animate-ping [animation-duration:3s]" />
         <Bot className="size-7 text-white relative z-10" />
         <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse" />
       </button>
+      )}
 
       {/* Chat Panel */}
       {chatOpen && (
