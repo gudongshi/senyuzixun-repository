@@ -2341,11 +2341,17 @@ export default function ProjectManager() {
     }
   }, [qualKeyword]);
 
-  // 弹窗打开时自动拉取全部人员数据
+  // 弹窗打开时重置并拉取全部数据，关闭时清理状态
   useEffect(() => {
     if (qualModalOpen) {
-      console.log('📋 资质查询弹窗已打开，自动拉取全部人员数据');
+      console.log('📋 资质查询弹窗已打开，重置搜索并拉取全部人员数据');
+      setQualKeyword('');
       handleQualSearch('');
+    } else {
+      setQualKeyword('');
+      setQualifications([]);
+      setQualTotal(0);
+      setQualSearched(false);
     }
   }, [qualModalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
