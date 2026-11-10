@@ -194,7 +194,7 @@ function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center">
       <div className="bg-slate-800 border border-red-500/30 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
         <div className="flex items-center gap-3 mb-4">
           <div className="size-10 rounded-full bg-red-900/30 flex items-center justify-center">
@@ -499,7 +499,7 @@ function ProjectFormModal({
   const labelClass = "block text-sm text-slate-400 mb-1";
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-10 overflow-y-auto">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center pt-10 overflow-y-auto">
       <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl my-10">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
@@ -697,7 +697,7 @@ function ProjectFormModal({
               onChange={e => updateField('remark', e.target.value)} placeholder="请输入备注" />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
+          <div className="flex justify-end gap-3 pt-4 pb-24 md:pb-4 border-t border-slate-700/50">
             <button type="button" onClick={onClose}
               className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
               取消
@@ -872,7 +872,7 @@ function WeeklyReportModal({
   const labelClass = "block text-sm text-slate-400 mb-1";
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-10 overflow-y-auto">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center pt-10 overflow-y-auto">
       <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-xl mx-4 shadow-2xl my-10">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">
@@ -926,7 +926,7 @@ function WeeklyReportModal({
             </select>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
+          <div className="flex justify-end gap-3 pt-4 pb-24 md:pb-4 border-t border-slate-700/50">
             <button type="button" onClick={onClose}
               className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
               取消
@@ -1617,7 +1617,7 @@ function WeeklyReportFormModal({
   const sectionTitleClass = "text-sm text-cyan-400 font-semibold mb-3";
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center overflow-hidden">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center overflow-hidden">
       <div className="bg-slate-800 border border-blue-900/30 w-full h-full rounded-none md:w-full md:max-w-3xl md:h-auto md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
@@ -1747,7 +1747,7 @@ function WeeklyReportFormModal({
 
           </div>
           {!isView && (
-            <div className="sticky bottom-0 flex justify-end gap-3 p-4 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
+            <div className="sticky bottom-0 flex justify-end gap-3 p-4 md:pb-4 pb-28 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
               <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
               <button type="submit" disabled={loading}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2">
@@ -1876,9 +1876,9 @@ function WeeklyReportManager({
         {!collapsed && (
           <div className="border-t border-blue-900/30 px-5 py-4 space-y-4">
             {/* 项目选择器 */}
-            <div className="flex items-center gap-3">
-              <div className="flex-1 max-w-sm">
-                <select className={inputClass} value={selectedProjectId}
+            <div className="flex flex-col md:flex-row md:items-center gap-3">
+              <div className="w-full md:flex-1 md:max-w-sm">
+                <select className={`${inputClass} w-full`} value={selectedProjectId}
                   onChange={e => setSelectedProjectId(e.target.value)}>
                   <option value="">请选择项目</option>
                   {projects.filter(p => p.projectStatus !== '已删除').map(p => (
@@ -1888,7 +1888,7 @@ function WeeklyReportManager({
               </div>
               {selectedProjectId && (
                 <button onClick={handleCreate}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all text-sm">
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all text-sm w-full md:w-auto">
                   <Plus size={16} /> 新建周报
                 </button>
               )}
@@ -1904,7 +1904,7 @@ function WeeklyReportManager({
                 <div className="text-center py-10 text-slate-500 text-sm">暂无周报记录</div>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto hidden md:block">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-blue-900/30 bg-slate-800/80">
@@ -1937,6 +1937,33 @@ function WeeklyReportManager({
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* 移动端卡片列表 */}
+                  <div className="md:hidden space-y-3">
+                    {reports.map(r => (
+                      <div key={r.id} className="bg-slate-700/30 border border-slate-600/50 rounded-xl p-4 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-200 text-sm font-medium">{r.reportDate}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-purple-400 border border-purple-500/30' : 'bg-cyan-900/20 text-cyan-400 border border-cyan-500/30'}`}>
+                            {r.reportType === 'monthly' ? '月报' : '周报'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <span className="text-slate-500">进度</span>
+                          <span className="text-slate-300">{r.currentProgress ?? '-'}%</span>
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          <span className="text-slate-500">本周总结：</span>
+                          <span className="text-slate-300">{r.weeklySummary || '-'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 border-t border-slate-600/30">
+                          <button onClick={() => handleView(r)} className="flex-1 py-1.5 rounded text-cyan-400 text-xs border border-cyan-500/30 hover:bg-cyan-500/10 transition-colors">查看</button>
+                          <button onClick={() => handleEdit(r)} className="flex-1 py-1.5 rounded text-blue-400 text-xs border border-blue-500/30 hover:bg-blue-500/10 transition-colors">编辑</button>
+                          <button onClick={() => handleDeleteClick(r)} className="flex-1 py-1.5 rounded text-red-400 text-xs border border-red-500/30 hover:bg-red-500/10 transition-colors">删除</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                   {reportsPagination.totalPages > 1 && (
                     <div className="flex items-center justify-between pt-2">
@@ -1972,7 +1999,7 @@ function WeeklyReportManager({
 
       {/* 删除确认 */}
       {deleteConfirmOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center">
           <div className="bg-slate-800 border border-red-500/30 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="size-10 rounded-full bg-red-900/30 flex items-center justify-center"><AlertTriangle className="size-5 text-red-400" /></div>
@@ -2329,31 +2356,31 @@ export default function ProjectManager() {
       {/* ============================================================ */}
       {/* Header */}
       {/* ============================================================ */}
-      <header className="flex flex-wrap justify-between items-center px-6 py-4 gap-y-2 border-b border-cyan-500/20 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-30">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-wrap justify-between items-center px-4 md:px-6 py-3 md:py-4 gap-y-2 gap-x-2 border-b border-cyan-500/20 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-30">
+        <div className="flex items-center gap-2 md:gap-4">
           <img
             src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg"
             alt="森宇集团 Logo"
-            className="h-10 w-auto rounded-lg"
+            className="h-7 md:h-10 w-auto rounded-lg"
             onError={(e) => (e.currentTarget.style.display = 'none')}
           />
-          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-cyan-400 bg-clip-text text-transparent">
+          <h1 className="text-sm md:text-xl font-bold bg-gradient-to-r from-blue-700 to-cyan-400 bg-clip-text text-transparent whitespace-nowrap">
             森宇集团 · 员工工作台
           </h1>
         </div>
 
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-1.5 md:gap-4 flex-wrap">
           {/* 返回大屏 */}
           <a href="/"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-sm hover:bg-blue-900/20 transition-colors">
-            <LayoutDashboard size={16} />
+            className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-xs md:text-sm hover:bg-blue-900/20 transition-colors">
+            <LayoutDashboard size={14} className="md:size-4" />
             指挥大屏
           </a>
 
           {/* 客户管理 */}
           <a href="/clients"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-sm hover:bg-blue-900/20 transition-colors">
-            <Users size={16} />
+            className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-blue-900/40 text-cyan-400 text-xs md:text-sm hover:bg-blue-900/20 transition-colors">
+            <Users size={14} className="md:size-4" />
             客户管理
           </a>
 
@@ -2361,18 +2388,18 @@ export default function ProjectManager() {
 
           {/* 用户信息 */}
           {user && (
-            <div className="flex items-center gap-2">
-              <div className="size-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-sm font-bold">
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <div className="size-6 md:size-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs md:text-sm font-bold">
                 {user.name?.charAt(0) || '?'}
               </div>
-              <span className="text-slate-300 text-sm">{user.name}</span>
+              <span className="text-slate-300 text-xs md:text-sm">{user.name}</span>
             </div>
           )}
 
           {/* 登出 */}
           <button onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-sm hover:bg-red-900/20 transition-colors">
-            <LogOut size={16} />
+            className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs md:text-sm hover:bg-red-900/20 transition-colors">
+            <LogOut size={14} className="md:size-4" />
             登出
           </button>
         </div>
@@ -2381,10 +2408,10 @@ export default function ProjectManager() {
       {/* ============================================================ */}
       {/* Toolbar */}
       {/* ============================================================ */}
-      <div className="px-6 py-4">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* 搜索 */}
-          <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
+      <div className="px-4 md:px-6 py-3 md:py-4">
+        <div className="flex flex-col gap-3">
+          {/* 搜索 —— 手机端占满整行 */}
+          <form onSubmit={handleSearch} className="flex items-center gap-2 w-full md:max-w-md">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-500" />
               <input type="text" className={`${inputClass} pl-9 w-full`}
@@ -2392,42 +2419,45 @@ export default function ProjectManager() {
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
             <button type="submit"
-              className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm hover:from-cyan-400 hover:to-blue-500 transition-all">
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm hover:from-cyan-400 hover:to-blue-500 transition-all whitespace-nowrap">
               搜索
             </button>
           </form>
 
-          {/* 服务类别筛选 */}
-          <select className={inputClass} value={filterCategory}
-            onChange={e => { setFilterCategory(e.target.value); }}>
-            <option value="">全部类别</option>
-            {SERVICE_CATEGORIES.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
+          {/* 筛选控件 —— 手机端可横向滑动，PC端正常换行 */}
+          <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap pb-1 md:pb-0 md:flex-wrap">
+            {/* 服务类别筛选 */}
+            <select className={`${inputClass} flex-shrink-0`} value={filterCategory}
+              onChange={e => { setFilterCategory(e.target.value); }}>
+              <option value="">全部类别</option>
+              {SERVICE_CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
 
-          {/* 项目状态筛选 */}
-          <select className={inputClass} value={filterStatus}
-            onChange={e => { setFilterStatus(e.target.value); }}>
-            <option value="">全部状态</option>
-            {PROJECT_STATUSES.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+            {/* 项目状态筛选 */}
+            <select className={`${inputClass} flex-shrink-0`} value={filterStatus}
+              onChange={e => { setFilterStatus(e.target.value); }}>
+              <option value="">全部状态</option>
+              {PROJECT_STATUSES.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
 
-          {/* 刷新 */}
-          <button onClick={() => fetchProjects(pagination.page)}
-            className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-            title="刷新">
-            <RefreshCw size={18} />
-          </button>
+            {/* 刷新 */}
+            <button onClick={() => fetchProjects(pagination.page)}
+              className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors flex-shrink-0"
+              title="刷新">
+              <RefreshCw size={18} />
+            </button>
 
-          {/* 新建项目 */}
-          <button onClick={handleCreate}
-            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all font-medium shadow-lg shadow-blue-900/30">
-            <Plus size={18} />
-            新建项目
-          </button>
+            {/* 新建项目 */}
+            <button onClick={handleCreate}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all font-medium shadow-lg shadow-blue-900/30 flex-shrink-0">
+              <Plus size={18} />
+              新建项目
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2883,7 +2913,7 @@ export default function ProjectManager() {
           />
 
           {/* Panel */}
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 overflow-y-auto">
+          <div className="fixed inset-0 z-[100] flex items-start justify-center pt-10 overflow-y-auto">
             <div className="relative w-full max-w-5xl mx-4 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 border border-cyan-500/30 rounded-2xl shadow-2xl shadow-blue-900/50 overflow-hidden">
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/30 bg-slate-800/50">
