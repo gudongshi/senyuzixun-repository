@@ -2766,7 +2766,6 @@ export default function ProjectManager() {
 
       {/* 当任意弹窗打开时隐藏悬浮球，避免遮挡操作区 */}
       {!(formModalOpen || weeklyReportModalOpen || deleteConfirmOpen || qualModalOpen || chatOpen || reportManagerModalOpen) && (
-      /* Floating Ball */}
       <button
         onClick={() => setChatOpen(true)}
         className="fixed bottom-20 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group"
