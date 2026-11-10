@@ -1618,14 +1618,14 @@ function WeeklyReportFormModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center overflow-hidden">
-      <div className="bg-slate-800 border border-blue-900/30 w-full h-full rounded-none md:w-full md:max-w-3xl md:h-auto md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col">
+      <div className="bg-slate-800 border border-blue-900/30 w-full h-[100dvh] md:h-auto md:max-w-3xl md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col rounded-none">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
         </div>
 
         <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="flex flex-col h-full">
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[calc(100vh-120px)] md:max-h-none">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* 基础字段 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1747,7 +1747,7 @@ function WeeklyReportFormModal({
 
           </div>
           {!isView && (
-            <div className="sticky bottom-0 flex justify-end gap-3 p-4 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
+            <div className="shrink-0 flex justify-end gap-3 p-4 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
               <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
               <button type="submit" disabled={loading}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 transition-all disabled:opacity-50 flex items-center gap-2">
@@ -2765,10 +2765,7 @@ export default function ProjectManager() {
       {/* ============================================================ */}
 
       {/* 当任意弹窗打开时隐藏悬浮球，避免遮挡操作区 */}
-      {!(() => {
-        const anyModalOpen = formModalOpen || weeklyReportModalOpen || deleteConfirmOpen || qualModalOpen || chatOpen || reportManagerModalOpen;
-        return anyModalOpen;
-      })() && (
+      {!(formModalOpen || weeklyReportModalOpen || deleteConfirmOpen || qualModalOpen || chatOpen || reportManagerModalOpen) && (
       /* Floating Ball */}
       <button
         onClick={() => setChatOpen(true)}
