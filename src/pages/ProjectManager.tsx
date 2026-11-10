@@ -1617,14 +1617,14 @@ function WeeklyReportFormModal({
   const sectionTitleClass = "text-sm text-cyan-400 font-semibold mb-3";
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center overflow-hidden">
-      <div className="bg-slate-800 border border-blue-900/30 w-full max-h-[90vh] md:max-h-[85vh] md:max-w-3xl md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col rounded-none">
+    <div className="fixed inset-0 z-[100] flex flex-col bg-slate-800 md:bg-slate-900/70 md:backdrop-blur-sm">
+      <div className="w-full h-full flex flex-col md:h-auto md:max-h-[85vh] md:w-[800px] md:m-auto md:rounded-2xl border border-blue-900/30 shadow-2xl bg-slate-800">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
         </div>
 
-        <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="flex flex-col h-full">
+        <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="flex flex-col h-full min-h-0">
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* 基础字段 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2764,13 +2764,11 @@ export default function ProjectManager() {
       {/* AI 智能问答助手 —— 悬浮球 + 聊天面板 */}
       {/* ============================================================ */}
 
-      {/* AI 悬浮球 —— 周报弹窗打开时自动上移避让按钮 */}
+      {/* AI 悬浮球 —— 弹窗/面板打开时隐身 */}
       <button
         onClick={() => setChatOpen(true)}
-        className={`fixed z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group ${
-          chatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        } ${
-          weeklyReportModalOpen ? 'bottom-28 right-6' : 'bottom-20 right-8'
+        className={`fixed z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group bottom-20 right-8 ${
+          chatOpen || weeklyReportModalOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
         title="AI 智能助手"
       >
