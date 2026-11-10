@@ -13,7 +13,13 @@ import { useState, useEffect, createContext, useContext, type ReactNode } from '
 // ============================================================
 
 const APP_ID = import.meta.env.VITE_DINGTALK_APP_ID as string;
-const REDIRECT = (import.meta.env.VITE_DINGTALK_REDIRECT_URI as string) || window.location.origin;
+// 保留当前路径，确保钉钉登录后能回到用户最初访问的页面（如 /project-manager）
+// 若 URL 已含 code 参数（根路径且带 code），则不再拼接路径，避免死循环
+const currentPath =
+  window.location.pathname === '/' && !window.location.search.includes('code')
+    ? ''
+    : window.location.pathname;
+const REDIRECT = window.location.origin + currentPath;
 
 /** 登录页中显示的提示文字（可用于外部注入错误信息） */
 interface AuthGateProps {
