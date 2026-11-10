@@ -1,0 +1,31 @@
+name: Deploy Dashboard to Aliyun ECS
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 20m
+          script: |
+            cd /root/senyu-dashboard
+            git pull origin master
+            
+            # 安装依赖并构建前端
+            npm install
+            npm run build
+            
+            # 清理 Nginx 旧目录并复制新构建文件（解决覆盖报错问题）
+            rm -rf /var/www/dashboard/*
+            cp -rf /root/senyu-dashboard/dist/* /var/www/dashboard/
+            
+            # 重启后端服务（如果修改了 server 目录里的代码）
+            pm2 restart senyu-backend || true
