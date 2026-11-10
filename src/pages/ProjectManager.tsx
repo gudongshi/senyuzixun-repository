@@ -1618,7 +1618,7 @@ function WeeklyReportFormModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center overflow-hidden">
-      <div className="bg-slate-800 border border-blue-900/30 w-full h-[100dvh] md:h-auto md:max-w-3xl md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col rounded-none">
+      <div className="bg-slate-800 border border-blue-900/30 w-full max-h-[90vh] md:max-h-[85vh] md:max-w-3xl md:rounded-2xl md:mx-4 md:my-10 shadow-2xl flex flex-col rounded-none">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-cyan-400">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
@@ -2764,18 +2764,20 @@ export default function ProjectManager() {
       {/* AI 智能问答助手 —— 悬浮球 + 聊天面板 */}
       {/* ============================================================ */}
 
-      {/* 当任意弹窗打开时隐藏悬浮球，避免遮挡操作区 */}
-      {!(formModalOpen || weeklyReportModalOpen || deleteConfirmOpen || qualModalOpen || chatOpen || reportManagerModalOpen) && (
+      {/* AI 悬浮球 —— 周报弹窗打开时自动上移避让按钮 */}
       <button
         onClick={() => setChatOpen(true)}
-        className="fixed bottom-20 right-8 z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group"
+        className={`fixed z-[9999] w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg shadow-blue-500/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-blue-500/60 group ${
+          chatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        } ${
+          weeklyReportModalOpen ? 'bottom-28 right-6' : 'bottom-20 right-8'
+        }`}
         title="AI 智能助手"
       >
         <span className="absolute inset-0 rounded-full bg-cyan-400/30 animate-ping [animation-duration:3s]" />
         <Bot className="size-7 text-white relative z-10" />
         <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse" />
       </button>
-      )}
 
       {/* Chat Panel */}
       {chatOpen && (
