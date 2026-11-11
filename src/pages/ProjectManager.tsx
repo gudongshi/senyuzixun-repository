@@ -2316,9 +2316,15 @@ export default function ProjectManager() {
   const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
     const keyword = (forcedKeyword ?? qualKeyword).trim();
 
+    console.log('🔍 [搜索触发] 当前 keyword:', keyword, '| 长度:', keyword.length);
+    console.log('🔍 [条件判断] forcedKeyword 类型:', typeof forcedKeyword, '| 值:', forcedKeyword);
+
     if (forcedKeyword !== '' && !keyword) {
+      console.log('✅ [进入空输入拦截分支] 准备弹出 toast');
+
       // ① 先发 toast（在任何 setState 之前，确保 Sonner 收到调度）
       toast.warning('请输入搜索内容', { duration: 4000 });
+      console.log('✅ [已调用 toast.warning]');
 
       // ② 同步清空输入框状态
       setQualKeyword('');
