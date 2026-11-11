@@ -2310,14 +2310,15 @@ export default function ProjectManager() {
   // 人员资质搜索（空关键词 = 拉取全部）
   // 认证说明：GET 和 POST 均为同源请求，cookie 中的 token 由浏览器自动携带，
   // 与 authMiddleware 的 req.cookies?.token 对应，两条路径认证完全一致。
-  // 空输入拦截：forcedKeyword === '' 是 modal 打开时的"加载全部"信号，放行；
-  // forcedKeyword === undefined 是用户点击搜索按钮，空输入则拦截并提示。
+  // 空输入处理：forcedKeyword === '' 是 modal 打开时的"加载全部"信号，直接放行；
+  // forcedKeyword === undefined 是用户点击搜索按钮 → 弹出提示，然后穿透到下方
+  // 走"无 keyword → 拉全表"路径，将上次查"查一下"残留的空列表恢复为 155 人。
   const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
     const keyword = (forcedKeyword ?? qualKeyword).trim();
 
     if (forcedKeyword !== '' && !keyword) {
       toast.warning('请输入搜索内容');
-      return;
+      // 不 return —— 穿透执行，拉取全量 155 人，恢复视图
     }
 
     console.log(`📋 人员资质查询: keyword="${keyword || '(全部)'}"`);
@@ -2390,6 +2391,8 @@ export default function ProjectManager() {
       setQualTotal(0);
       setQualSearched(false);
     }
+  // handleQualSearch('') 中 forcedKeyword='' 会直接覆盖 qualKeyword 闭包值，
+  // 不需要把 handleQualSearch 纳入依赖，避免 qualKeyword 变化引发二次 fetch。
   }, [qualModalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 登出
