@@ -2314,7 +2314,8 @@ export default function ProjectManager() {
   // forcedKeyword === undefined 是用户点击搜索按钮 → 弹出 toast 提示后，
   // 内联拉取全量数据并 return，不穿透到通用逻辑，确保 toast 不受后续状态更新干扰。
   const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
-    const keyword = (forcedKeyword ?? qualKeyword).trim();
+    // 防御性 trim：防止 onClick 误传 MouseEvent 等非字符串值导致 TypeError
+    const keyword = String(forcedKeyword ?? qualKeyword ?? '').trim();
 
     console.log('🔍 [搜索触发] 当前 keyword:', keyword, '| 长度:', keyword.length);
     console.log('🔍 [条件判断] forcedKeyword 类型:', typeof forcedKeyword, '| 值:', forcedKeyword);
@@ -3056,7 +3057,7 @@ export default function ProjectManager() {
                     className="flex-1 bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
                   />
                   <button
-                    onClick={handleQualSearch}
+                    onClick={() => handleQualSearch()}
                     disabled={qualLoading}
                     className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-medium hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
                   >
