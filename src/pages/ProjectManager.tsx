@@ -2080,6 +2080,7 @@ export default function ProjectManager() {
   const [qualKeyword, setQualKeyword] = useState('');
   const [qualLoading, setQualLoading] = useState(false);
   const [qualSearched, setQualSearched] = useState(false);  // 是否已执行过搜索
+  const [qualAiLoading, setQualAiLoading] = useState(false); // 是否正在 AI 搜索
 
   // ---- AI 智能问答助手 ----
   const [chatOpen, setChatOpen] = useState(false);
@@ -2307,6 +2308,8 @@ export default function ProjectManager() {
   };
 
   // 人员资质搜索（空关键词 = 拉取全部）
+  // 认证说明：GET 和 POST 均为同源请求，cookie 中的 token 由浏览器自动携带，
+  // 与 authMiddleware 的 req.cookies?.token 对应，两条路径认证完全一致。
   const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
     const keyword = (forcedKeyword ?? qualKeyword).trim();
 
@@ -2314,22 +2317,47 @@ export default function ProjectManager() {
     setQualLoading(true);
     setQualSearched(true);
 
+    // 长句（>8 字符）走 AI 搜索，短词走普通 LIKE 搜索
+    // 注意：只有长句才触发 qualAiLoading，短词 GET 不会显示 "AI 正在理解"
+    const isLongQuery = keyword.length > 8;
+    if (isLongQuery) setQualAiLoading(true);
+
     try {
-      const url = keyword
-        ? `/api/staff/qualifications?keyword=${encodeURIComponent(keyword)}`
-        : '/api/staff/qualifications';
-      const resp = await fetch(url);
-      const result = await resp.json();
+      let result: { success: boolean; data?: any[]; total?: number; error?: string; message?: string; aiKeyword?: string };
+
+      if (isLongQuery) {
+        // AI 自然语言搜索（POST，cookie 自动携带 token，与 GET 认证一致）
+        console.log('🤖 使用 AI 搜索:', keyword);
+        const resp = await fetch('/api/staff/ai-search', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: keyword }),
+        });
+        result = await resp.json();
+        if (result.aiKeyword) {
+          console.log('🔑 AI 提取关键词:', result.aiKeyword);
+        }
+      } else {
+        // 普通关键词搜索（GET，cookie 自动携带 token）
+        const url = keyword
+          ? `/api/staff/qualifications?keyword=${encodeURIComponent(keyword)}`
+          : '/api/staff/qualifications';
+        const resp = await fetch(url, { credentials: 'same-origin' });
+        result = await resp.json();
+      }
 
       if (result.success) {
         setQualifications(result.data || []);
         setQualTotal(result.total || 0);
         console.log(`✅ 人员资质查询成功: total=${result.total}, data=${result.data?.length || 0}`);
       } else {
-        console.error('❌ 人员资质查询失败:', result.error);
+        // 失败：记录日志、清空列表、通过 toast 向用户显示具体原因
+        const failMsg = result.error || result.message || '查询失败';
+        console.error('❌ 人员资质查询失败:', failMsg);
         setQualifications([]);
         setQualTotal(0);
-        toast.error(result.error || '查询失败');
+        toast.error(failMsg);
       }
     } catch (err: any) {
       console.error('❌ 人员资质查询异常:', err.message);
@@ -2337,7 +2365,9 @@ export default function ProjectManager() {
       setQualTotal(0);
       toast.error('网络异常，请稍后重试');
     } finally {
+      // 无论成功/失败/异常，必须复位两个 loading 状态
       setQualLoading(false);
+      setQualAiLoading(false);
     }
   }, [qualKeyword]);
 
@@ -2989,7 +3019,7 @@ export default function ProjectManager() {
                     {qualLoading ? (
                       <>
                         <Loader2 className="size-4 animate-spin" />
-                        搜索中...
+                        {qualAiLoading ? '🤖 AI 正在理解并检索...' : '搜索中...'}
                       </>
                     ) : (
                       <>

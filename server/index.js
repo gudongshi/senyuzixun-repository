@@ -198,6 +198,22 @@ async function callAIText(prompt) {
   return resultText;
 }
 
+// -------------------------------------------------------
+// 清洗 AI 返回的关键词：去标点 / 去 SQL 通配符 / 截长
+// -------------------------------------------------------
+function sanitizeKeyword(raw) {
+  let cleaned = (raw || '').trim();
+  // 去掉中英文标点
+  cleaned = cleaned.replace(/[，。！？、；：""''（）【】《》…·,\.!\?;:'"\(\)\[\]\{\}]/g, ' ');
+  // 去掉 SQL LIKE 通配符（防止注入式乱匹配）
+  cleaned = cleaned.replace(/[%_]/g, ' ');
+  // 合并多余空格
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  // 限制 20 字符，避免 AI 返回超长文本
+  if (cleaned.length > 20) cleaned = cleaned.slice(0, 20);
+  return cleaned;
+}
+
 async function updateOverallRiskIndex() {
   try {
     const { data: tasks, error } = await supabase
@@ -5944,6 +5960,70 @@ app.get('/api/staff/qualifications', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('❌ 人员资质查询异常:', err.message);
     res.status(500).json({ success: false, error: '查询人员资质失败，请稍后重试' });
+  }
+});
+
+// ============================================================
+// POST /api/staff/ai-search — AI 自然语言搜索人员资质
+// ============================================================
+app.post('/api/staff/ai-search', authMiddleware, async (req, res) => {
+  try {
+    const { question } = req.body;
+    if (!question || !question.trim()) {
+      return res.status(400).json({ success: false, error: '请输入查询内容' });
+    }
+
+    console.log('🤖 AI 资质搜索:', question);
+
+    // 调用 AI 提取关键词
+    let rawKeyword = '';
+    try {
+      rawKeyword = await callAIText(
+        `你是一个数据查询助手。请从用户的自然语言中提取出用于查询人员资质的最核心关键词（如专业、职称、证书名）。直接返回关键词，不要返回任何标点符号或解释。用户输入：${question}`
+      );
+    } catch (aiErr) {
+      console.error('❌ AI 提取关键词调用失败:', aiErr.message);
+      return res.status(500).json({ success: false, error: 'AI 服务暂时不可用，请稍后重试' });
+    }
+
+    console.log('🔑 AI 原始返回:', rawKeyword);
+
+    // 清洗关键词：trim / 去标点 / 去通配符 / 限制长度
+    const keyword = sanitizeKeyword(rawKeyword);
+    console.log('🔑 清洗后关键词:', keyword || '(空)');
+
+    // 清洗后为空 → 不执行查询，不返回全部人员
+    if (!keyword) {
+      return res.json({ success: false, message: 'AI未识别到关键词，请尝试更具体的描述' });
+    }
+
+    // 用清洗后关键词查询 Supabase
+    const kw = `%${keyword}%`;
+    const { data, count, error } = await supabase
+      .from('staff_qualifications')
+      .select('*', { count: 'exact' })
+      .or(
+        `name.ilike.${kw},title.ilike.${kw},cert_type.ilike.${kw},cert_major.ilike.${kw},register_major.ilike.${kw}`
+      )
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ AI 资质搜索 - Supabase 查询失败:', error.message);
+      console.error('   完整错误:', JSON.stringify(error));
+      return res.status(500).json({ success: false, error: `数据库查询失败: ${error.message}` });
+    }
+
+    console.log(`✅ AI 资质搜索成功，共 ${count} 条记录，关键词: "${keyword}"`);
+    res.json({
+      success: true,
+      data: data || [],
+      total: count || 0,
+      aiKeyword: keyword
+    });
+  } catch (err) {
+    console.error('❌ AI 资质搜索异常:', err.message);
+    console.error('   完整异常:', err.stack || err);
+    res.status(500).json({ success: false, error: `AI 搜索失败: ${err.message}` });
   }
 });
 
