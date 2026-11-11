@@ -5921,14 +5921,27 @@ app.get('/api/staff/qualifications', authMiddleware, async (req, res) => {
   try {
     const { keyword, title, major } = req.query;
 
+    // 清洗关键词：去标点 / 去 SQL 通配符 / 截长（复用 AI 搜索的 sanitizeKeyword）
+    let cleanedKeyword = '';
+    if (keyword && keyword.trim()) {
+      cleanedKeyword = sanitizeKeyword(keyword);
+    }
+
     console.log('📋 GET /api/staff/qualifications - 人员资质查询');
-    console.log(`📋 查询参数: keyword="${keyword || ''}", title="${title || ''}", major="${major || ''}"`);
+    console.log(`📋 查询参数: keyword="${keyword || ''}" → 清洗后="${cleanedKeyword || '(无)'}", title="${title || ''}", major="${major || ''}"`);
+
+    // 关键防御：原始 keyword 非空但清洗后为空（纯标点/通配符等无效输入）
+    // → 直接返回空结果，不查全表
+    if (keyword && keyword.trim() && !cleanedKeyword) {
+      console.log('⚠️ 关键词清洗后为空（无效输入），返回空结果');
+      return res.json({ success: true, data: [], total: 0 });
+    }
 
     let query = supabase.from('staff_qualifications').select('*', { count: 'exact' });
 
     // 模糊搜索：姓名、证书类型、职称、证书专业
-    if (keyword && keyword.trim()) {
-      const kw = `%${keyword.trim()}%`;
+    if (cleanedKeyword) {
+      const kw = `%${cleanedKeyword}%`;
       query = query.or(
         `name.ilike.${kw},cert_type.ilike.${kw},title.ilike.${kw},cert_major.ilike.${kw}`
       );
@@ -5948,7 +5961,8 @@ app.get('/api/staff/qualifications', authMiddleware, async (req, res) => {
 
     if (error) {
       console.error('❌ 人员资质查询失败:', error.message);
-      return res.status(500).json({ success: false, error: error.message });
+      console.error('   完整错误:', JSON.stringify(error));
+      return res.status(500).json({ success: false, error: `数据库查询失败: ${error.message}` });
     }
 
     console.log(`✅ 人员资质查询成功，共 ${count} 条记录`);

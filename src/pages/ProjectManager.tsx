@@ -2310,8 +2310,15 @@ export default function ProjectManager() {
   // 人员资质搜索（空关键词 = 拉取全部）
   // 认证说明：GET 和 POST 均为同源请求，cookie 中的 token 由浏览器自动携带，
   // 与 authMiddleware 的 req.cookies?.token 对应，两条路径认证完全一致。
+  // 空输入拦截：forcedKeyword === '' 是 modal 打开时的"加载全部"信号，放行；
+  // forcedKeyword === undefined 是用户点击搜索按钮，空输入则拦截并提示。
   const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
     const keyword = (forcedKeyword ?? qualKeyword).trim();
+
+    if (forcedKeyword !== '' && !keyword) {
+      toast.warning('请输入搜索内容');
+      return;
+    }
 
     console.log(`📋 人员资质查询: keyword="${keyword || '(全部)'}"`);
     setQualLoading(true);
