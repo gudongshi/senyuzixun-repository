@@ -9,6 +9,7 @@ import {
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
 import SiteContentManager from '../components/SiteContentManager';
+import SiteCMSManager from '../components/site/SiteCMSManager';
 
 // ============================================================
 // 类型定义
@@ -2076,6 +2077,7 @@ export default function ProjectManager() {
   const [reportManagerModalOpen, setReportManagerModalOpen] = useState(false);
   const [staffQualManagerOpen, setStaffQualManagerOpen] = useState(false);
   const [siteContentManagerOpen, setSiteContentManagerOpen] = useState(false);
+  const [siteCMSOpen, setSiteCMSOpen] = useState(false);
 
     const [qualifications, setQualifications] = useState<any[]>([]);
   const [qualTotal, setQualTotal] = useState(0);
@@ -2491,14 +2493,24 @@ export default function ProjectManager() {
 
           {/* 官网内容管理 —— 仅高管角色可见 */}
           {user?.roles?.dashboard && (
-            <button
-              onClick={() => setSiteContentManagerOpen(true)}
-              className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 text-xs md:text-sm hover:bg-purple-900/20 transition-colors"
-              title="官网内容管理"
-            >
-              <Globe size={14} className="md:size-4" />
-              官网内容
-            </button>
+            <>
+              <button
+                onClick={() => setSiteContentManagerOpen(true)}
+                className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 text-xs md:text-sm hover:bg-purple-900/20 transition-colors"
+                title="官网内容管理（新闻/案例）"
+              >
+                <Globe size={14} className="md:size-4" />
+                官网内容
+              </button>
+              <button
+                onClick={() => setSiteCMSOpen(true)}
+                className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 text-xs md:text-sm hover:bg-purple-900/20 transition-colors"
+                title="官网全站管理"
+              >
+                <Globe size={14} className="md:size-4" />
+                全站管理
+              </button>
+            </>
           )}
 
           {/* 财务数据 —— 工作台暂不开放高管专属入口，已隐藏 */}
@@ -3228,6 +3240,12 @@ export default function ProjectManager() {
       <SiteContentManager
         open={siteContentManagerOpen}
         onClose={() => setSiteContentManagerOpen(false)}
+      />
+
+      {/* 官网全站管理弹窗 */}
+      <SiteCMSManager
+        open={siteCMSOpen}
+        onClose={() => setSiteCMSOpen(false)}
       />
     </div>
   );

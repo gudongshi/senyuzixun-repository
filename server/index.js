@@ -398,6 +398,17 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 console.log('✅ Supabase 配置已加载');
 
+// Service Role 客户端（绕过 RLS，仅供后端 API 写入使用）
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin = supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
+if (supabaseAdmin) {
+  console.log('✅ Supabase Service Role 客户端已初始化');
+} else {
+  console.warn('⚠️  SUPABASE_SERVICE_ROLE_KEY 未设置，写入接口可能受 RLS 限制');
+}
+
 // ============================================================
 // 钉钉配置
 // ============================================================
@@ -6276,6 +6287,626 @@ app.delete('/api/site/cases/:id', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('❌ 删除案例异常:', err.message);
     res.status(500).json({ success: false, error: '删除案例失败' });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   官网 CMS — site_texts（纯文本）CRUD
+   page_key 作为主键，支持 GET 单条 + PUT Upsert
+   ═══════════════════════════════════════════════════════════ */
+
+// GET /api/site/texts — 获取文本（?page_key=about_intro 查单条，不传则查全部）
+app.get('/api/site/texts', authMiddleware, async (req, res) => {
+  try {
+    const { page_key } = req.query;
+    let query = supabase.from('site_texts').select('*');
+
+    if (page_key) {
+      query = query.eq('page_key', page_key).maybeSingle();
+    }
+
+    const { data, error } = page_key
+      ? await query
+      : await query.order('page_key');
+
+    if (error) {
+      console.error('❌ 获取文本失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`📋 文本查询: page_key=${page_key || '(全部)'}`);
+    res.json({ success: true, data: data || (page_key ? null : []) });
+  } catch (err) {
+    console.error('❌ 获取文本异常:', err.message);
+    res.status(500).json({ success: false, error: '获取文本失败' });
+  }
+});
+
+// PUT /api/site/texts/:page_key — 创建或更新文本（Upsert）
+app.put('/api/site/texts/:page_key', authMiddleware, async (req, res) => {
+  try {
+    const { page_key } = req.params;
+    const { content } = req.body;
+
+    if (!content && content !== '') {
+      return res.status(400).json({ success: false, error: 'content 不能为空' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_texts')
+      .upsert({ page_key, content, updated_at: new Date().toISOString() }, { onConflict: 'page_key' })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 保存文本失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 文本已保存: page_key=${page_key} (${content.length} chars)`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 保存文本异常:', err.message);
+    res.status(500).json({ success: false, error: '保存文本失败' });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   官网 CMS — site_cards（列表卡片）CRUD
+   支持按 page_key 分组查询 + 排序
+   ═══════════════════════════════════════════════════════════ */
+
+// GET /api/site/cards — 获取卡片列表（?page_key=services 筛选）
+app.get('/api/site/cards', authMiddleware, async (req, res) => {
+  try {
+    const { page_key } = req.query;
+    let query = supabase.from('site_cards').select('*').order('sort_order', { ascending: true });
+
+    if (page_key) {
+      query = query.eq('page_key', page_key);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ 获取卡片列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`📋 卡片查询: page_key=${page_key || '(全部)'}, 共 ${(data || []).length} 条`);
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('❌ 获取卡片列表异常:', err.message);
+    res.status(500).json({ success: false, error: '获取卡片列表失败' });
+  }
+});
+
+// POST /api/site/cards — 新增卡片
+app.post('/api/site/cards', authMiddleware, async (req, res) => {
+  try {
+    const { page_key, title, subtitle, icon, items } = req.body;
+    if (!page_key || !page_key.trim()) {
+      return res.status(400).json({ success: false, error: 'page_key 不能为空' });
+    }
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '标题不能为空' });
+    }
+
+    // 自动分配 sort_order（当前 page_key 下最大值 + 1）
+    const { data: last } = await supabase
+      .from('site_cards')
+      .select('sort_order')
+      .eq('page_key', page_key)
+      .order('sort_order', { ascending: false })
+      .limit(1);
+
+    const sort_order = last && last.length > 0 ? last[0].sort_order + 1 : 0;
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_cards')
+      .insert({
+        page_key: page_key.trim(),
+        title: title.trim(),
+        subtitle: subtitle || null,
+        icon: icon || null,
+        items: items || [],
+        sort_order,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 新增卡片失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 卡片已创建: [${page_key}] ${title}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 新增卡片异常:', err.message);
+    res.status(500).json({ success: false, error: '新增卡片失败' });
+  }
+});
+
+// PUT /api/site/cards/:id — 更新卡片
+app.put('/api/site/cards/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, subtitle, icon, items, sort_order } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '标题不能为空' });
+    }
+
+    const updates = {
+      title: title.trim(),
+      subtitle: subtitle || null,
+      icon: icon || null,
+      items: items || [],
+      updated_at: new Date().toISOString(),
+    };
+    if (sort_order !== undefined) updates.sort_order = sort_order;
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_cards')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新卡片失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 卡片已更新: ${id}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 更新卡片异常:', err.message);
+    res.status(500).json({ success: false, error: '更新卡片失败' });
+  }
+});
+
+// DELETE /api/site/cards/:id — 删除卡片
+app.delete('/api/site/cards/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const client = supabaseAdmin || supabase;
+    const { error } = await client
+      .from('site_cards')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除卡片失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 卡片已删除:', id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 删除卡片异常:', err.message);
+    res.status(500).json({ success: false, error: '删除卡片失败' });
+  }
+});
+
+// PUT /api/site/cards/reorder — 批量排序 [{id, sort_order}, ...]
+app.put('/api/site/cards/reorder', authMiddleware, async (req, res) => {
+  try {
+    const { orders } = req.body;
+    if (!orders || !Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ success: false, error: 'orders 必须是非空数组 [{id, sort_order}]' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const results = [];
+    for (const item of orders) {
+      const { error } = await client
+        .from('site_cards')
+        .update({ sort_order: item.sort_order, updated_at: new Date().toISOString() })
+        .eq('id', item.id);
+
+      if (error) {
+        console.error(`❌ 排序卡片 ${item.id} 失败:`, error.message);
+        return res.status(500).json({ success: false, error: `排序失败: ${error.message}` });
+      }
+      results.push(item.id);
+    }
+
+    console.log(`✅ 卡片批量排序完成: ${results.length} 条`);
+    res.json({ success: true, data: results });
+  } catch (err) {
+    console.error('❌ 批量排序异常:', err.message);
+    res.status(500).json({ success: false, error: '批量排序失败' });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   官网 CMS — site_team（核心团队）CRUD
+   支持排序 + 软删除（is_active）
+   ═══════════════════════════════════════════════════════════ */
+
+// GET /api/site/team — 获取团队列表（admin 视角不区分 is_active）
+app.get('/api/site/team', authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('site_team')
+      .select('*')
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      console.error('❌ 获取团队列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`📋 团队查询: 共 ${(data || []).length} 人`);
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('❌ 获取团队列表异常:', err.message);
+    res.status(500).json({ success: false, error: '获取团队列表失败' });
+  }
+});
+
+// POST /api/site/team — 新增团队成员
+app.post('/api/site/team', authMiddleware, async (req, res) => {
+  try {
+    const { name, avatar, titles, bio } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: '姓名不能为空' });
+    }
+
+    const { data: last } = await supabase
+      .from('site_team')
+      .select('sort_order')
+      .order('sort_order', { ascending: false })
+      .limit(1);
+
+    const sort_order = last && last.length > 0 ? last[0].sort_order + 1 : 0;
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_team')
+      .insert({
+        name: name.trim(),
+        avatar: avatar || null,
+        titles: titles || [],
+        bio: bio || null,
+        sort_order,
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 新增团队成员失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 团队成员已创建: ${name}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 新增团队成员异常:', err.message);
+    res.status(500).json({ success: false, error: '新增团队成员失败' });
+  }
+});
+
+// PUT /api/site/team/:id — 更新团队成员
+app.put('/api/site/team/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, avatar, titles, bio, is_active, sort_order } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: '姓名不能为空' });
+    }
+
+    const updates = {
+      name: name.trim(),
+      avatar: avatar || null,
+      titles: titles || [],
+      bio: bio || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (is_active !== undefined) updates.is_active = is_active;
+    if (sort_order !== undefined) updates.sort_order = sort_order;
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_team')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新团队成员失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 团队成员已更新: ${id} — ${name}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 更新团队成员异常:', err.message);
+    res.status(500).json({ success: false, error: '更新团队成员失败' });
+  }
+});
+
+// DELETE /api/site/team/:id — 删除团队成员（软删除：设置 is_active=false）
+app.delete('/api/site/team/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const client = supabaseAdmin || supabase;
+    const { error } = await client
+      .from('site_team')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除团队成员失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 团队成员已下架（软删除）:', id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 删除团队成员异常:', err.message);
+    res.status(500).json({ success: false, error: '删除团队成员失败' });
+  }
+});
+
+// PUT /api/site/team/reorder — 批量排序 [{id, sort_order}, ...]
+app.put('/api/site/team/reorder', authMiddleware, async (req, res) => {
+  try {
+    const { orders } = req.body;
+    if (!orders || !Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ success: false, error: 'orders 必须是非空数组 [{id, sort_order}]' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    for (const item of orders) {
+      const { error } = await client
+        .from('site_team')
+        .update({ sort_order: item.sort_order, updated_at: new Date().toISOString() })
+        .eq('id', item.id);
+
+      if (error) {
+        console.error(`❌ 排序团队成员 ${item.id} 失败:`, error.message);
+        return res.status(500).json({ success: false, error: `排序失败: ${error.message}` });
+      }
+    }
+
+    console.log(`✅ 团队批量排序完成: ${orders.length} 人`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 批量排序异常:', err.message);
+    res.status(500).json({ success: false, error: '批量排序失败' });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   官网 CMS — site_credentials（荣誉资质）CRUD
+   ═══════════════════════════════════════════════════════════ */
+
+// GET /api/site/credentials — 获取资质列表（?category=体系认证 筛选）
+app.get('/api/site/credentials', authMiddleware, async (req, res) => {
+  try {
+    const { category } = req.query;
+    let query = supabase.from('site_credentials').select('*').order('sort_order', { ascending: true });
+
+    if (category) {
+      query = query.eq('category', category);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ 获取资质列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`📋 资质查询: category=${category || '(全部)'}, 共 ${(data || []).length} 条`);
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('❌ 获取资质列表异常:', err.message);
+    res.status(500).json({ success: false, error: '获取资质列表失败' });
+  }
+});
+
+// POST /api/site/credentials — 新增资质
+app.post('/api/site/credentials', authMiddleware, async (req, res) => {
+  try {
+    const { title, image_url, category } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '资质名称不能为空' });
+    }
+    if (!image_url || !image_url.trim()) {
+      return res.status(400).json({ success: false, error: '图片 URL 不能为空' });
+    }
+
+    const { data: last } = await supabase
+      .from('site_credentials')
+      .select('sort_order')
+      .eq('category', category || '企业资质')
+      .order('sort_order', { ascending: false })
+      .limit(1);
+
+    const sort_order = last && last.length > 0 ? last[0].sort_order + 1 : 0;
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_credentials')
+      .insert({
+        title: title.trim(),
+        image_url: image_url.trim(),
+        category: category || '企业资质',
+        sort_order,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 新增资质失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 资质已创建: [${category || '企业资质'}] ${title}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 新增资质异常:', err.message);
+    res.status(500).json({ success: false, error: '新增资质失败' });
+  }
+});
+
+// PUT /api/site/credentials/:id — 更新资质
+app.put('/api/site/credentials/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, image_url, category } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '资质名称不能为空' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('site_credentials')
+      .update({
+        title: title.trim(),
+        image_url: (image_url || '').trim(),
+        category: category || '企业资质',
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新资质失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ 资质已更新: ${id}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 更新资质异常:', err.message);
+    res.status(500).json({ success: false, error: '更新资质失败' });
+  }
+});
+
+// DELETE /api/site/credentials/:id — 删除资质
+app.delete('/api/site/credentials/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const client = supabaseAdmin || supabase;
+    const { error } = await client
+      .from('site_credentials')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除资质失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 资质已删除:', id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 删除资质异常:', err.message);
+    res.status(500).json({ success: false, error: '删除资质失败' });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   官网 CMS — site_contact（联系信息）单例 CRUD
+   ═══════════════════════════════════════════════════════════ */
+
+// GET /api/site/contact — 获取联系信息
+app.get('/api/site/contact', authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('site_contact')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ 获取联系信息失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('📋 联系信息查询');
+    res.json({ success: true, data: data || null });
+  } catch (err) {
+    console.error('❌ 获取联系信息异常:', err.message);
+    res.status(500).json({ success: false, error: '获取联系信息失败' });
+  }
+});
+
+// PUT /api/site/contact — 更新联系信息（Upsert 单例）
+app.put('/api/site/contact', authMiddleware, async (req, res) => {
+  try {
+    const { phone, address, website, email, qrcode, map_coords } = req.body;
+
+    const client = supabaseAdmin || supabase;
+
+    // 查找已有记录
+    const { data: existing } = await supabase
+      .from('site_contact')
+      .select('id')
+      .limit(1);
+
+    let data, error;
+    if (existing && existing.length > 0) {
+      // 更新
+      const result = await client
+        .from('site_contact')
+        .update({
+          phone: phone || null,
+          address: address || null,
+          website: website || null,
+          email: email || null,
+          qrcode: qrcode || null,
+          map_coords: map_coords || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing[0].id)
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    } else {
+      // 插入
+      const result = await client
+        .from('site_contact')
+        .insert({
+          phone: phone || null,
+          address: address || null,
+          website: website || null,
+          email: email || null,
+          qrcode: qrcode || null,
+          map_coords: map_coords || null,
+        })
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    }
+
+    if (error) {
+      console.error('❌ 保存联系信息失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 联系信息已保存');
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 保存联系信息异常:', err.message);
+    res.status(500).json({ success: false, error: '保存联系信息失败' });
   }
 });
 
