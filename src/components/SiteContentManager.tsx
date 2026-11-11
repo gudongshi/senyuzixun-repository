@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, X, Loader2, Search,
-  Newspaper, Briefcase, Eye,
+  Newspaper, Briefcase, Eye, Upload, ImageIcon,
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 // ============================================================
 // 类型定义
@@ -46,6 +47,67 @@ const EMPTY_NEWS: NewsForm = { title: '', cover_image: '', content: '' };
 const EMPTY_CASE: CaseForm = { title: '', cover_image: '', content: '', tags: '' };
 
 // ============================================================
+// 图片压缩（Canvas，最大宽度 1200px，JPEG quality 0.85）
+// ============================================================
+function compressImage(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX_W = 1200;
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX_W) {
+        h = Math.round(h * (MAX_W / w));
+        w = MAX_W;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas 不可用')); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error('压缩失败')),
+        'image/jpeg',
+        0.85,
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片加载失败')); };
+    img.src = url;
+  });
+}
+
+// ============================================================
+// 上传图片到 Supabase Storage，返回 public URL
+// ============================================================
+async function uploadCoverImage(file: File): Promise<string> {
+  // 压缩
+  const compressed = await compressImage(file);
+
+  // 生成唯一文件名
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+  const { data, error } = await supabase.storage
+    .from('site_images')
+    .upload(filename, compressed, {
+      contentType: 'image/jpeg',
+      upsert: false,
+    });
+
+  if (error) throw error;
+
+  // 获取公开 URL
+  const { data: urlData } = supabase.storage
+    .from('site_images')
+    .getPublicUrl(data.path);
+
+  return urlData.publicUrl;
+}
+
+// ============================================================
 // 组件
 // ============================================================
 export default function SiteContentManager({
@@ -79,6 +141,10 @@ export default function SiteContentManager({
   const [newsForm, setNewsForm] = useState<NewsForm>(EMPTY_NEWS);
   const [caseForm, setCaseForm] = useState<CaseForm>(EMPTY_CASE);
   const [formLoading, setFormLoading] = useState(false);
+
+  // ---- 图片上传状态 ----
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ---- 删除确认 ----
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string; type: TabKey } | null>(null);
@@ -187,6 +253,50 @@ export default function SiteContentManager({
       });
     }
     setFormOpen(true);
+  };
+
+  // ==========================================================
+  // 图片上传处理
+  // ==========================================================
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 文件类型校验
+    if (!file.type.startsWith('image/')) {
+      toast.error('请选择图片文件');
+      return;
+    }
+
+    setUploadLoading(true);
+    try {
+      const publicUrl = await uploadCoverImage(file);
+      // 写入当前 Tab 的表单
+      if (tab === 'news') {
+        setNewsForm(f => ({ ...f, cover_image: publicUrl }));
+      } else {
+        setCaseForm(f => ({ ...f, cover_image: publicUrl }));
+      }
+      toast.success('封面上传成功');
+    } catch (err: any) {
+      console.error('❌ 图片上传失败:', err.message);
+      toast.error(err.message || '图片上传失败');
+    } finally {
+      setUploadLoading(false);
+      // 清空 input 以便重复选择同一文件
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ==========================================================
+  // 移除封面图
+  // ==========================================================
+  const handleRemoveCover = () => {
+    if (tab === 'news') {
+      setNewsForm(f => ({ ...f, cover_image: '' }));
+    } else {
+      setCaseForm(f => ({ ...f, cover_image: '' }));
+    }
   };
 
   // ==========================================================
@@ -498,24 +608,62 @@ export default function SiteContentManager({
 
                 {/* 封面图 */}
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1.5">封面图 URL</label>
+                  <label className="block text-sm text-slate-400 mb-1.5">封面图</label>
                   <input
-                    type="text"
-                    value={tab === 'news' ? newsForm.cover_image : caseForm.cover_image}
-                    onChange={e => tab === 'news'
-                      ? setNewsForm(f => ({ ...f, cover_image: e.target.value }))
-                      : setCaseForm(f => ({ ...f, cover_image: e.target.value }))
-                    }
-                    className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/30 transition-colors"
-                    placeholder="粘贴网络图片链接（暂不支持上传）"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
                   />
-                  {(tab === 'news' ? newsForm.cover_image : caseForm.cover_image) && (
-                    <img
-                      src={tab === 'news' ? newsForm.cover_image : caseForm.cover_image}
-                      alt="封面预览"
-                      className="mt-2 rounded-lg max-h-40 object-cover border border-slate-700"
-                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
+                  {(tab === 'news' ? newsForm.cover_image : caseForm.cover_image) ? (
+                    /* 已有封面：显示预览 + 更换/移除按钮 */
+                    <div className="relative inline-block">
+                      <img
+                        src={tab === 'news' ? newsForm.cover_image : caseForm.cover_image}
+                        alt="封面预览"
+                        className="rounded-xl max-h-48 object-cover border border-slate-600"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                      <div className="absolute bottom-2 right-2 flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadLoading}
+                          className="px-2 py-1 rounded-lg bg-slate-900/80 text-xs text-slate-300 border border-slate-600 hover:border-purple-400 transition-colors"
+                        >
+                          {uploadLoading ? '上传中...' : '更换'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRemoveCover}
+                          className="px-2 py-1 rounded-lg bg-slate-900/80 text-xs text-red-400 border border-slate-600 hover:border-red-400 transition-colors"
+                        >
+                          移除
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 未上传：显示上传区域 */
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadLoading}
+                      className="w-full border-2 border-dashed border-slate-600 rounded-xl px-4 py-8 text-slate-500 hover:border-purple-500/50 hover:text-purple-400 transition-all flex flex-col items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {uploadLoading ? (
+                        <>
+                          <Loader2 className="size-8 animate-spin text-purple-400" />
+                          <span className="text-sm text-purple-400">正在压缩并上传...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ImageIcon className="size-8" />
+                          <span className="text-sm">点击上传封面图</span>
+                          <span className="text-xs text-slate-600">支持 JPG / PNG / WebP，自动压缩至 1200px 宽</span>
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
 
