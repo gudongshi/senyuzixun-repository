@@ -4,10 +4,11 @@ import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
   Loader2, AlertTriangle, TrendingUp, Bot, Users, DollarSign,
-  Send, ShieldCheck
+  Send, ShieldCheck, Globe
 } from 'lucide-react';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
+import SiteContentManager from '../components/SiteContentManager';
 
 // ============================================================
 // 类型定义
@@ -2074,6 +2075,7 @@ export default function ProjectManager() {
   const [qualModalOpen, setQualModalOpen] = useState(false);
   const [reportManagerModalOpen, setReportManagerModalOpen] = useState(false);
   const [staffQualManagerOpen, setStaffQualManagerOpen] = useState(false);
+  const [siteContentManagerOpen, setSiteContentManagerOpen] = useState(false);
 
     const [qualifications, setQualifications] = useState<any[]>([]);
   const [qualTotal, setQualTotal] = useState(0);
@@ -2484,6 +2486,18 @@ export default function ProjectManager() {
             >
               <ShieldCheck size={14} className="md:size-4" />
               资质管理
+            </button>
+          )}
+
+          {/* 官网内容管理 —— 仅高管角色可见 */}
+          {user?.roles?.dashboard && (
+            <button
+              onClick={() => setSiteContentManagerOpen(true)}
+              className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 text-xs md:text-sm hover:bg-purple-900/20 transition-colors"
+              title="官网内容管理"
+            >
+              <Globe size={14} className="md:size-4" />
+              官网内容
             </button>
           )}
 
@@ -3208,6 +3222,12 @@ export default function ProjectManager() {
       <StaffQualificationManager
         open={staffQualManagerOpen}
         onClose={() => setStaffQualManagerOpen(false)}
+      />
+
+      {/* 官网内容管理弹窗 */}
+      <SiteContentManager
+        open={siteContentManagerOpen}
+        onClose={() => setSiteContentManagerOpen(false)}
       />
     </div>
   );

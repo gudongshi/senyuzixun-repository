@@ -6041,6 +6041,244 @@ app.post('/api/staff/ai-search', authMiddleware, async (req, res) => {
   }
 });
 
+// ============================================================
+// 官网内容管理 — site_news（新闻）CRUD
+// ============================================================
+
+// GET /api/site/news — 获取新闻列表（分页）
+app.get('/api/site/news', authMiddleware, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const { data, count, error } = await supabase
+      .from('site_news')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      console.error('❌ 获取新闻列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, data: data || [], total: count || 0, page, limit });
+  } catch (err) {
+    console.error('❌ 获取新闻列表异常:', err.message);
+    res.status(500).json({ success: false, error: '获取新闻列表失败' });
+  }
+});
+
+// POST /api/site/news — 新增新闻
+app.post('/api/site/news', authMiddleware, async (req, res) => {
+  try {
+    const { title, cover_image, content } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '标题不能为空' });
+    }
+
+    const { data, error } = await supabase
+      .from('site_news')
+      .insert({
+        title: title.trim(),
+        cover_image: (cover_image || '').trim(),
+        content: content || '',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 新增新闻失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 新闻已创建:', data.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 新增新闻异常:', err.message);
+    res.status(500).json({ success: false, error: '新增新闻失败' });
+  }
+});
+
+// PUT /api/site/news/:id — 更新新闻
+app.put('/api/site/news/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, cover_image, content } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '标题不能为空' });
+    }
+
+    const { data, error } = await supabase
+      .from('site_news')
+      .update({
+        title: title.trim(),
+        cover_image: (cover_image || '').trim(),
+        content: content || '',
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新新闻失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 新闻已更新:', id);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 更新新闻异常:', err.message);
+    res.status(500).json({ success: false, error: '更新新闻失败' });
+  }
+});
+
+// DELETE /api/site/news/:id — 删除新闻
+app.delete('/api/site/news/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase
+      .from('site_news')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除新闻失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 新闻已删除:', id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 删除新闻异常:', err.message);
+    res.status(500).json({ success: false, error: '删除新闻失败' });
+  }
+});
+
+// ============================================================
+// 官网内容管理 — site_cases（案例）CRUD
+// ============================================================
+
+// GET /api/site/cases — 获取案例列表（分页）
+app.get('/api/site/cases', authMiddleware, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const { data, count, error } = await supabase
+      .from('site_cases')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      console.error('❌ 获取案例列表失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, data: data || [], total: count || 0, page, limit });
+  } catch (err) {
+    console.error('❌ 获取案例列表异常:', err.message);
+    res.status(500).json({ success: false, error: '获取案例列表失败' });
+  }
+});
+
+// POST /api/site/cases — 新增案例
+app.post('/api/site/cases', authMiddleware, async (req, res) => {
+  try {
+    const { title, cover_image, content, tags } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '标题不能为空' });
+    }
+
+    const { data, error } = await supabase
+      .from('site_cases')
+      .insert({
+        title: title.trim(),
+        cover_image: (cover_image || '').trim(),
+        content: content || '',
+        tags: (tags || '').trim(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 新增案例失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 案例已创建:', data.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 新增案例异常:', err.message);
+    res.status(500).json({ success: false, error: '新增案例失败' });
+  }
+});
+
+// PUT /api/site/cases/:id — 更新案例
+app.put('/api/site/cases/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, cover_image, content, tags } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: '标题不能为空' });
+    }
+
+    const { data, error } = await supabase
+      .from('site_cases')
+      .update({
+        title: title.trim(),
+        cover_image: (cover_image || '').trim(),
+        content: content || '',
+        tags: (tags || '').trim(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ 更新案例失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 案例已更新:', id);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ 更新案例异常:', err.message);
+    res.status(500).json({ success: false, error: '更新案例失败' });
+  }
+});
+
+// DELETE /api/site/cases/:id — 删除案例
+app.delete('/api/site/cases/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase
+      .from('site_cases')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ 删除案例失败:', error.message);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ 案例已删除:', id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ 删除案例异常:', err.message);
+    res.status(500).json({ success: false, error: '删除案例失败' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在端口 ${PORT}`);
   console.log(`✅ 钉钉 AppKey: ${DINGTALK_APP_KEY.slice(0, 8)}...`);
