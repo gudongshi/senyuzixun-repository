@@ -2311,14 +2311,42 @@ export default function ProjectManager() {
   // 认证说明：GET 和 POST 均为同源请求，cookie 中的 token 由浏览器自动携带，
   // 与 authMiddleware 的 req.cookies?.token 对应，两条路径认证完全一致。
   // 空输入处理：forcedKeyword === '' 是 modal 打开时的"加载全部"信号，直接放行；
-  // forcedKeyword === undefined 是用户点击搜索按钮 → 弹出提示，然后穿透到下方
-  // 走"无 keyword → 拉全表"路径，将上次查"查一下"残留的空列表恢复为 155 人。
+  // forcedKeyword === undefined 是用户点击搜索按钮 → 弹出 toast 提示后，
+  // 内联拉取全量数据并 return，不穿透到通用逻辑，确保 toast 不受后续状态更新干扰。
   const handleQualSearch = useCallback(async (forcedKeyword?: string) => {
     const keyword = (forcedKeyword ?? qualKeyword).trim();
 
     if (forcedKeyword !== '' && !keyword) {
-      toast.warning('请输入搜索内容');
-      // 不 return —— 穿透执行，拉取全量 155 人，恢复视图
+      // ① 先发 toast（在任何 setState 之前，确保 Sonner 收到调度）
+      toast.warning('请输入搜索内容', { duration: 4000 });
+
+      // ② 同步清空输入框状态
+      setQualKeyword('');
+
+      // ③ 内联拉取全量数据恢复视图，完成后直接 return
+      setQualLoading(true);
+      setQualSearched(true);
+      try {
+        const resp = await fetch('/api/staff/qualifications', { credentials: 'same-origin' });
+        const result = await resp.json();
+        if (result.success) {
+          setQualifications(result.data || []);
+          setQualTotal(result.total || 0);
+        } else {
+          setQualifications([]);
+          setQualTotal(0);
+          toast.error(result.error || result.message || '加载失败');
+        }
+      } catch (err: any) {
+        console.error('❌ 恢复全量人员失败:', err.message);
+        setQualifications([]);
+        setQualTotal(0);
+        toast.error('网络异常，请稍后重试');
+      } finally {
+        setQualLoading(false);
+        setQualAiLoading(false);
+      }
+      return; // 不走通用逻辑，避免重复设置 loading / 结果被覆盖
     }
 
     console.log(`📋 人员资质查询: keyword="${keyword || '(全部)'}"`);
