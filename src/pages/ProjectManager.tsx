@@ -151,6 +151,11 @@ const BUSINESS_TYPES = ['全过程咨询', '工程咨询', '项目管理', '工�
 const IMPLEMENTATION_STATUSES = ['未开始', '进行中', '已暂停', '已完工', '已终止'];
 const PAGE_SIZE = 15;
 
+// ══════════════════════════════════════════════════════════════
+// 模块级样式常量 — 所有子组件均可引用
+// ══════════════════════════════════════════════════════════════
+const inputClassV2 = "bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors";
+
 // ============================================================
 // 工具函数
 // ============================================================
@@ -2456,8 +2461,6 @@ export default function ProjectManager() {
     }
     window.location.href = '/';
   };
-
-  const inputClassV2 = "bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
