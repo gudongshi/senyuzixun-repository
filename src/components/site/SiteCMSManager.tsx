@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { X, Globe, FileText, LayoutGrid, Users, Award, Phone } from 'lucide-react';
 import SiteTextManager from './SiteTextManager';
 import SiteCardManager from './SiteCardManager';
@@ -44,7 +44,7 @@ export default function SiteCMSManager({
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-[1px] whitespace-nowrap ${
                 tab === t.key
-                  ? 'border-indigo-500 text-indigo-600'
+                  ? 'border-slate-800 text-slate-800'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >

@@ -155,9 +155,9 @@ const PAGE_SIZE = 15;
 // ============================================================
 function getStatusColor(status: string) {
   switch (status) {
-    case '进行中': return 'bg-emerald-900/20 border-emerald-500/30 text-emerald-600';
+    case '进行中': return 'bg-emerald-900/20 border-emerald-500/30 text-slate-800';
     case '已结项': return 'bg-blue-900/20 border-blue-500/30 text-blue-400';
-    case '暂停': return 'bg-amber-900/20 border-amber-500/30 text-amber-600';
+    case '暂停': return 'bg-amber-900/20 border-amber-500/30 text-slate-800';
     case '规划中': return 'bg-slate-700/50 border-slate-500/30 text-slate-400';
     default: return 'bg-slate-700/50 border-slate-500/30 text-slate-400';
   }
@@ -167,8 +167,8 @@ function getRiskColor(level: string) {
   switch (level) {
     case '极高风险': return 'text-red-400 bg-red-900/20 border-red-500/30';
     case '高风险': return 'text-red-400 bg-red-900/20 border-red-500/30';
-    case '中风险': return 'text-amber-600 bg-amber-900/20 border-amber-500/30';
-    case '低风险': return 'text-emerald-600 bg-emerald-900/20 border-emerald-500/30';
+    case '中风险': return 'text-slate-800 bg-amber-900/20 border-amber-500/30';
+    case '低风险': return 'text-slate-800 bg-emerald-900/20 border-emerald-500/30';
     default: return 'text-slate-400 bg-slate-700/50 border-slate-500/30';
   }
 }
@@ -212,7 +212,7 @@ function ConfirmDialog({
           <button
             onClick={onCancel}
             disabled={loading}
-            className="px-4 py-2 rounded-lg border border-slate-600 text-slate-700 hover:bg-slate-700 transition-colors disabled:opacity-50"
+            className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors disabled:opacity-50"
           >
             取消
           </button>
@@ -500,14 +500,14 @@ function ProjectFormModal({
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-800 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
   const labelClass = "block text-sm text-slate-400 mb-1";
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center pt-10 overflow-y-auto">
       <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl my-10">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
-          <h2 className="text-xl font-bold text-indigo-600">{title}</h2>
+          <h2 className="text-xl font-bold text-slate-800">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-800 transition-colors">
             <X size={22} />
           </button>
@@ -564,7 +564,7 @@ function ProjectFormModal({
 
           {/* 第一组：基础信息 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-indigo-600 font-semibold mb-3">📋 基础信息</h3>
+            <h3 className="text-sm text-slate-800 font-semibold mb-3">📋 基础信息</h3>
             <div className="space-y-3">
               <div>
                 <label className={labelClass}>服务范围</label>
@@ -586,7 +586,7 @@ function ProjectFormModal({
 
           {/* 第二组：时间与成本 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-indigo-600 font-semibold mb-3">💰 时间与成本</h3>
+            <h3 className="text-sm text-slate-800 font-semibold mb-3">💰 时间与成本</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>计划开始时间</label>
@@ -619,7 +619,7 @@ function ProjectFormModal({
 
           {/* 第三组：人员与地址 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-indigo-600 font-semibold mb-3">👥 人员与地址</h3>
+            <h3 className="text-sm text-slate-800 font-semibold mb-3">👥 人员与地址</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>实际项目负责人</label>
@@ -643,7 +643,7 @@ function ProjectFormModal({
 
           {/* 第四组：分类与客户 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-indigo-600 font-semibold mb-3">🏢 分类与客户</h3>
+            <h3 className="text-sm text-slate-800 font-semibold mb-3">🏢 分类与客户</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>项目类型 <span className="text-red-400">*</span></label>
@@ -683,7 +683,7 @@ function ProjectFormModal({
                       console.log('📋 打开快速新增客户弹窗');
                       setQuickClientOpen(true);
                     }}
-                    className="px-3 py-2 rounded-lg border border-cyan-500/30 text-indigo-600 hover:bg-cyan-500/10 transition-colors shrink-0"
+                    className="px-3 py-2 rounded-lg border border-cyan-500/30 text-slate-800 hover:bg-cyan-500/10 transition-colors shrink-0"
                     title="新增客户"
                   >
                     <Plus size={18} />
@@ -704,11 +704,11 @@ function ProjectFormModal({
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
             <button type="button" onClick={onClose}
-              className="px-5 py-2 rounded-lg border border-slate-600 text-slate-700 hover:bg-slate-700 transition-colors">
+              className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
               取消
             </button>
             <button type="submit" disabled={loading}
-              className="px-5 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all disabled:opacity-50 flex items-center gap-2">
+              className="px-5 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all disabled:opacity-50 flex items-center gap-2">
               {loading && <Loader2 className="size-4 animate-spin" />}
               {isEdit ? '保存修改' : '创建项目'}
             </button>
@@ -721,7 +721,7 @@ function ProjectFormModal({
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center">
           <div className="bg-slate-800 border border-cyan-500/30 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
             <div className="flex justify-between items-center p-5 border-b border-blue-900/30">
-              <h3 className="text-lg font-bold text-indigo-600">新增客户</h3>
+              <h3 className="text-lg font-bold text-slate-800">新增客户</h3>
               <button
                 onClick={() => {
                   setQuickClientOpen(false);
@@ -770,14 +770,14 @@ function ProjectFormModal({
                   setQuickClientOpen(false);
                   setQuickClientForm({ client_name: '', contact_person: '', contact_phone: '', responsible_person: '' });
                 }}
-                className="px-4 py-2 rounded-lg border border-slate-600 text-slate-700 hover:bg-slate-700 transition-colors text-sm"
+                className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
               >
                 取消
               </button>
               <button
                 onClick={handleQuickClientSubmit}
                 disabled={quickClientLoading}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all disabled:opacity-50 flex items-center gap-2 text-sm"
+                className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all disabled:opacity-50 flex items-center gap-2 text-sm"
               >
                 {quickClientLoading && <Loader2 className="size-4 animate-spin" />}
                 创建
@@ -873,14 +873,14 @@ function WeeklyReportModal({
     }
   };
 
-  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-800 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
   const labelClass = "block text-sm text-slate-400 mb-1";
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center pt-10 overflow-y-auto">
       <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-xl mx-4 shadow-2xl my-10">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
-          <h2 className="text-xl font-bold text-indigo-600">
+          <h2 className="text-xl font-bold text-slate-800">
             提交周报 — {projectName}
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-800 transition-colors">
@@ -933,11 +933,11 @@ function WeeklyReportModal({
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
             <button type="button" onClick={onClose}
-              className="px-5 py-2 rounded-lg border border-slate-600 text-slate-700 hover:bg-slate-700 transition-colors">
+              className="px-5 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
               取消
             </button>
             <button type="submit" disabled={loading}
-              className="px-5 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all disabled:opacity-50 flex items-center gap-2">
+              className="px-5 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all disabled:opacity-50 flex items-center gap-2">
               {loading && <Loader2 className="size-4 animate-spin" />}
               提交周报
             </button>
@@ -1070,13 +1070,13 @@ function ProjectDetailDrawer({
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-cyan-500/30 bg-slate-800/50 sticky top-0 backdrop-blur-md z-10">
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-indigo-600 truncate">
+            <h2 className="text-xl font-bold text-slate-800 truncate">
               {project.projectName || '项目详情'}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">合同编号: {project.contractNumber || '-'}</p>
           </div>
           <button onClick={onClose}
-            className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-indigo-600 hover:bg-cyan-500/20 hover:border-cyan-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
+            className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-slate-800 hover:bg-cyan-500/20 hover:border-slate-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
             <X size={22} />
           </button>
         </div>
@@ -1088,7 +1088,7 @@ function ProjectDetailDrawer({
               onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
                 activeTab === tab.key
-                  ? 'border-cyan-400 text-indigo-600'
+                  ? 'border-cyan-400 text-slate-800'
                   : 'border-transparent text-slate-400 hover:text-slate-700'
               }`}>
               <tab.icon size={16} />
@@ -1103,7 +1103,7 @@ function ProjectDetailDrawer({
           {activeTab === 'info' && (
             loading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="size-8 text-indigo-600 animate-spin" />
+                <Loader2 className="size-8 text-slate-800 animate-spin" />
               </div>
             ) : detail ? (
               <div className="space-y-1 bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
@@ -1237,7 +1237,7 @@ function ProjectDetailDrawer({
           {activeTab === 'reports' && (
             reportsLoading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="size-8 text-indigo-600 animate-spin" />
+                <Loader2 className="size-8 text-slate-800 animate-spin" />
               </div>
             ) : weeklyReports.length === 0 ? (
               <div className="text-center py-20 text-slate-400">
@@ -1249,14 +1249,14 @@ function ProjectDetailDrawer({
                 {weeklyReports.map((report) => (
                   <div key={report.id} className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-4">
                     <div className="flex justify-between items-center mb-3">
-                      <span className="text-indigo-600 font-semibold text-sm">{report.reportDate}</span>
+                      <span className="text-slate-800 font-semibold text-sm">{report.reportDate}</span>
                       <div className="flex items-center gap-3">
                         <span className="text-slate-400 text-xs">进度: {report.currentProgress}%</span>
                         {report.riskSelfAssessment && (
                           <span className={`px-2 py-0.5 rounded text-xs border ${
                             report.riskSelfAssessment === '高' ? 'border-red-500/30 text-red-400 bg-red-900/20' :
-                            report.riskSelfAssessment === '中' ? 'border-amber-500/30 text-amber-600 bg-amber-900/20' :
-                            'border-emerald-500/30 text-emerald-600 bg-emerald-900/20'
+                            report.riskSelfAssessment === '中' ? 'border-amber-500/30 text-slate-800 bg-amber-900/20' :
+                            'border-emerald-500/30 text-slate-800 bg-emerald-900/20'
                           }`}>
                             风险: {report.riskSelfAssessment}
                           </span>
@@ -1264,7 +1264,7 @@ function ProjectDetailDrawer({
                       </div>
                     </div>
                     <div className="w-full bg-slate-600/50 rounded-full h-2 mb-3">
-                      <div className="bg-indigo-600 h-2 rounded-full transition-all"
+                      <div className="bg-slate-900 h-2 rounded-full transition-all"
                         style={{ width: `${report.currentProgress}%` }} />
                     </div>
                     <div className="space-y-2 text-sm">
@@ -1281,7 +1281,7 @@ function ProjectDetailDrawer({
                       {report.nextWeekPlan && (
                         <div>
                           <span className="text-blue-500">下周计划：</span>
-                          <p className="text-indigo-700/80 mt-0.5">{report.nextWeekPlan}</p>
+                          <p className="text-slate-700/80 mt-0.5">{report.nextWeekPlan}</p>
                         </div>
                       )}
                     </div>
@@ -1299,13 +1299,13 @@ function ProjectDetailDrawer({
                   {/* 风险评分 */}
                   <div className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-indigo-600 font-semibold">风险评分</h3>
+                      <h3 className="text-slate-800 font-semibold">风险评分</h3>
                       <span className={`px-3 py-1 rounded-lg text-sm font-bold border ${getRiskColor(aiAnalysis.riskLevel)}`}>
                         {aiAnalysis.riskLevel}
                       </span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="text-4xl font-bold text-indigo-600">{aiAnalysis.riskScore}</div>
+                      <div className="text-4xl font-bold text-slate-800">{aiAnalysis.riskScore}</div>
                       <div className="text-slate-400 text-sm">/ 100</div>
                     </div>
                     <div className="w-full bg-slate-600/50 rounded-full h-3 mt-3">
@@ -1342,13 +1342,13 @@ function ProjectDetailDrawer({
 
                   {/* 建议 */}
                   {aiAnalysis.suggestions && aiAnalysis.suggestions.length > 0 && (
-                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5">
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
                       <h3 className="text-blue-400 font-semibold mb-3 flex items-center gap-2">
                         <TrendingUp size={16} /> AI 建议
                       </h3>
                       <ul className="space-y-2">
                         {aiAnalysis.suggestions.map((s, i) => (
-                          <li key={i} className="text-indigo-700/80 text-sm flex items-start gap-2">
+                          <li key={i} className="text-slate-700/80 text-sm flex items-start gap-2">
                             <span className="text-blue-400 mt-0.5">💡</span> {s}
                           </li>
                         ))}
@@ -1384,11 +1384,11 @@ function ProjectDetailDrawer({
         {/* Bottom Actions */}
         <div className="sticky bottom-0 p-6 border-t border-blue-900/30 bg-slate-900/90 backdrop-blur-md flex gap-3">
           <button onClick={onEdit}
-            className="flex-1 py-2.5 rounded-lg border border-cyan-500/40 text-indigo-600 hover:bg-cyan-500/10 transition-colors flex items-center justify-center gap-2">
+            className="flex-1 py-2.5 rounded-lg border border-cyan-500/40 text-slate-800 hover:bg-cyan-500/10 transition-colors flex items-center justify-center gap-2">
             <Edit size={16} /> 编辑
           </button>
           <button onClick={onWeeklyReport}
-            className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all flex items-center justify-center gap-2">
+            className="flex-1 py-2.5 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all flex items-center justify-center gap-2">
             <FileText size={16} /> 提交周报
           </button>
         </div>
@@ -1615,17 +1615,17 @@ function WeeklyReportFormModal({
   };
 
   const update = (f: string, v: string) => setForm(p => ({ ...p, [f]: v }));
-  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-800 text-base focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+  const inputClass = "w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-200 text-base focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
   const readOnlyClass = "w-full bg-slate-700/20 border border-slate-600/50 rounded-lg px-3 py-2.5 text-slate-400 text-base cursor-not-allowed";
   const labelClass = "block text-sm text-slate-400 mb-1";
   const sectionClass = "border-t border-slate-700/50 pt-4";
-  const sectionTitleClass = "text-sm text-indigo-600 font-semibold mb-3";
+  const sectionTitleClass = "text-sm text-slate-800 font-semibold mb-3";
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-slate-800 md:bg-slate-900/70 md:backdrop-blur-sm">
       <div className="w-full h-full flex flex-col md:h-auto md:max-h-[85vh] md:w-[800px] md:m-auto md:rounded-2xl border border-blue-900/30 shadow-2xl bg-slate-800">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
-          <h2 className="text-xl font-bold text-indigo-600">{title}</h2>
+          <h2 className="text-xl font-bold text-slate-800">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-800 transition-colors"><X size={22} /></button>
         </div>
 
@@ -1735,7 +1735,7 @@ function WeeklyReportFormModal({
 
               {/* 财务字段（只读） */}
               <div className={sectionClass}>
-                <h3 className={sectionTitleClass}>🏦 财务字段 <span className="text-xs text-amber-600 font-normal">（财务部维护，不可编辑）</span></h3>
+                <h3 className={sectionTitleClass}>🏦 财务字段 <span className="text-xs text-slate-800 font-normal">（财务部维护，不可编辑）</span></h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className={labelClass}>本月直接成本</label><input type="number" className={readOnlyClass} value={form.monthlyDirectCost} readOnly disabled /></div>
                   <div><label className={labelClass}>本月部门管理成本</label><input type="number" className={readOnlyClass} value={form.monthlyDeptCost} readOnly disabled /></div>
@@ -1753,9 +1753,9 @@ function WeeklyReportFormModal({
           </div>
           {!isView && (
             <div className="shrink-0 flex justify-end gap-3 p-4 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur-sm">
-              <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-600 text-slate-700 hover:bg-slate-700 transition-colors">取消</button>
+              <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">取消</button>
               <button type="submit" disabled={loading}
-                className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all disabled:opacity-50 flex items-center gap-2">
+                className="px-5 py-2.5 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all disabled:opacity-50 flex items-center gap-2">
                 {loading && <Loader2 className="size-4 animate-spin" />}
                 {isEdit ? '保存修改' : '提交周报'}
               </button>
@@ -1867,7 +1867,7 @@ function WeeklyReportManager({
     }
   };
 
-  const inputClass = "bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-800 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
+  const inputClass = "bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors";
 
   return (
     <div className="px-6 pb-4">
@@ -1875,17 +1875,17 @@ function WeeklyReportManager({
         {/* Header */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-blue-900/10 transition-colors"
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-100 transition-colors"
         >
           <div className="flex items-center gap-3">
-            <FileText className="size-5 text-indigo-600" />
-            <h2 className="text-base font-bold text-indigo-600">周报管理</h2>
+            <FileText className="size-4 text-slate-600" />
+            <h2 className="text-base font-bold text-slate-800">周报管理</h2>
           </div>
           <ChevronRight size={18} className={`text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
         </button>
 
         {!collapsed && (
-          <div className="border-t border-blue-900/30 px-5 py-4 space-y-4">
+          <div className="border-t border-slate-200 px-5 py-4 space-y-4">
             {/* 项目选择器 */}
             <div className="flex flex-col md:flex-row md:items-center gap-3">
               <div className="w-full md:flex-1 md:max-w-sm">
@@ -1899,7 +1899,7 @@ function WeeklyReportManager({
               </div>
               {selectedProjectId && (
                 <button onClick={handleCreate}
-                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all text-sm w-full md:w-auto">
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all text-sm w-full md:w-auto">
                   <Plus size={16} /> 新建周报
                 </button>
               )}
@@ -1909,7 +1909,7 @@ function WeeklyReportManager({
             {selectedProjectId && (
               reportsLoading ? (
                 <div className="flex items-center justify-center py-10">
-                  <Loader2 className="size-6 text-indigo-600 animate-spin" />
+                  <Loader2 className="size-6 text-slate-800 animate-spin" />
                 </div>
               ) : reports.length === 0 ? (
                 <div className="text-center py-10 text-slate-400 text-sm">暂无周报记录</div>
@@ -1928,10 +1928,10 @@ function WeeklyReportManager({
                       </thead>
                       <tbody>
                         {reports.map(r => (
-                          <tr key={r.id} className="border-b border-slate-700/30 hover:bg-blue-900/10 transition-colors">
+                          <tr key={r.id} className="border-b border-slate-700/30 hover:bg-slate-100 transition-colors">
                             <td className="px-4 py-2.5 text-slate-800 text-sm">{r.reportDate}</td>
                             <td className="px-4 py-2.5">
-                              <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-purple-600 border border-purple-500/30' : 'bg-cyan-900/20 text-indigo-600 border border-cyan-500/30'}`}>
+                              <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-slate-800 border border-purple-500/30' : 'bg-cyan-900/20 text-slate-800 border border-cyan-500/30'}`}>
                                 {r.reportType === 'monthly' ? '月报' : '周报'}
                               </span>
                             </td>
@@ -1939,7 +1939,7 @@ function WeeklyReportManager({
                             <td className="px-4 py-2.5 text-slate-400 text-sm max-w-[200px] truncate">{r.weeklySummary || '-'}</td>
                             <td className="px-4 py-2.5">
                               <div className="flex items-center justify-end gap-1">
-                                <button onClick={() => handleView(r)} className="p-1 rounded text-indigo-600 hover:bg-cyan-500/20" title="查看"><Eye size={14} /></button>
+                                <button onClick={() => handleView(r)} className="p-1 rounded text-slate-800 hover:bg-cyan-500/20" title="查看"><Eye size={14} /></button>
                                 <button onClick={() => handleEdit(r)} className="p-1 rounded text-blue-400 hover:bg-blue-500/20" title="编辑"><Edit size={14} /></button>
                                 <button onClick={() => handleDeleteClick(r)} className="p-1 rounded text-red-400 hover:bg-red-500/20" title="删除"><Trash2 size={14} /></button>
                               </div>
@@ -1956,7 +1956,7 @@ function WeeklyReportManager({
                       <div key={r.id} className="bg-slate-700/30 border border-slate-600/50 rounded-xl p-4 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-slate-800 text-sm font-medium">{r.reportDate}</span>
-                          <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-purple-600 border border-purple-500/30' : 'bg-cyan-900/20 text-indigo-600 border border-cyan-500/30'}`}>
+                          <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-slate-800 border border-purple-500/30' : 'bg-cyan-900/20 text-slate-800 border border-cyan-500/30'}`}>
                             {r.reportType === 'monthly' ? '月报' : '周报'}
                           </span>
                         </div>
@@ -1969,7 +1969,7 @@ function WeeklyReportManager({
                           <span className="text-slate-700">{r.weeklySummary || '-'}</span>
                         </div>
                         <div className="flex items-center gap-2 pt-1 border-t border-slate-600/30">
-                          <button onClick={() => handleView(r)} className="flex-1 py-1.5 rounded text-indigo-600 text-xs border border-cyan-500/30 hover:bg-cyan-500/10 transition-colors">查看</button>
+                          <button onClick={() => handleView(r)} className="flex-1 py-1.5 rounded text-slate-800 text-xs border border-cyan-500/30 hover:bg-cyan-500/10 transition-colors">查看</button>
                           <button onClick={() => handleEdit(r)} className="flex-1 py-1.5 rounded text-blue-400 text-xs border border-blue-500/30 hover:bg-blue-500/10 transition-colors">编辑</button>
                           <button onClick={() => handleDeleteClick(r)} className="flex-1 py-1.5 rounded text-red-400 text-xs border border-red-500/30 hover:bg-red-500/10 transition-colors">删除</button>
                         </div>
@@ -2019,7 +2019,7 @@ function WeeklyReportManager({
             <p className="text-slate-700 text-sm mb-6">确定要删除「{deletingReport?.reportDate}」的周报记录吗？此操作不可撤销。</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => { setDeleteConfirmOpen(false); setDeletingReport(null); }} disabled={deleting}
-                className="px-4 py-2 rounded-lg border border-slate-600 text-slate-700 hover:bg-slate-700 transition-colors disabled:opacity-50">取消</button>
+                className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors disabled:opacity-50">取消</button>
               <button onClick={handleDeleteConfirm} disabled={deleting}
                 className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50 flex items-center gap-2">
                 {deleting && <Loader2 className="size-4 animate-spin" />}确认删除
@@ -2448,7 +2448,7 @@ export default function ProjectManager() {
     window.location.href = '/';
   };
 
-  const inputClassV2 = "bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-500/20 transition-colors";
+  const inputClassV2 = "bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
@@ -2470,55 +2470,46 @@ export default function ProjectManager() {
       {/* Toolbar */}
       {/* ============================================================ */}
       <div className="px-4 md:px-6 py-3 md:py-4 bg-white border-b border-slate-200">
-        <div className="flex flex-col gap-3">
-          {/* 搜索 —— 手机端占满整行 */}
-          <form onSubmit={handleSearch} className="flex items-center gap-2 w-full md:max-w-md">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-              <input type="text" className={`${inputClassV2} pl-9 w-full`}
-                placeholder="搜索项目名称/合同编号..."
-                value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            <button type="submit"
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-500 transition-all whitespace-nowrap">
-              搜索
-            </button>
-          </form>
-
-          {/* 筛选控件 —— 手机端可横向滑动，PC端正常换行 */}
-          <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap pb-1 md:pb-0 md:flex-wrap">
-            {/* 服务类别筛选 */}
-            <select className={`${inputClassV2} flex-shrink-0`} value={filterCategory}
-              onChange={e => { setFilterCategory(e.target.value); }}>
-              <option value="">全部类别</option>
-              {SERVICE_CATEGORIES.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-
-            {/* 项目状态筛选 */}
-            <select className={`${inputClassV2} flex-shrink-0`} value={filterStatus}
-              onChange={e => { setFilterStatus(e.target.value); }}>
-              <option value="">全部状态</option>
-              {PROJECT_STATUSES.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-
-            {/* 刷新 */}
-            <button onClick={() => fetchProjects(pagination.page)}
-              className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-800 hover:bg-slate-700 transition-colors flex-shrink-0"
-              title="刷新">
-              <RefreshCw size={18} />
-            </button>
-
-            {/* 新建项目 */}
-            <button onClick={handleCreate}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all font-medium  flex-shrink-0">
-              <Plus size={18} />
-              新建项目
-            </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 搜索框 */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+            <input type="text" className={`${inputClassV2} pl-9 w-full`}
+              placeholder="搜索项目名称/合同编号..."
+              value={search} onChange={e => setSearch(e.target.value)} />
           </div>
+          <button type="submit" onClick={handleSearch}
+            className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-700 transition-all whitespace-nowrap">
+            搜索
+          </button>
+
+          <select className={`${inputClassV2} flex-shrink-0`} value={filterCategory}
+            onChange={e => { setFilterCategory(e.target.value); }}>
+            <option value="">全部类别</option>
+            {SERVICE_CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+
+          <select className={`${inputClassV2} flex-shrink-0`} value={filterStatus}
+            onChange={e => { setFilterStatus(e.target.value); }}>
+            <option value="">全部状态</option>
+            {PROJECT_STATUSES.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
+          <button onClick={() => fetchProjects(pagination.page)}
+            className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+            title="刷新">
+            <RefreshCw size={16} />
+          </button>
+
+          <button onClick={handleCreate}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all text-sm font-medium flex-shrink-0">
+            <Plus size={16} />
+            新建项目
+          </button>
         </div>
       </div>
 
@@ -2535,18 +2526,18 @@ export default function ProjectManager() {
               : '';
             return (
               <div
-                className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex items-center gap-2 text-indigo-700 text-sm cursor-pointer hover:bg-indigo-100 transition-colors"
+                className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-2 text-slate-700 text-sm cursor-pointer hover:bg-slate-100 transition-colors"
                 onClick={() => toast.info('请前往钉钉工作台查看公告详情')}
                 title="点击查看详情提示"
               >
                 📢 <span className="font-medium">最新公告：</span>
                 <span className="flex-1 truncate">{latest.title}</span>
-                {dateStr && <span className="text-indigo-400 text-xs whitespace-nowrap">({dateStr})</span>}
+                {dateStr && <span className="text-slate-500 text-xs whitespace-nowrap">({dateStr})</span>}
               </div>
             );
           })()
         ) : (
-          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex items-center gap-2 text-indigo-700 text-sm">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-2 text-slate-700 text-sm">
             📢 集团公告：欢迎使用全新的森宇员工工作台，如有系统问题请联系信息部。
           </div>
         )}
@@ -2554,20 +2545,20 @@ export default function ProjectManager() {
         {/* 数据卡片 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           {/* 卡片一：我的项目 */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-indigo-300 hover:shadow-md transition-colors">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="size-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-                <Building2 className="size-5 text-indigo-600" />
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm hover:border-slate-300 hover:shadow transition-all">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Building2 className="size-4 text-slate-600" />
               </div>
               <h3 className="text-slate-700 text-sm font-medium">我的项目</h3>
             </div>
-            <p className="text-3xl font-bold text-indigo-600">{projects.length}</p>
-            <p className="text-slate-400 text-xs mt-1">查看我负责的所有项目</p>
+            <p className="text-lg font-semibold text-slate-900">{projects.length}</p>
+            <p className="text-slate-400 text-[11px] mt-0.5">查看我负责的所有项目</p>
           </div>
 
           {/* 卡片二：快捷填报 */}
           <div
-            className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-emerald-300 hover:shadow-md transition-colors cursor-pointer"
+            className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm hover:border-slate-300 hover:shadow transition-all cursor-pointer"
             onClick={() => {
               console.log('📋 快捷填报：打开周报管理');
               // 滚动到周报管理区块顶部，并自动展开折叠的面板
@@ -2582,50 +2573,50 @@ export default function ProjectManager() {
               }
             }}
           >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="size-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                <FileText className="size-5 text-emerald-600" />
+            <div className="flex items-center gap-2 mb-2">
+              <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                <FileText className="size-4 text-slate-600" />
               </div>
               <h3 className="text-slate-700 text-sm font-medium">快捷填报</h3>
             </div>
-            <p className="text-3xl font-bold text-emerald-600">填写周报</p>
-            <p className="text-slate-400 text-xs mt-1">点击直接填报我的项目周报</p>
+            <p className="text-lg font-semibold text-slate-900">填写周报</p>
+            <p className="text-slate-400 text-[11px] mt-0.5">点击直接填报我的项目周报</p>
           </div>
 
           {/* 卡片三：AI 智能助理 */}
           <div
-            className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-purple-300 hover:shadow-md transition-colors cursor-pointer"
+            className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm hover:border-slate-300 hover:shadow transition-all cursor-pointer"
             onClick={() => {
               console.log('🤖 用户点击 AI 智能助理卡片');
               setChatOpen(true);
             }}
           >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="size-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                <Bot className="size-5 text-purple-600" />
+            <div className="flex items-center gap-2 mb-2">
+              <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Bot className="size-4 text-slate-600" />
               </div>
               <h3 className="text-slate-700 text-sm font-medium">AI 智能助理</h3>
             </div>
-            <p className="text-3xl font-bold text-purple-600">需要帮忙？</p>
-            <p className="text-slate-400 text-xs mt-1">点击右下角蓝球，随时向我提问</p>
+            <p className="text-lg font-semibold text-slate-900">需要帮忙？</p>
+            <p className="text-slate-400 text-[11px] mt-0.5">点击右下角蓝球，随时向我提问</p>
           </div>
 
           {/* 卡片四：资质查询 */}
           <div
-            className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-amber-300 hover:shadow-md transition-colors cursor-pointer"
+            className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm hover:border-slate-300 hover:shadow transition-all cursor-pointer"
             onClick={() => {
               console.log('🔍 用户点击资质查询卡片');
               setQualModalOpen(true);
             }}
           >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="size-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                <Search className="size-5 text-amber-600" />
+            <div className="flex items-center gap-2 mb-2">
+              <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Search className="size-4 text-slate-600" />
               </div>
               <h3 className="text-slate-700 text-sm font-medium">🔍 资质查询</h3>
             </div>
-            <p className="text-3xl font-bold text-amber-600">人员资质</p>
-            <p className="text-slate-400 text-xs mt-1">查询集团人员证书、职称等资质信息</p>
+            <p className="text-lg font-semibold text-slate-900">人员资质</p>
+            <p className="text-slate-400 text-[11px] mt-0.5">查询集团人员证书、职称等资质信息</p>
           </div>
         </div>
       </div>
@@ -2644,14 +2635,14 @@ export default function ProjectManager() {
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           {loading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="size-10 text-indigo-600 animate-spin" />
+              <Loader2 className="size-10 text-slate-800 animate-spin" />
             </div>
           ) : error ? (
             <div className="text-center py-20">
               <AlertTriangle className="size-12 mx-auto mb-3 text-red-400" />
               <p className="text-red-400 mb-3">{error}</p>
               <button onClick={() => fetchProjects(1)}
-                className="px-4 py-2 rounded-lg bg-cyan-500/20 text-indigo-600 hover:bg-cyan-500/30 transition-colors">
+                className="px-4 py-2 rounded-lg bg-cyan-500/20 text-slate-800 hover:bg-cyan-500/30 transition-colors">
                 重试
               </button>
             </div>
@@ -2660,7 +2651,7 @@ export default function ProjectManager() {
               <Building2 className="size-12 mx-auto mb-3 text-slate-600" />
               <p className="text-slate-400 mb-4">暂无项目数据</p>
               <button onClick={handleCreate}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-all">
+                className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition-all">
                 创建第一个项目
               </button>
             </div>
@@ -2682,7 +2673,7 @@ export default function ProjectManager() {
                   <tbody>
                     {projects.map(project => (
                       <tr key={project.id}
-                        className="border-b border-slate-700/30 hover:bg-blue-900/10 transition-colors">
+                        className="border-b border-slate-700/30 hover:bg-slate-100 transition-colors">
                         <td className="px-5 py-3.5">
                           <div>
                             <p className="text-slate-800 text-sm font-medium">{project.projectName || '-'}</p>
@@ -2698,10 +2689,10 @@ export default function ProjectManager() {
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-2 min-w-[120px]">
                             <div className="flex-1 bg-slate-600/50 rounded-full h-2">
-                              <div className="bg-indigo-600 h-2 rounded-full transition-all"
+                              <div className="bg-slate-900 h-2 rounded-full transition-all"
                                 style={{ width: `${project.currentProgress || 0}%` }} />
                             </div>
-                            <span className="text-indigo-600 text-xs font-medium w-10 text-right">
+                            <span className="text-slate-800 text-xs font-medium w-10 text-right">
                               {project.currentProgress ?? 0}%
                             </span>
                           </div>
@@ -2717,7 +2708,7 @@ export default function ProjectManager() {
                         <td className="px-5 py-3.5">
                           <div className="flex items-center justify-end gap-1.5">
                             <button onClick={() => handleView(project)}
-                              className="p-1.5 rounded-lg text-indigo-600 hover:bg-cyan-500/20 transition-colors"
+                              className="p-1.5 rounded-lg text-slate-800 hover:bg-cyan-500/20 transition-colors"
                               title="查看详情">
                               <Eye size={16} />
                             </button>
@@ -2730,7 +2721,7 @@ export default function ProjectManager() {
                               setWeeklyReportProject(project);
                               setWeeklyReportModalOpen(true);
                             }}
-                              className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-500/20 transition-colors"
+                              className="p-1.5 rounded-lg text-slate-800 hover:bg-emerald-500/20 transition-colors"
                               title="提交周报">
                               <FileText size={16} />
                             </button>
@@ -2756,13 +2747,13 @@ export default function ProjectManager() {
                   <div className="flex items-center gap-2">
                     <button onClick={() => fetchProjects(pagination.page - 1)}
                       disabled={pagination.page <= 1}
-                      className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                      className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                       <ChevronLeft size={16} />
                     </button>
                     <span className="text-slate-400 text-sm px-2">{pagination.page}</span>
                     <button onClick={() => fetchProjects(pagination.page + 1)}
                       disabled={pagination.page >= pagination.totalPages}
-                      className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                      className="p-2 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                       <ChevronRight size={16} />
                     </button>
                   </div>
@@ -2849,7 +2840,7 @@ export default function ProjectManager() {
                   <Bot className="size-4 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-indigo-600 leading-tight">
+                  <h3 className="text-sm font-bold text-slate-800 leading-tight">
                     🤖 森宇专属智能助手
                   </h3>
                   <p className="text-[10px] text-slate-400">Powered by 通义千问</p>
@@ -2857,7 +2848,7 @@ export default function ProjectManager() {
               </div>
               <button
                 onClick={() => setChatOpen(false)}
-                className="w-7 h-7 rounded-full border border-slate-600/50 text-slate-400 hover:text-indigo-600 hover:border-cyan-400/50 transition-all duration-200 flex items-center justify-center"
+                className="w-7 h-7 rounded-full border border-slate-600/50 text-slate-400 hover:text-slate-800 hover:border-cyan-400/50 transition-all duration-200 flex items-center justify-center"
               >
                 <X size={14} />
               </button>
@@ -2885,8 +2876,8 @@ export default function ProjectManager() {
                     <div
                       className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
                         msg.role === 'user'
-                          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-md'
-                          : 'bg-slate-700/60 text-slate-800 rounded-bl-md border border-slate-600/30'
+                          ? 'bg-slate-900 text-white rounded-br-md'
+                          : 'bg-slate-700/60 text-slate-200 rounded-bl-md border border-slate-600/30'
                       }`}
                     >
                       {msg.content}
@@ -2950,12 +2941,12 @@ export default function ProjectManager() {
                   }}
                   placeholder="输入你的问题..."
                   disabled={chatLoading}
-                  className="flex-1 px-3.5 py-2 bg-slate-700/50 border border-slate-600/50 rounded-xl text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all disabled:opacity-50"
+                  className="flex-1 px-3.5 py-2 bg-slate-700/50 border border-slate-600/50 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all disabled:opacity-50"
                 />
                 <button
                   onClick={handleSendChat}
                   disabled={!chatInput.trim() || chatLoading}
-                  className="w-9 h-9 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white flex items-center justify-center shrink-0 hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {chatLoading ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -2986,8 +2977,8 @@ export default function ProjectManager() {
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/30 bg-slate-800/50">
                 <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                    <Search className="size-5 text-amber-600" />
+                  <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                    <Search className="size-4 text-slate-600" />
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-slate-800">🔍 集团人员资质库</h3>
@@ -3012,12 +3003,12 @@ export default function ProjectManager() {
                     onChange={e => setQualKeyword(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleQualSearch(); }}
                     placeholder="输入姓名、职称、证书或专业，如：土建、高级工程师..."
-                    className="flex-1 bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
+                    className="flex-1 bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-colors"
                   />
                   <button
                     onClick={() => handleQualSearch()}
                     disabled={qualLoading}
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-medium hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+                    className="px-6 py-3 rounded-xl bg-slate-900 text-white font-medium hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
                   >
                     {qualLoading ? (
                       <>
@@ -3039,7 +3030,7 @@ export default function ProjectManager() {
                     <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-600 to-transparent" />
                     <span className="text-sm text-slate-400 whitespace-nowrap">
                       {qualTotal > 0 ? (
-                        <>共计找到 <span className="text-amber-600 font-bold text-lg">{qualTotal}</span> 名匹配人员</>
+                        <>共计找到 <span className="text-slate-800 font-bold text-lg">{qualTotal}</span> 名匹配人员</>
                       ) : (
                         '未找到符合条件的人员'
                       )}
@@ -3051,7 +3042,7 @@ export default function ProjectManager() {
                 {/* Loading */}
                 {qualLoading && (
                   <div className="flex items-center justify-center py-20">
-                    <Loader2 className="size-10 text-indigo-600 animate-spin" />
+                    <Loader2 className="size-10 text-slate-800 animate-spin" />
                   </div>
                 )}
 
@@ -3070,13 +3061,13 @@ export default function ProjectManager() {
                     {qualifications.map((q: any) => (
                       <div
                         key={q.id}
-                        className="bg-slate-800/60 border border-blue-900/30 rounded-xl p-4 hover:border-amber-300 hover:shadow-md transition-colors"
+                        className="bg-slate-800/60 border border-blue-900/30 rounded-xl p-4 hover:border-slate-300 hover:shadow-md transition-colors"
                       >
                         {/* 姓名 + 职称 */}
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="text-base font-bold text-slate-800">{q.name}</h4>
                           {q.title && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-indigo-700 border border-blue-500/30">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-slate-700 border border-blue-500/30">
                               {q.title}
                             </span>
                           )}
@@ -3085,14 +3076,14 @@ export default function ProjectManager() {
                         {/* 证书类型 + 人员状态 */}
                         <div className="flex items-center gap-2 mb-3 text-xs text-slate-400">
                           {q.cert_type && (
-                            <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-cyan-300 border border-cyan-500/20">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-cyan-300 border border-cyan-500/20">
                               {q.cert_type}
                             </span>
                           )}
                           {q.status && (
                             <span className={`px-2 py-0.5 rounded-md border ${
                               q.status === '公司在职'
-                                ? 'bg-emerald-900/20 text-emerald-600 border-emerald-500/20'
+                                ? 'bg-emerald-900/20 text-slate-800 border-emerald-500/20'
                                 : 'bg-slate-700/50 text-slate-400 border-slate-600/30'
                             }`}>
                               {q.status}
@@ -3125,7 +3116,7 @@ export default function ProjectManager() {
                           {q.cert_status && (
                             <div className="flex justify-between">
                               <span>证书状态</span>
-                              <span className={q.cert_status === '正常注册' ? 'text-emerald-600' : 'text-yellow-400'}>
+                              <span className={q.cert_status === '正常注册' ? 'text-slate-800' : 'text-yellow-400'}>
                                 {q.cert_status}
                               </span>
                             </div>
@@ -3183,8 +3174,8 @@ export default function ProjectManager() {
             <div className="max-w-5xl mx-auto">
               <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="size-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                    <ShieldCheck className="size-5 text-amber-600" />
+                  <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                    <ShieldCheck className="size-4 text-slate-600" />
                   </div>
                   <div>
                     <h2 className="text-lg font-bold text-slate-800">人员资质查询</h2>
@@ -3200,12 +3191,12 @@ export default function ProjectManager() {
                     onChange={e => setQualKeyword(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleQualSearch(); }}
                     placeholder="输入姓名、职称、证书或专业，如：土建、高级工程师..."
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 placeholder-slate-400 focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                   />
                   <button
                     onClick={() => handleQualSearch()}
                     disabled={qualLoading}
-                    className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+                    className="px-6 py-3 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
                   >
                     {qualLoading ? (
                       <><Loader2 className="size-4 animate-spin" /> {qualAiLoading ? '🤖 AI 正在理解并检索...' : '搜索中...'}</>
@@ -3221,7 +3212,7 @@ export default function ProjectManager() {
                     <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
                     <span className="text-sm text-slate-500 whitespace-nowrap">
                       {qualTotal > 0 ? (
-                        <>共计找到 <span className="text-amber-600 font-bold text-lg">{qualTotal}</span> 名匹配人员</>
+                        <>共计找到 <span className="text-slate-800 font-bold text-lg">{qualTotal}</span> 名匹配人员</>
                       ) : '未找到符合条件的人员'}
                     </span>
                     <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
@@ -3231,7 +3222,7 @@ export default function ProjectManager() {
                 {/* Loading */}
                 {qualLoading && (
                   <div className="flex items-center justify-center py-20">
-                    <Loader2 className="size-10 text-indigo-400 animate-spin" />
+                    <Loader2 className="size-10 text-slate-500 animate-spin" />
                   </div>
                 )}
 
@@ -3250,26 +3241,26 @@ export default function ProjectManager() {
                     {qualifications.map((q: any) => (
                       <div
                         key={q.id}
-                        className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-amber-300 hover:shadow-sm transition-all"
+                        className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-slate-300 hover:shadow-sm transition-all"
                       >
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="text-base font-bold text-slate-800">{q.name}</h4>
                           {q.title && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600 border border-indigo-200">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-200">
                               {q.title}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 mb-3 text-xs text-slate-500">
                           {q.cert_type && (
-                            <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-600 border border-cyan-200">
+                            <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-slate-800 border border-cyan-200">
                               {q.cert_type}
                             </span>
                           )}
                           {q.status && (
                             <span className={`px-2 py-0.5 rounded-md border ${
                               q.status === '公司在职'
-                                ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                                ? 'bg-emerald-50 text-slate-800 border-emerald-200'
                                 : 'bg-slate-100 text-slate-500 border-slate-200'
                             }`}>
                               {q.status}
@@ -3278,12 +3269,12 @@ export default function ProjectManager() {
                         </div>
                         <div className="flex flex-wrap gap-1.5 mb-3">
                           {q.cert_major && (
-                            <span className="text-xs px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 border border-amber-200">
+                            <span className="text-xs px-2 py-0.5 rounded-md bg-amber-50 text-slate-800 border border-amber-200">
                               📌 {q.cert_major}
                             </span>
                           )}
                           {q.register_major && (
-                            <span className="text-xs px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 border border-purple-200">
+                            <span className="text-xs px-2 py-0.5 rounded-md bg-purple-50 text-slate-800 border border-purple-200">
                               🏷 {q.register_major}
                             </span>
                           )}
@@ -3298,7 +3289,7 @@ export default function ProjectManager() {
                           {q.cert_status && (
                             <div className="flex justify-between">
                               <span>证书状态</span>
-                              <span className={q.cert_status === '正常注册' ? 'text-emerald-600' : 'text-yellow-600'}>
+                              <span className={q.cert_status === '正常注册' ? 'text-slate-800' : 'text-yellow-600'}>
                                 {q.cert_status}
                               </span>
                             </div>

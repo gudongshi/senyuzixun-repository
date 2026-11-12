@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+﻿import { useState, type ReactNode } from 'react';
 import {
   LayoutDashboard, ClipboardList, ShieldCheck, Globe, Settings,
   Menu, X, LogOut, ChevronLeft,
@@ -78,7 +78,7 @@ export default function Sidebar({
             </>
           )}
           {collapsed && (
-            <div className="size-9 rounded-lg bg-slate-800 flex items-center justify-center text-white text-xs font-bold">
+            <div className="size-9 rounded-lg bg-slate-900 flex items-center justify-center text-white text-xs font-bold">
               SY
             </div>
           )}
@@ -97,18 +97,18 @@ export default function Sidebar({
                   transition-all duration-200
                   ${collapsed ? 'justify-center px-0 py-3' : 'px-3 py-2.5 gap-3'}
                   ${isActive
-                    ? 'bg-slate-100 text-slate-900 shadow-sm'
+                    ? 'bg-slate-100 text-slate-900 shadow-sm border-l-2 border-slate-800'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                   }
                 `}
                 title={collapsed ? item.label : undefined}
               >
-                <item.icon size={20} className={isActive ? 'text-indigo-600' : 'text-slate-400'} />
+                <item.icon size={20} className={isActive ? 'text-slate-800' : 'text-slate-400'} />
                 {!collapsed && (
                   <>
                     <span className="flex-1 text-left truncate">{item.label}</span>
                     {item.badge && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 font-semibold">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 font-semibold">
                         {item.badge}
                       </span>
                     )}
@@ -132,7 +132,7 @@ export default function Sidebar({
 
           {!collapsed && userName && (
             <div className="flex items-center gap-2.5 px-2 py-1.5">
-              <div className="size-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+              <div className="size-7 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {userName.charAt(0) || '?'}
               </div>
               <span className="text-xs text-slate-600 truncate flex-1">{userName}</span>
@@ -236,12 +236,12 @@ function MobileSidebar({
                   w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
                   transition-all duration-200
                   ${isActive
-                    ? 'bg-slate-100 text-slate-900 shadow-sm'
+                    ? 'bg-slate-100 text-slate-900 shadow-sm border-l-2 border-slate-800'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                   }
                 `}
               >
-                <item.icon size={20} className={isActive ? 'text-indigo-600' : 'text-slate-400'} />
+                <item.icon size={20} className={isActive ? 'text-slate-800' : 'text-slate-400'} />
                 <span>{item.label}</span>
               </button>
             );
@@ -252,7 +252,7 @@ function MobileSidebar({
         <div className="border-t border-slate-100 p-4 space-y-3">
           {userName && (
             <div className="flex items-center gap-2.5">
-              <div className="size-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
+              <div className="size-7 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center text-white text-xs font-bold">
                 {userName.charAt(0) || '?'}
               </div>
               <span className="text-sm text-slate-700">{userName}</span>

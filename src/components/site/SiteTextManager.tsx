@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+﻿import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Save, Upload } from 'lucide-react';
 import { uploadImageToStorage } from '../../lib/upload';
@@ -189,7 +189,7 @@ export default function SiteTextManager() {
               </div>
             ) : (
               <button type="button" onClick={() => fileRef.current?.click()} disabled={imgUploading}
-                className="w-full border-2 border-dashed border-slate-600 rounded-xl px-4 py-6 text-slate-500 hover:border-purple-500/50 hover:text-purple-400 transition-all flex flex-col items-center gap-1 disabled:opacity-50">
+                className="w-full border-2 border-dashed border-slate-600 rounded-xl px-4 py-6 text-slate-500 hover:border-slate-300 hover:text-slate-600 transition-all flex flex-col items-center gap-1 disabled:opacity-50">
                 {imgUploading ? <><Loader2 className="size-6 animate-spin text-purple-400" /><span className="text-xs">上传中...</span></> : <><Upload size={20} /><span className="text-xs">点击上传封面图片（可选）</span></>}
               </button>
             )}
@@ -207,7 +207,7 @@ export default function SiteTextManager() {
               value={content}
               onChange={e => setContent(e.target.value)}
               rows={14}
-              className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/30 transition-colors resize-y text-sm leading-relaxed"
+              className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors resize-y text-sm leading-relaxed"
               placeholder="请输入该页面的正文内容..."
             />
           </div>
@@ -216,7 +216,7 @@ export default function SiteTextManager() {
             <button
               onClick={handleSave}
               disabled={saving || !isDirty}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-medium hover:from-purple-500 hover:to-pink-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {saving ? <Loader2 className="size-4 animate-spin" /> : <Save size={16} />}
               保存

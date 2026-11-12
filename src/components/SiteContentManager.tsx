@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
+﻿import { useState, useEffect, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, X, Loader2, Search,
@@ -416,7 +416,7 @@ export default function SiteContentManager({
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-[1px] ${
                 tab === t.key
-                  ? 'border-indigo-500 text-indigo-600'
+                  ? 'border-slate-800 text-slate-800'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -437,12 +437,12 @@ export default function SiteContentManager({
                 value={tab === 'news' ? newsSearch : casesSearch}
                 onChange={e => tab === 'news' ? setNewsSearch(e.target.value) : setCasesSearch(e.target.value)}
                 placeholder={tab === 'news' ? '搜索新闻标题...' : '搜索案例标题...'}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-500/20 transition-colors text-sm"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-slate-700 placeholder-slate-400 focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/10 transition-colors text-sm"
               />
             </div>
             <button
               onClick={handleCreate}
-              className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 transition-all flex items-center gap-2 shrink-0"
+              className="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition-all flex items-center gap-2 shrink-0"
             >
               <Plus size={16} />
               新增{tab === 'news' ? '新闻' : '案例'}
@@ -453,7 +453,7 @@ export default function SiteContentManager({
           <div className="flex items-center gap-2">
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
             <span className="text-sm text-slate-500 whitespace-nowrap">
-              共 <span className="text-indigo-600 font-bold">{tab === 'news' ? newsTotal : casesTotal}</span> 条记录
+              共 <span className="text-slate-800 font-bold">{tab === 'news' ? newsTotal : casesTotal}</span> 条记录
             </span>
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
           </div>
@@ -480,7 +480,7 @@ export default function SiteContentManager({
               {(tab === 'news' ? filteredNews : filteredCases).map((item: any) => (
                 <div
                   key={item.id}
-                  className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-indigo-200 hover:shadow-sm transition-all"
+                  className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-slate-300 hover:shadow-sm transition-all"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -490,14 +490,14 @@ export default function SiteContentManager({
                       <div className="flex items-center gap-3 text-xs text-slate-500">
                         <span>{new Date(item.created_at).toLocaleDateString('zh-CN')}</span>
                         {tab === 'cases' && item.tags && (
-                          <span className="text-indigo-600">🏷️ {item.tags}</span>
+                          <span className="text-slate-800">🏷️ {item.tags}</span>
                         )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => { setPreviewItem(item); setPreviewType(tab); }}
-                        className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        className="p-2 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
                         title="预览"
                       >
                         <Eye size={16} />
