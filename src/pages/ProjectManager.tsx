@@ -135,6 +135,7 @@ interface UserInfo {
   userId: string;
   name: string;
   loginTime: number;
+  roles?: { dashboard?: boolean; [key: string]: any };
 }
 
 interface ChatMessage {
@@ -3174,13 +3175,14 @@ export default function ProjectManager() {
         }}
       />
 
-      {/* 人员资质管理弹窗 */}
-          <StaffQualificationManager
-            open={staffQualManagerOpen}
-            onClose={() => setStaffQualManagerOpen(false)}
-          />
           </>
         )}
+
+        {/* 人员资质管理弹窗 — 全局渲染，所有页面均可触发 */}
+        <StaffQualificationManager
+          open={staffQualManagerOpen}
+          onClose={() => setStaffQualManagerOpen(false)}
+        />
 
         {/* ── 官网管理页面 ── */}
         {activePage === 'siteHub' && (
@@ -3202,6 +3204,16 @@ export default function ProjectManager() {
                     <h2 className="text-lg font-bold text-slate-800">人员资质查询</h2>
                     <p className="text-sm text-slate-500">查询集团人员证书、职称等资质信息</p>
                   </div>
+                  {/* 仅管理员可见：人员资质管理入口 */}
+                  {user?.roles?.dashboard && (
+                    <button
+                      onClick={() => setStaffQualManagerOpen(true)}
+                      className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition-all shrink-0"
+                    >
+                      <Settings size={15} />
+                      人员资质管理
+                    </button>
+                  )}
                 </div>
 
                 {/* Search Bar */}
