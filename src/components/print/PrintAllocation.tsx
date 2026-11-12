@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Printer, Plus, Trash2, Save, Download, Loader2, Calculator } from 'lucide-react';
+import { Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+// ══════════════════════════════════════════════════════════════
+// localStorage key
+// ══════════════════════════════════════════════════════════════
+const DRAFT_KEY = 'print_draft_data';
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -168,6 +173,7 @@ export default function PrintAllocation() {
   const [rows, setRows]                   = useState<DeptRow[]>([]);
   const [invoiceTotal, setInvoiceTotal]   = useState<string>('');
   const [loading, setLoading]             = useState(false);
+  const [loaded, setLoaded]               = useState(false); // 防止初始化时触发自动保存
   const [saving, setSaving]               = useState(false);
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -179,47 +185,76 @@ export default function PrintAllocation() {
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
 
+  // ── 自动保存草稿到 localStorage ──
+  useEffect(() => {
+    if (!loaded) return; // 初始化期间不保存
+    const draft = {
+      rows: rows.map(r => ({
+        key: r.key,
+        dbId: r.dbId,
+        dept_name: r.dept_name,
+        machine_location: r.machine_location,
+        machine_number: r.machine_number,
+        sort_order: r.sort_order,
+        bwPages: r.bwPages,
+        colorPages: r.colorPages,
+      })),
+      invoiceTotal,
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [rows, invoiceTotal, loaded]);
+
   async function loadDepartments() {
     setLoading(true);
     try {
+      // 先读取草稿（如果有）
+      let draft: any = null;
+      const draftStr = localStorage.getItem(DRAFT_KEY);
+      if (draftStr) {
+        try { draft = JSON.parse(draftStr); } catch (e) { /* 解析失败则忽略 */ }
+      }
+
       const res = await fetch('/api/print/departments');
       const json = await res.json();
       if (json.success) {
         const depts: Department[] = json.data || [];
         setDepartments(depts);
-        // 初始化 rows：保留旧的 bwPages/colorPages（如果在 rows 中已有同 dbId 的值）
-        setRows(prev => {
-          if (prev.length > 0) {
-            return depts.map(d => {
-              const existing = prev.find(r => r.dbId === d.id);
-              return {
-                key: `dept-${d.id}`,
-                dbId: d.id,
-                dept_name: d.dept_name,
-                machine_location: d.machine_location || '',
-                machine_number: d.machine_number || '',
-                sort_order: d.sort_order || 0,
-                bwPages: existing ? existing.bwPages : 0,
-                colorPages: existing ? existing.colorPages : 0,
-              };
-            });
+
+        // 构建 rows，如果有草稿则合并印量数据
+        setRows(() =>
+          depts.map(d => {
+            const draftRow = draft?.rows?.find((dr: any) => dr.key === `dept-${d.id}`);
+            return {
+              key: `dept-${d.id}`,
+              dbId: d.id,
+              dept_name: d.dept_name,
+              machine_location: d.machine_location || '',
+              machine_number: d.machine_number || '',
+              sort_order: d.sort_order || 0,
+              bwPages: draftRow ? (draftRow.bwPages || 0) : 0,
+              colorPages: draftRow ? (draftRow.colorPages || 0) : 0,
+            };
+          })
+        );
+
+        // 恢复发票总额
+        if (draft?.invoiceTotal) {
+          setInvoiceTotal(draft.invoiceTotal);
+        }
+
+        // 通知用户
+        if (draft && draft.rows?.length > 0) {
+          const hasData = draft.rows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
+          if (hasData || draft.invoiceTotal) {
+            setTimeout(() => showMessage('success', '📝 检测到上次未保存的草稿，已自动为您恢复'), 400);
           }
-          return depts.map(d => ({
-            key: `dept-${d.id}`,
-            dbId: d.id,
-            dept_name: d.dept_name,
-            machine_location: d.machine_location || '',
-            machine_number: d.machine_number || '',
-            sort_order: d.sort_order || 0,
-            bwPages: 0,
-            colorPages: 0,
-          }));
-        });
+        }
       }
     } catch (err: any) {
       showMessage('error', '加载部门列表失败: ' + err.message);
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   }
 
@@ -297,6 +332,14 @@ export default function PrintAllocation() {
     [rows, invoiceVal]
   );
 
+  // ── 清空数据和草稿 ──
+  function clearAll() {
+    localStorage.removeItem(DRAFT_KEY);
+    setInvoiceTotal('');
+    setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
+    showMessage('success', '数据已清空');
+  }
+
   // ── 保存本期账单 ──
   async function saveRecord() {
     if (invoiceVal <= 0) return showMessage('error', '请先输入本次发票总额');
@@ -334,6 +377,7 @@ export default function PrintAllocation() {
       });
       const json = await res.json();
       if (json.success) {
+        localStorage.removeItem(DRAFT_KEY);
         showMessage('success', '✅ 本期账单已保存');
       } else {
         showMessage('error', '保存失败: ' + (json.error || '未知错误'));
@@ -444,6 +488,15 @@ export default function PrintAllocation() {
             className="w-36 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
           />
         </div>
+
+        <button
+          onClick={clearAll}
+          className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-slate-500 text-xs hover:text-slate-700 hover:bg-slate-50 transition-colors"
+          title="清空所有数据并删除草稿"
+        >
+          <RotateCcw size={13} />
+          清空数据
+        </button>
 
         <div className="flex-1" />
 
