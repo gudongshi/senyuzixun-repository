@@ -6948,8 +6948,8 @@ app.get('/api/print/departments', authMiddleware, async (req, res) => {
 app.post('/api/print/departments', authMiddleware, async (req, res) => {
   try {
     const { dept_name, machine_location, machine_number, sort_order } = req.body;
-    const client = supabaseAdmin || supabase;
-    const { data, error } = await client
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
+    const { data, error } = await supabaseAdmin
       .from('print_departments')
       .insert({ dept_name, machine_location, machine_number, sort_order: sort_order || 0 })
       .select()
@@ -6964,8 +6964,8 @@ app.post('/api/print/departments', authMiddleware, async (req, res) => {
 // DELETE /api/print/departments/:id — 删除部门模板
 app.delete('/api/print/departments/:id', authMiddleware, async (req, res) => {
   try {
-    const client = supabaseAdmin || supabase;
-    const { error } = await client
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
+    const { error } = await supabaseAdmin
       .from('print_departments')
       .delete()
       .eq('id', req.params.id);
@@ -6979,16 +6979,16 @@ app.delete('/api/print/departments/:id', authMiddleware, async (req, res) => {
 // POST /api/print/records — 保存一期核算记录（母表 + 子表）
 app.post('/api/print/records', authMiddleware, async (req, res) => {
   try {
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
+
     const {
       invoice_total, total_bw_pages, total_color_pages, total_pages,
       bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
       items,
     } = req.body;
 
-    const client = supabaseAdmin || supabase;
-
     // 插入母表
-    const { data: record, error: recErr } = await client
+    const { data: record, error: recErr } = await supabaseAdmin
       .from('print_records')
       .insert({
         invoice_total, total_bw_pages, total_color_pages, total_pages,
@@ -7005,7 +7005,7 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
       record_id: record.id,
     }));
     if (itemsWithRecord.length > 0) {
-      const { error: itemErr } = await client
+      const { error: itemErr } = await supabaseAdmin
         .from('print_record_items')
         .insert(itemsWithRecord);
       if (itemErr) return res.status(500).json({ success: false, error: itemErr.message });
