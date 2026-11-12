@@ -155,9 +155,9 @@ const PAGE_SIZE = 15;
 // ============================================================
 function getStatusColor(status: string) {
   switch (status) {
-    case '进行中': return 'bg-emerald-900/20 border-emerald-500/30 text-slate-800';
+    case '进行中': return 'bg-emerald-900/20 border-emerald-500/30 text-slate-200';
     case '已结项': return 'bg-blue-900/20 border-blue-500/30 text-blue-400';
-    case '暂停': return 'bg-amber-900/20 border-amber-500/30 text-slate-800';
+    case '暂停': return 'bg-amber-900/20 border-amber-500/30 text-slate-200';
     case '规划中': return 'bg-slate-700/50 border-slate-500/30 text-slate-400';
     default: return 'bg-slate-700/50 border-slate-500/30 text-slate-400';
   }
@@ -167,8 +167,8 @@ function getRiskColor(level: string) {
   switch (level) {
     case '极高风险': return 'text-red-400 bg-red-900/20 border-red-500/30';
     case '高风险': return 'text-red-400 bg-red-900/20 border-red-500/30';
-    case '中风险': return 'text-slate-800 bg-amber-900/20 border-amber-500/30';
-    case '低风险': return 'text-slate-800 bg-emerald-900/20 border-emerald-500/30';
+    case '中风险': return 'text-slate-200 bg-amber-900/20 border-amber-500/30';
+    case '低风险': return 'text-slate-200 bg-emerald-900/20 border-emerald-500/30';
     default: return 'text-slate-400 bg-slate-700/50 border-slate-500/30';
   }
 }
@@ -507,8 +507,8 @@ function ProjectFormModal({
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-start justify-center pt-10 overflow-y-auto">
       <div className="bg-slate-800 border border-blue-900/30 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl my-10">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
-          <h2 className="text-xl font-bold text-slate-800">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-800 transition-colors">
+          <h2 className="text-xl font-bold text-slate-200">{title}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors">
             <X size={22} />
           </button>
         </div>
@@ -564,7 +564,7 @@ function ProjectFormModal({
 
           {/* 第一组：基础信息 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-slate-800 font-semibold mb-3">📋 基础信息</h3>
+            <h3 className="text-sm text-slate-200 font-semibold mb-3">📋 基础信息</h3>
             <div className="space-y-3">
               <div>
                 <label className={labelClass}>服务范围</label>
@@ -586,7 +586,7 @@ function ProjectFormModal({
 
           {/* 第二组：时间与成本 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-slate-800 font-semibold mb-3">💰 时间与成本</h3>
+            <h3 className="text-sm text-slate-200 font-semibold mb-3">💰 时间与成本</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>计划开始时间</label>
@@ -619,7 +619,7 @@ function ProjectFormModal({
 
           {/* 第三组：人员与地址 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-slate-800 font-semibold mb-3">👥 人员与地址</h3>
+            <h3 className="text-sm text-slate-200 font-semibold mb-3">👥 人员与地址</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>实际项目负责人</label>
@@ -643,7 +643,7 @@ function ProjectFormModal({
 
           {/* 第四组：分类与客户 */}
           <div className="border-t border-slate-700/50 pt-4">
-            <h3 className="text-sm text-slate-800 font-semibold mb-3">🏢 分类与客户</h3>
+            <h3 className="text-sm text-slate-200 font-semibold mb-3">🏢 分类与客户</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>项目类型 <span className="text-red-400">*</span></label>
@@ -683,7 +683,7 @@ function ProjectFormModal({
                       console.log('📋 打开快速新增客户弹窗');
                       setQuickClientOpen(true);
                     }}
-                    className="px-3 py-2 rounded-lg border border-cyan-500/30 text-slate-800 hover:bg-cyan-500/10 transition-colors shrink-0"
+                    className="px-3 py-2 rounded-lg border border-cyan-500/30 text-slate-200 hover:bg-cyan-500/10 transition-colors shrink-0"
                     title="新增客户"
                   >
                     <Plus size={18} />
@@ -721,13 +721,13 @@ function ProjectFormModal({
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center">
           <div className="bg-slate-800 border border-cyan-500/30 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
             <div className="flex justify-between items-center p-5 border-b border-blue-900/30">
-              <h3 className="text-lg font-bold text-slate-800">新增客户</h3>
+              <h3 className="text-lg font-bold text-slate-200">新增客户</h3>
               <button
                 onClick={() => {
                   setQuickClientOpen(false);
                   setQuickClientForm({ client_name: '', contact_person: '', contact_phone: '', responsible_person: '' });
                 }}
-                className="text-slate-400 hover:text-slate-800 transition-colors"
+                className="text-slate-400 hover:text-slate-200 transition-colors"
               >
                 <X size={20} />
               </button>
@@ -1058,7 +1058,7 @@ function ProjectDetailDrawer({
 
   const fieldClass = "flex justify-between py-2.5 border-b border-slate-700/30";
   const fieldLabelClass = "text-slate-400 text-sm";
-  const fieldValueClass = "text-slate-800 text-sm text-right max-w-[55%]";
+  const fieldValueClass = "text-slate-200 text-sm text-right max-w-[55%]";
 
   return (
     <>
@@ -1070,13 +1070,13 @@ function ProjectDetailDrawer({
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-cyan-500/30 bg-slate-800/50 sticky top-0 backdrop-blur-md z-10">
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-slate-800 truncate">
+            <h2 className="text-xl font-bold text-slate-200 truncate">
               {project.projectName || '项目详情'}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">合同编号: {project.contractNumber || '-'}</p>
           </div>
           <button onClick={onClose}
-            className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-slate-800 hover:bg-cyan-500/20 hover:border-slate-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
+            className="w-10 h-10 rounded-full border-2 border-cyan-400/50 text-slate-200 hover:bg-cyan-500/20 hover:border-slate-300 transition-all duration-300 hover:rotate-90 flex items-center justify-center shrink-0 ml-4">
             <X size={22} />
           </button>
         </div>
@@ -1088,8 +1088,8 @@ function ProjectDetailDrawer({
               onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
                 activeTab === tab.key
-                  ? 'border-cyan-400 text-slate-800'
-                  : 'border-transparent text-slate-400 hover:text-slate-700'
+                  ? 'border-cyan-400 text-slate-200'
+                  : 'border-transparent text-slate-400 hover:text-slate-300'
               }`}>
               <tab.icon size={16} />
               {tab.label}
@@ -1103,7 +1103,7 @@ function ProjectDetailDrawer({
           {activeTab === 'info' && (
             loading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="size-8 text-slate-800 animate-spin" />
+                <Loader2 className="size-8 text-slate-200 animate-spin" />
               </div>
             ) : detail ? (
               <div className="space-y-1 bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
@@ -1225,7 +1225,7 @@ function ProjectDetailDrawer({
                 </div>
                 <div className="pt-2.5">
                   <span className={fieldLabelClass}>备注</span>
-                  <p className="text-slate-700 text-sm mt-1">{detail.remark || '无'}</p>
+                  <p className="text-slate-300 text-sm mt-1">{detail.remark || '无'}</p>
                 </div>
               </div>
             ) : (
@@ -1237,11 +1237,11 @@ function ProjectDetailDrawer({
           {activeTab === 'reports' && (
             reportsLoading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="size-8 text-slate-800 animate-spin" />
+                <Loader2 className="size-8 text-slate-200 animate-spin" />
               </div>
             ) : weeklyReports.length === 0 ? (
               <div className="text-center py-20 text-slate-400">
-                <FileText className="size-12 mx-auto mb-3 text-slate-600" />
+                <FileText className="size-12 mx-auto mb-3 text-slate-400" />
                 <p>暂无周报记录</p>
               </div>
             ) : (
@@ -1249,14 +1249,14 @@ function ProjectDetailDrawer({
                 {weeklyReports.map((report) => (
                   <div key={report.id} className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-4">
                     <div className="flex justify-between items-center mb-3">
-                      <span className="text-slate-800 font-semibold text-sm">{report.reportDate}</span>
+                      <span className="text-slate-200 font-semibold text-sm">{report.reportDate}</span>
                       <div className="flex items-center gap-3">
                         <span className="text-slate-400 text-xs">进度: {report.currentProgress}%</span>
                         {report.riskSelfAssessment && (
                           <span className={`px-2 py-0.5 rounded text-xs border ${
                             report.riskSelfAssessment === '高' ? 'border-red-500/30 text-red-400 bg-red-900/20' :
-                            report.riskSelfAssessment === '中' ? 'border-amber-500/30 text-slate-800 bg-amber-900/20' :
-                            'border-emerald-500/30 text-slate-800 bg-emerald-900/20'
+                            report.riskSelfAssessment === '中' ? 'border-amber-500/30 text-slate-200 bg-amber-900/20' :
+                            'border-emerald-500/30 text-slate-200 bg-emerald-900/20'
                           }`}>
                             风险: {report.riskSelfAssessment}
                           </span>
@@ -1270,7 +1270,7 @@ function ProjectDetailDrawer({
                     <div className="space-y-2 text-sm">
                       <div>
                         <span className="text-slate-400">本周总结：</span>
-                        <p className="text-slate-700 mt-0.5">{report.weeklySummary || '无'}</p>
+                        <p className="text-slate-300 mt-0.5">{report.weeklySummary || '无'}</p>
                       </div>
                       {report.issuesEncountered && (
                         <div>
@@ -1281,7 +1281,7 @@ function ProjectDetailDrawer({
                       {report.nextWeekPlan && (
                         <div>
                           <span className="text-blue-500">下周计划：</span>
-                          <p className="text-slate-700/80 mt-0.5">{report.nextWeekPlan}</p>
+                          <p className="text-slate-300/80 mt-0.5">{report.nextWeekPlan}</p>
                         </div>
                       )}
                     </div>
@@ -1299,13 +1299,13 @@ function ProjectDetailDrawer({
                   {/* 风险评分 */}
                   <div className="bg-slate-800/40 border border-blue-900/30 rounded-xl p-5">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-slate-800 font-semibold">风险评分</h3>
+                      <h3 className="text-slate-200 font-semibold">风险评分</h3>
                       <span className={`px-3 py-1 rounded-lg text-sm font-bold border ${getRiskColor(aiAnalysis.riskLevel)}`}>
                         {aiAnalysis.riskLevel}
                       </span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="text-4xl font-bold text-slate-800">{aiAnalysis.riskScore}</div>
+                      <div className="text-4xl font-bold text-slate-200">{aiAnalysis.riskScore}</div>
                       <div className="text-slate-400 text-sm">/ 100</div>
                     </div>
                     <div className="w-full bg-slate-600/50 rounded-full h-3 mt-3">
@@ -1320,7 +1320,7 @@ function ProjectDetailDrawer({
                   {/* 分析摘要 */}
                   {aiAnalysis.analysisSummary && (
                     <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-l-4 border-cyan-400 rounded-r-xl p-5">
-                      <p className="text-slate-800 text-sm leading-relaxed">💡 {aiAnalysis.analysisSummary}</p>
+                      <p className="text-slate-200 text-sm leading-relaxed">💡 {aiAnalysis.analysisSummary}</p>
                     </div>
                   )}
 
@@ -1348,7 +1348,7 @@ function ProjectDetailDrawer({
                       </h3>
                       <ul className="space-y-2">
                         {aiAnalysis.suggestions.map((s, i) => (
-                          <li key={i} className="text-slate-700/80 text-sm flex items-start gap-2">
+                          <li key={i} className="text-slate-300/80 text-sm flex items-start gap-2">
                             <span className="text-blue-400 mt-0.5">💡</span> {s}
                           </li>
                         ))}
@@ -1357,14 +1357,14 @@ function ProjectDetailDrawer({
                   )}
 
                   {aiAnalysis.analyzedAt && (
-                    <p className="text-xs text-slate-600 text-right">
+                    <p className="text-xs text-slate-400 text-right">
                       分析时间: {new Date(aiAnalysis.analyzedAt).toLocaleString('zh-CN')}
                     </p>
                   )}
                 </>
               ) : (
                 <div className="text-center py-16">
-                  <Bot className="size-16 mx-auto mb-4 text-slate-600" />
+                  <Bot className="size-16 mx-auto mb-4 text-slate-400" />
                   <p className="text-slate-400 mb-4">暂无 AI 分析结果</p>
                 </div>
               )}
@@ -1384,7 +1384,7 @@ function ProjectDetailDrawer({
         {/* Bottom Actions */}
         <div className="sticky bottom-0 p-6 border-t border-blue-900/30 bg-slate-900/90 backdrop-blur-md flex gap-3">
           <button onClick={onEdit}
-            className="flex-1 py-2.5 rounded-lg border border-cyan-500/40 text-slate-800 hover:bg-cyan-500/10 transition-colors flex items-center justify-center gap-2">
+            className="flex-1 py-2.5 rounded-lg border border-cyan-500/40 text-slate-200 hover:bg-cyan-500/10 transition-colors flex items-center justify-center gap-2">
             <Edit size={16} /> 编辑
           </button>
           <button onClick={onWeeklyReport}
@@ -1541,6 +1541,8 @@ function WeeklyReportFormModal({
 
   if (!open) return null;
 
+  console.log('📋 WeeklyReportFormModal 渲染 — mode:', mode, 'projectId:', projectId, 'isMobile:', window.innerWidth < 768);
+
   const title = isView ? '周报详情' : isEdit ? '编辑周报' : '新建周报';
 
   const handleSubmit = async (e: FormEvent) => {
@@ -1619,14 +1621,14 @@ function WeeklyReportFormModal({
   const readOnlyClass = "w-full bg-slate-700/20 border border-slate-600/50 rounded-lg px-3 py-2.5 text-slate-400 text-base cursor-not-allowed";
   const labelClass = "block text-sm text-slate-400 mb-1";
   const sectionClass = "border-t border-slate-700/50 pt-4";
-  const sectionTitleClass = "text-sm text-slate-800 font-semibold mb-3";
+  const sectionTitleClass = "text-sm text-slate-200 font-semibold mb-3";
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-slate-800 md:bg-slate-900/70 md:backdrop-blur-sm">
       <div className="w-full h-full flex flex-col md:h-auto md:max-h-[85vh] md:w-[800px] md:m-auto md:rounded-2xl border border-blue-900/30 shadow-2xl bg-slate-800">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
-          <h2 className="text-xl font-bold text-slate-800">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-800 transition-colors"><X size={22} /></button>
+          <h2 className="text-xl font-bold text-slate-200">{title}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
         </div>
 
         <form onSubmit={isView ? (e) => e.preventDefault() : handleSubmit} className="flex flex-col h-full min-h-0">
@@ -1641,12 +1643,12 @@ function WeeklyReportFormModal({
             <div>
               <label className={labelClass}>周报类型 <span className="text-red-400">*</span></label>
               <div className="flex gap-4 pt-2">
-                <label className="flex items-center gap-2 text-slate-700 text-sm">
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
                   <input type="radio" value="weekly" checked={form.reportType === 'weekly'}
                     onChange={e => update('reportType', e.target.value)} disabled={isView || isEdit} />
                   周报
                 </label>
-                <label className="flex items-center gap-2 text-slate-700 text-sm">
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
                   <input type="radio" value="monthly" checked={form.reportType === 'monthly'}
                     onChange={e => update('reportType', e.target.value)} disabled={isView || isEdit} />
                   月报
@@ -1735,7 +1737,7 @@ function WeeklyReportFormModal({
 
               {/* 财务字段（只读） */}
               <div className={sectionClass}>
-                <h3 className={sectionTitleClass}>🏦 财务字段 <span className="text-xs text-slate-800 font-normal">（财务部维护，不可编辑）</span></h3>
+                <h3 className={sectionTitleClass}>🏦 财务字段 <span className="text-xs text-slate-200 font-normal">（财务部维护，不可编辑）</span></h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className={labelClass}>本月直接成本</label><input type="number" className={readOnlyClass} value={form.monthlyDirectCost} readOnly disabled /></div>
                   <div><label className={labelClass}>本月部门管理成本</label><input type="number" className={readOnlyClass} value={form.monthlyDeptCost} readOnly disabled /></div>
@@ -1874,6 +1876,7 @@ function WeeklyReportManager({
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         {/* Header */}
         <button
+          data-expand-toggle="weekly-report"
           onClick={() => setCollapsed(!collapsed)}
           className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-100 transition-colors"
         >
@@ -1931,7 +1934,7 @@ function WeeklyReportManager({
                           <tr key={r.id} className="border-b border-slate-700/30 hover:bg-slate-100 transition-colors">
                             <td className="px-4 py-2.5 text-slate-800 text-sm">{r.reportDate}</td>
                             <td className="px-4 py-2.5">
-                              <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-slate-800 border border-purple-500/30' : 'bg-cyan-900/20 text-slate-800 border border-cyan-500/30'}`}>
+                              <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-slate-200 border border-purple-500/30' : 'bg-cyan-900/20 text-slate-200 border border-cyan-500/30'}`}>
                                 {r.reportType === 'monthly' ? '月报' : '周报'}
                               </span>
                             </td>
@@ -1955,21 +1958,21 @@ function WeeklyReportManager({
                     {reports.map(r => (
                       <div key={r.id} className="bg-slate-700/30 border border-slate-600/50 rounded-xl p-4 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-800 text-sm font-medium">{r.reportDate}</span>
-                          <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-slate-800 border border-purple-500/30' : 'bg-cyan-900/20 text-slate-800 border border-cyan-500/30'}`}>
+                          <span className="text-slate-200 text-sm font-medium">{r.reportDate}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${r.reportType === 'monthly' ? 'bg-purple-900/20 text-slate-200 border border-purple-500/30' : 'bg-cyan-900/20 text-slate-200 border border-cyan-500/30'}`}>
                             {r.reportType === 'monthly' ? '月报' : '周报'}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-400">
                           <span className="text-slate-400">进度</span>
-                          <span className="text-slate-700">{r.currentProgress ?? '-'}%</span>
+                          <span className="text-slate-300">{r.currentProgress ?? '-'}%</span>
                         </div>
                         <div className="text-xs text-slate-400">
                           <span className="text-slate-400">本周总结：</span>
-                          <span className="text-slate-700">{r.weeklySummary || '-'}</span>
+                          <span className="text-slate-300">{r.weeklySummary || '-'}</span>
                         </div>
                         <div className="flex items-center gap-2 pt-1 border-t border-slate-600/30">
-                          <button onClick={() => handleView(r)} className="flex-1 py-1.5 rounded text-slate-800 text-xs border border-cyan-500/30 hover:bg-cyan-500/10 transition-colors">查看</button>
+                          <button onClick={() => handleView(r)} className="flex-1 py-1.5 rounded text-slate-200 text-xs border border-cyan-500/30 hover:bg-cyan-500/10 transition-colors">查看</button>
                           <button onClick={() => handleEdit(r)} className="flex-1 py-1.5 rounded text-blue-400 text-xs border border-blue-500/30 hover:bg-blue-500/10 transition-colors">编辑</button>
                           <button onClick={() => handleDeleteClick(r)} className="flex-1 py-1.5 rounded text-red-400 text-xs border border-red-500/30 hover:bg-red-500/10 transition-colors">删除</button>
                         </div>
@@ -2561,16 +2564,22 @@ export default function ProjectManager() {
             className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm hover:border-slate-300 hover:shadow transition-all cursor-pointer"
             onClick={() => {
               console.log('📋 快捷填报：打开周报管理');
-              // 滚动到周报管理区块顶部，并自动展开折叠的面板
               const el = document.getElementById('weekly-report-manager');
-              if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                // 自动展开周报管理（默认折叠状态）
-                setTimeout(() => {
-                  const expandBtn = el.querySelector('button');
-                  if (expandBtn) expandBtn.click();
-                }, 500);
+              if (!el) { console.warn('⚠️ weekly-report-manager not found'); return; }
+              // 先展开面板，再滚动
+              const btn = el.querySelector('[data-expand-toggle]');
+              if (btn instanceof HTMLButtonElement) {
+                console.log('📋 找到展开按钮，直接点击展开');
+                btn.click();
+              } else {
+                console.warn('⚠️ 未找到 data-expand-toggle 按钮，尝试 fallback');
+                const fallback = el.querySelector('button');
+                if (fallback instanceof HTMLButtonElement) fallback.click();
               }
+              // 短暂延迟后滚动，确保 DOM 更新
+              setTimeout(() => {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 150);
             }}
           >
             <div className="flex items-center gap-2 mb-2">
@@ -3083,7 +3092,7 @@ export default function ProjectManager() {
                           {q.status && (
                             <span className={`px-2 py-0.5 rounded-md border ${
                               q.status === '公司在职'
-                                ? 'bg-emerald-900/20 text-slate-800 border-emerald-500/20'
+                                ? 'bg-emerald-900/20 text-slate-200 border-emerald-500/20'
                                 : 'bg-slate-700/50 text-slate-400 border-slate-600/30'
                             }`}>
                               {q.status}
