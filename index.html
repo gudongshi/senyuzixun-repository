@@ -11,6 +11,18 @@
     <meta property="og:image" content="http://39.96.22.11/app-icon.svg" />
     <meta property="og:url" content="http://39.96.22.11" />
     <meta property="og:type" content="website" />
+    <!-- VConsole 移动端调试 -->
+    <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+    <script>
+      (function() {
+        var ua = navigator.userAgent;
+        var isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(ua);
+        if (isMobile || window.location.search.indexOf('vconsole=1') !== -1) {
+          window.vConsole = new window.VConsole();
+          console.log('[VConsole] 移动端调试面板已启动 — 点击右下角绿色按钮查看日志');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

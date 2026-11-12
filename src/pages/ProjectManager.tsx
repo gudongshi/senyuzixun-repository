@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import Sidebar, { type PageKey } from '../components/layout/Sidebar';
 import SiteHubManager from '../components/site/SiteHubManager';
+import ErrorBoundary from '../components/ErrorBoundary';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
 import SiteContentManager from '../components/SiteContentManager';
@@ -1624,8 +1625,8 @@ function WeeklyReportFormModal({
   const sectionTitleClass = "text-sm text-slate-200 font-semibold mb-3";
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-slate-800 md:bg-slate-900/70 md:backdrop-blur-sm">
-      <div className="w-full h-full flex flex-col md:h-auto md:max-h-[85vh] md:w-[800px] md:m-auto md:rounded-2xl border border-blue-900/30 shadow-2xl bg-slate-800">
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-800 md:bg-slate-900/70 md:backdrop-blur-sm overflow-y-auto">
+      <div className="w-full h-full flex flex-col md:h-auto md:max-h-[85vh] md:w-[800px] md:m-auto md:rounded-2xl border border-blue-900/30 shadow-2xl bg-slate-800 overflow-hidden">
         <div className="flex justify-between items-center p-6 border-b border-blue-900/30">
           <h2 className="text-xl font-bold text-slate-200">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200 transition-colors"><X size={22} /></button>
@@ -1877,7 +1878,10 @@ function WeeklyReportManager({
         {/* Header */}
         <button
           data-expand-toggle="weekly-report"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => {
+            console.log('📋 [WeeklyReportManager] 切换折叠 — collapsed:', collapsed, '→', !collapsed, '| innerWidth:', window.innerWidth);
+            setCollapsed(!collapsed);
+          }}
           className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-100 transition-colors"
         >
           <div className="flex items-center gap-3">
@@ -2001,15 +2005,17 @@ function WeeklyReportManager({
       </div>
 
       {/* 周报弹窗 */}
-      <WeeklyReportFormModal
-        open={reportModalOpen}
+      <ErrorBoundary fallbackLabel="周报表单">
+        <WeeklyReportFormModal
+          open={reportModalOpen}
         mode={reportModalMode}
         report={editingReport}
         projectId={parseInt(selectedProjectId) || 0}
         projectBusinessType={projectBusinessType}
         onClose={() => { setReportModalOpen(false); setEditingReport(null); }}
         onSuccess={() => fetchReports(reportsPage)}
-      />
+        />
+      </ErrorBoundary>
 
       {/* 删除确认 */}
       {deleteConfirmOpen && (
@@ -2466,7 +2472,7 @@ export default function ProjectManager() {
       />
 
       {/* ── 主内容区 ── */}
-      <div className={`transition-all duration-300 lg:ml-[240px] ${sidebarCollapsed ? 'lg:ml-[72px]' : ''}`}>
+      <div className={`transition-[margin] duration-300 lg:ml-[240px] ${sidebarCollapsed ? 'lg:ml-[72px]' : ''}`}>
         {activePage === 'home' && (
           <>
       {/* ============================================================ */}
@@ -2634,7 +2640,9 @@ export default function ProjectManager() {
       {/* Weekly Report Manager */}
       {/* ============================================================ */}
       <div id="weekly-report-manager">
-      <WeeklyReportManager projects={projects} user={user} onModalOpenChange={setReportManagerModalOpen} />
+      <ErrorBoundary fallbackLabel="周报管理">
+        <WeeklyReportManager projects={projects} user={user} onModalOpenChange={setReportManagerModalOpen} />
+      </ErrorBoundary>
       </div>
 
       {/* ============================================================ */}
