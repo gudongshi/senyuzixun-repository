@@ -6323,19 +6323,30 @@ app.get('/api/site/texts', authMiddleware, async (req, res) => {
 });
 
 // PUT /api/site/texts/:page_key — 创建或更新文本（Upsert）
+//   支持字段: content (必填), big_title, sub_title, cover_image (选填)
 app.put('/api/site/texts/:page_key', authMiddleware, async (req, res) => {
   try {
     const { page_key } = req.params;
-    const { content } = req.body;
+    const { content, big_title, sub_title, cover_image } = req.body;
 
     if (!content && content !== '') {
       return res.status(400).json({ success: false, error: 'content 不能为空' });
     }
 
+    const upsertRow = {
+      page_key,
+      content,
+      updated_at: new Date().toISOString(),
+    };
+    // 只传非 undefined 的字段（保留已有值不被 null 覆盖）
+    if (big_title !== undefined) upsertRow.big_title = big_title || null;
+    if (sub_title !== undefined) upsertRow.sub_title = sub_title || null;
+    if (cover_image !== undefined) upsertRow.cover_image = cover_image || null;
+
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from('site_texts')
-      .upsert({ page_key, content, updated_at: new Date().toISOString() }, { onConflict: 'page_key' })
+      .upsert(upsertRow, { onConflict: 'page_key' })
       .select()
       .single();
 
@@ -6344,7 +6355,7 @@ app.put('/api/site/texts/:page_key', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    console.log(`✅ 文本已保存: page_key=${page_key} (${content.length} chars)`);
+    console.log(`✅ 文本已保存: page_key=${page_key} (content=${content.length} chars, big_title=${big_title || '(不变)'})`);
     res.json({ success: true, data });
   } catch (err) {
     console.error('❌ 保存文本异常:', err.message);

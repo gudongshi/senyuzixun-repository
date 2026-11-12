@@ -22,14 +22,49 @@ type TabKey = typeof TABS[number]['key'];
 export default function SiteCMSManager({
   open,
   onClose,
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const [tab, setTab] = useState<TabKey>('texts');
 
   if (!open) return null;
 
+  // ── 内嵌模式（在 SiteHubManager 中渲染）──
+  if (embedded) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 px-4 overflow-x-auto">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-[1px] whitespace-nowrap ${
+                tab === t.key
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <t.icon size={16} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="p-4">
+          {tab === 'texts'       && <SiteTextManager />}
+          {tab === 'cards'       && <SiteCardManager />}
+          {tab === 'team'        && <SiteTeamManager />}
+          {tab === 'credentials' && <SiteCredentialsManager />}
+          {tab === 'contact'     && <SiteContactManager />}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 默认模态模式 ──
   return (
     <>
       {/* Overlay */}

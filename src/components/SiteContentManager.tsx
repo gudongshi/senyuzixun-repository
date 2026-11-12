@@ -113,9 +113,11 @@ async function uploadCoverImage(file: File): Promise<string> {
 export default function SiteContentManager({
   open,
   onClose,
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   // ---- Tab 状态 ----
   const [tab, setTab] = useState<TabKey>('news');
@@ -398,6 +400,155 @@ export default function SiteContentManager({
   // 渲染
   // ==========================================================
   if (!open) return null;
+
+  // ── 内嵌模式（在 SiteHubManager 中渲染）──
+  if (embedded) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 px-4">
+          {([
+            { key: 'news' as TabKey, label: '📰 新闻管理', icon: Newspaper },
+            { key: 'cases' as TabKey, label: '🏗️ 案例管理', icon: Briefcase },
+          ]).map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-[1px] ${
+                tab === t.key
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <t.icon size={16} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="p-4 space-y-4">
+          {/* Toolbar */}
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+              <input
+                type="text"
+                value={tab === 'news' ? newsSearch : casesSearch}
+                onChange={e => tab === 'news' ? setNewsSearch(e.target.value) : setCasesSearch(e.target.value)}
+                placeholder={tab === 'news' ? '搜索新闻标题...' : '搜索案例标题...'}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-500/20 transition-colors text-sm"
+              />
+            </div>
+            <button
+              onClick={handleCreate}
+              className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 transition-all flex items-center gap-2 shrink-0"
+            >
+              <Plus size={16} />
+              新增{tab === 'news' ? '新闻' : '案例'}
+            </button>
+          </div>
+
+          {/* Stats */}
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
+            <span className="text-sm text-slate-500 whitespace-nowrap">
+              共 <span className="text-indigo-600 font-bold">{tab === 'news' ? newsTotal : casesTotal}</span> 条记录
+            </span>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
+          </div>
+
+          {/* Loading */}
+          {(tab === 'news' ? newsLoading : casesLoading) && (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="size-10 text-indigo-400 animate-spin" />
+            </div>
+          )}
+
+          {/* Empty */}
+          {!(tab === 'news' ? newsLoading : casesLoading) && (tab === 'news' ? filteredNews : filteredCases).length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <Search className="size-14 text-slate-300 mb-4" />
+              <p className="text-slate-400 text-lg font-medium mb-1">暂无{tab === 'news' ? '新闻' : '案例'}内容</p>
+              <p className="text-slate-500 text-sm">点击右上角按钮新增</p>
+            </div>
+          )}
+
+          {/* List */}
+          {!(tab === 'news' ? newsLoading : casesLoading) && (tab === 'news' ? filteredNews : filteredCases).length > 0 && (
+            <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+              {(tab === 'news' ? filteredNews : filteredCases).map((item: any) => (
+                <div
+                  key={item.id}
+                  className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-indigo-200 hover:shadow-sm transition-all"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-slate-800 font-medium text-sm mb-1 line-clamp-1">
+                        {item.title}
+                      </h4>
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <span>{new Date(item.created_at).toLocaleDateString('zh-CN')}</span>
+                        {tab === 'cases' && item.tags && (
+                          <span className="text-indigo-600">🏷️ {item.tags}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => { setPreviewItem(item); setPreviewType(tab); }}
+                        className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        title="预览"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                        title="编辑"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget({ id: item.id, title: item.title, type: tab })}
+                        className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        title="删除"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                onClick={() => tab === 'news' ? fetchNews(currentPage - 1) : fetchCases(currentPage - 1)}
+                disabled={currentPage <= 1}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 text-sm hover:border-indigo-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                上一页
+              </button>
+              <span className="text-sm text-slate-500 px-2">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => tab === 'news' ? fetchNews(currentPage + 1) : fetchCases(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 text-sm hover:border-indigo-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                下一页
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
