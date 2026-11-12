@@ -23,10 +23,6 @@ export default class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error('❌ ErrorBoundary 捕获到渲染错误:', error.message);
     console.error('📚 组件堆栈:', info.componentStack);
-    // 尝试上报到 VConsole
-    if (typeof window !== 'undefined' && (window as any).vConsole) {
-      console.error('[Crash]', error.message, info.componentStack);
-    }
   }
 
   render() {
