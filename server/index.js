@@ -6927,6 +6927,97 @@ app.listen(PORT, () => {
 });
 
 // ============================================================
+// 打印费分摊 API
+// ============================================================
+
+// GET /api/print/departments — 获取部门模板列表
+app.get('/api/print/departments', authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('print_departments')
+      .select('*')
+      .order('sort_order', { ascending: true });
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/print/departments — 新增部门模板
+app.post('/api/print/departments', authMiddleware, async (req, res) => {
+  try {
+    const { dept_name, machine_location, machine_number, sort_order } = req.body;
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('print_departments')
+      .insert({ dept_name, machine_location, machine_number, sort_order: sort_order || 0 })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/print/departments/:id — 删除部门模板
+app.delete('/api/print/departments/:id', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    const { error } = await client
+      .from('print_departments')
+      .delete()
+      .eq('id', req.params.id);
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/print/records — 保存一期核算记录（母表 + 子表）
+app.post('/api/print/records', authMiddleware, async (req, res) => {
+  try {
+    const {
+      invoice_total, total_bw_pages, total_color_pages, total_pages,
+      bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
+      items,
+    } = req.body;
+
+    const client = supabaseAdmin || supabase;
+
+    // 插入母表
+    const { data: record, error: recErr } = await client
+      .from('print_records')
+      .insert({
+        invoice_total, total_bw_pages, total_color_pages, total_pages,
+        bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
+        created_by: req.user?.name || '',
+      })
+      .select()
+      .single();
+    if (recErr) return res.status(500).json({ success: false, error: recErr.message });
+
+    // 插入子表
+    const itemsWithRecord = (items || []).map(item => ({
+      ...item,
+      record_id: record.id,
+    }));
+    if (itemsWithRecord.length > 0) {
+      const { error: itemErr } = await client
+        .from('print_record_items')
+        .insert(itemsWithRecord);
+      if (itemErr) return res.status(500).json({ success: false, error: itemErr.message });
+    }
+
+    res.json({ success: true, data: record });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================
 // 定时任务：每月1号凌晨 00:00 清零本月新进人数
 // ============================================================
 cron.schedule('0 0 1 * *', async () => {

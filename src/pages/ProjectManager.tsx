@@ -4,10 +4,11 @@ import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
   Loader2, AlertTriangle, TrendingUp, Bot, Users, DollarSign,
-  Send, ShieldCheck, Globe, Settings
+  Send, ShieldCheck, Globe, Settings, Printer
 } from 'lucide-react';
 import Sidebar, { type PageKey } from '../components/layout/Sidebar';
 import SiteHubManager from '../components/site/SiteHubManager';
+import PrintAllocation from '../components/print/PrintAllocation';
 import ErrorBoundary from '../components/ErrorBoundary';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
@@ -3327,6 +3328,13 @@ export default function ProjectManager() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── 打印费分摊页面 ── */}
+        {activePage === 'print' && (
+          <div className="flex-1 flex flex-col min-h-screen">
+            <PrintAllocation />
           </div>
         )}
 
