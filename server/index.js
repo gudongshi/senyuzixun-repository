@@ -7065,6 +7065,39 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/print/records/check?month=YYYY-MM — 查询某月是否有历史账单
+app.get('/api/print/records/check', authMiddleware, async (req, res) => {
+  try {
+    const month = req.query.month;
+    if (!month) return res.status(400).json({ success: false, error: 'month 参数必填' });
+
+    // 查母表
+    const { data: record, error: recErr } = await supabase
+      .from('print_records')
+      .select('*')
+      .eq('billing_month', month)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (recErr) return res.status(500).json({ success: false, error: recErr.message });
+    if (!record) return res.json({ success: true, found: false });
+
+    // 查子表明细
+    const { data: items, error: itemErr } = await supabase
+      .from('print_record_items')
+      .select('*')
+      .eq('record_id', record.id)
+      .order('id', { ascending: true });
+
+    if (itemErr) return res.status(500).json({ success: false, error: itemErr.message });
+
+    res.json({ success: true, found: true, record, items });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ============================================================
 // 定时任务：每月1号凌晨 00:00 清零本月新进人数
 // ============================================================

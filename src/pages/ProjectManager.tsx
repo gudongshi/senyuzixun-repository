@@ -2095,9 +2095,18 @@ export default function ProjectManager() {
   const [reportManagerModalOpen, setReportManagerModalOpen] = useState(false);
   const [staffQualManagerOpen, setStaffQualManagerOpen] = useState(false);
 
-  // ---- 侧边栏导航 ----
-  const [activePage, setActivePage] = useState<PageKey>('home');
+  // ---- 侧边栏导航（F5 刷新保持当前页）----
+  const [activePage, setActivePage] = useState<PageKey>(() => {
+    const saved = sessionStorage.getItem('activePage');
+    return (saved as PageKey) || 'home';
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // 导航时同步到 sessionStorage
+  const navigateTo = useCallback((page: PageKey) => {
+    sessionStorage.setItem('activePage', page);
+    setActivePage(page);
+  }, []);
 
     const [qualifications, setQualifications] = useState<any[]>([]);
   const [qualTotal, setQualTotal] = useState(0);
@@ -2469,7 +2478,7 @@ export default function ProjectManager() {
       {/* ── 侧边栏 ── */}
       <Sidebar
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={navigateTo}
         userName={user?.name}
         onLogout={handleLogout}
         collapsed={sidebarCollapsed}

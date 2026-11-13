@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v6'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v6');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -194,9 +194,77 @@ export default function PrintAllocation() {
   const [newName, setNewName]             = useState('');
   const [newLocation, setNewLocation]     = useState('');
   const [newNumber, setNewNumber]         = useState('');
+  const deptNameInputRef = useRef<HTMLInputElement>(null);
 
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
+
+  // ── 切换月份时检查历史账单 ──
+  const lastCheckedMonthRef = useRef<string>('');
+  useEffect(() => {
+    if (!loaded) return;
+    if (!billingMonth || billingMonth === lastCheckedMonthRef.current) return;
+    lastCheckedMonthRef.current = billingMonth;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/print/records/check?month=' + encodeURIComponent(billingMonth));
+        const json = await res.json();
+        if (cancelled) return;
+        if (!json.success || !json.found) {
+          console.log('📅 [History] ' + billingMonth + ' 无历史账单');
+          return;
+        }
+
+        const { record, items } = json;
+        const confirmed = window.confirm(
+          '📋 检测到 ' + billingMonth + ' 已保存过账单（发票总额 ¥' + record.invoice_total + '，' +
+          (items?.length || 0) + ' 个部门明细）。\n\n是否加载该月历史数据？（选择"取消"保留当前输入）'
+        );
+        if (!confirmed) return;
+
+        // 加载历史数据
+        setInvoiceTotal(String(record.invoice_total));
+        if (items && items.length > 0) {
+          setRows(prev => {
+            // 用现有行的 key/dbId 做基底，填入历史印量
+            const existingMap = new Map(prev.map(r => [r.dept_name, r]));
+            const loadedRows: DeptRow[] = [];
+            const seen = new Set<string>();
+
+            for (const item of items) {
+              const existing = existingMap.get(item.dept_name);
+              seen.add(item.dept_name);
+              loadedRows.push({
+                key: existing?.key || `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
+                dbId: existing?.dbId,
+                dept_name: item.dept_name,
+                machine_location: item.machine_location || existing?.machine_location || '',
+                machine_number: item.machine_number || existing?.machine_number || '',
+                sort_order: item.sort_order || existing?.sort_order || 0,
+                bwPages: item.bw_pages || 0,
+                colorPages: item.color_pages || 0,
+              });
+            }
+
+            // 追加当前列表中历史账单里没有的部门（保留空白印量）
+            for (const r of prev) {
+              if (!seen.has(r.dept_name)) {
+                loadedRows.push({ ...r, bwPages: 0, colorPages: 0 });
+              }
+            }
+
+            return loadedRows;
+          });
+        }
+        showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单');
+      } catch (err: any) {
+        console.warn('📅 [History] 查询失败:', err.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loaded, billingMonth]);
 
   // ── 自动保存草稿到 localStorage ──
   useEffect(() => {
@@ -421,6 +489,8 @@ export default function PrintAllocation() {
       setNewName('');
       setNewLocation('');
       setNewNumber('');
+      // 焦点回到部门名称输入框，方便连续录入
+      setTimeout(() => deptNameInputRef.current?.focus(), 0);
       showMessage('success', '部门已添加');
     } catch (err: any) {
       showMessage('error', '添加失败: ' + err.message);
@@ -739,6 +809,7 @@ export default function PrintAllocation() {
                 <div className="border-t border-slate-200 px-4 py-3 bg-slate-50/50">
                   <div className="flex items-center gap-2 flex-wrap">
                     <input
+                      ref={deptNameInputRef}
                       type="text"
                       value={newName}
                       onChange={e => setNewName(e.target.value)}
