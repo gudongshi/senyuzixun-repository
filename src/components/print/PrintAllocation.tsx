@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251113-draft-fix-v8.1'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v8.2'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v8.1');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v8.2');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -297,54 +297,79 @@ export default function PrintAllocation() {
           return; // 有正式账单，结束（不检查草稿）
         }
 
-        // ── 第 2 路（v8.1 恢复）：DB 无账单 → 检查该月份 localStorage 草稿 ──
+        // ── 第 2 路（v8.2 加强校验）：DB 无账单 → 检查该月份 localStorage 草稿 ──
         const draftKey = getDraftKey(billingMonth);
         const draftStr = localStorage.getItem(draftKey);
         let draft: any = null;
+        let draftParseFailed = false;
+
         if (draftStr) {
-          try { draft = JSON.parse(draftStr); } catch (e) { /* ignore */ }
-        }
-        const draftRows: any[] = (draft && Array.isArray(draft.rows)) ? draft.rows : [];
-        const hasDraftPages = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
-        const hasDraftData = hasDraftPages || (draft?.invoiceTotal && parseFloat(draft.invoiceTotal) > 0);
-
-        if (hasDraftData) {
-          setInvoiceTotal(draft.invoiceTotal || '');
-          const curDepts2 = departmentsRef.current;
-          const tplMap2 = new Map(curDepts2.map(d => [d.dept_name, d]));
-          const seenDepts2 = new Set<string>();
-          const draftLoadedRows: DeptRow[] = [];
-
-          for (const dr of draftRows) {
-            const tpl = tplMap2.get(dr.dept_name);
-            seenDepts2.add(dr.dept_name);
-            draftLoadedRows.push({
-              key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
-              dbId: dr.dbId || tpl?.id,
-              dept_name: dr.dept_name || '未知部门',
-              machine_location: dr.machine_location || tpl?.machine_location || '',
-              machine_number: dr.machine_number || tpl?.machine_number || '',
-              sort_order: dr.sort_order || tpl?.sort_order || 0,
-              bwPages: dr.bwPages || 0,
-              colorPages: dr.colorPages || 0,
-            });
+          try {
+            draft = JSON.parse(draftStr);
+            // 校验：draft.rows 必须是数组
+            if (!draft || !Array.isArray(draft.rows)) {
+              console.warn('🧹 [Draft] ' + draftKey + ' 结构异常（缺 rows 或非数组），自动清理');
+              localStorage.removeItem(draftKey);
+              draft = null;
+              draftParseFailed = true;
+            }
+          } catch (e) {
+            console.warn('🧹 [Draft] ' + draftKey + ' JSON 解析失败，自动清理');
+            localStorage.removeItem(draftKey);
+            draftParseFailed = true;
           }
+        }
 
-          // 模板中有但草稿中没有的部门 → 补空白行
-          for (const tpl of curDepts2) {
-            if (!seenDepts2.has(tpl.dept_name)) {
+        if (!draft || draftParseFailed) {
+          // 无有效草稿 → 进入第 3 路
+        } else {
+          const draftRows: any[] = draft.rows; // 已通过 Array.isArray 校验
+          const hasDraftPages = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
+          const hasDraftInvoice = draft?.invoiceTotal && parseFloat(draft.invoiceTotal) > 0;
+
+          if (hasDraftPages || hasDraftInvoice) {
+            // 有效草稿 → 加载
+            setInvoiceTotal(draft.invoiceTotal || '');
+            const curDepts2 = departmentsRef.current;
+            const tplMap2 = new Map(curDepts2.map(d => [d.dept_name, d]));
+            const seenDepts2 = new Set<string>();
+            const draftLoadedRows: DeptRow[] = [];
+
+            for (const dr of draftRows) {
+              const tpl = tplMap2.get(dr.dept_name);
+              seenDepts2.add(dr.dept_name);
               draftLoadedRows.push({
-                key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
-                machine_location: tpl.machine_location || '',
-                machine_number: tpl.machine_number || '',
-                sort_order: tpl.sort_order || 0,
-                bwPages: 0, colorPages: 0,
+                key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
+                dbId: dr.dbId || tpl?.id,
+                dept_name: dr.dept_name || '未知部门',
+                machine_location: dr.machine_location || tpl?.machine_location || '',
+                machine_number: dr.machine_number || tpl?.machine_number || '',
+                sort_order: dr.sort_order || tpl?.sort_order || 0,
+                bwPages: dr.bwPages || 0,
+                colorPages: dr.colorPages || 0,
               });
             }
+
+            // 模板中有但草稿中没有的部门 → 补空白行
+            for (const tpl of curDepts2) {
+              if (!seenDepts2.has(tpl.dept_name)) {
+                draftLoadedRows.push({
+                  key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
+                  machine_location: tpl.machine_location || '',
+                  machine_number: tpl.machine_number || '',
+                  sort_order: tpl.sort_order || 0,
+                  bwPages: 0, colorPages: 0,
+                });
+              }
+            }
+            setRows(draftLoadedRows);
+            showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
+            return;
           }
-          setRows(draftLoadedRows);
-          showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
-          return;
+
+          // 草稿存在但全零（旧版本竞态写入的空壳）→ 清理
+          console.log('🧹 [Draft] ' + draftKey + ' 为全零空壳（v7.x 竞态残留），自动清理');
+          localStorage.removeItem(draftKey);
         }
 
         // ── 第 3 路：既无账单也无草稿 → 第一步的零印量模板就是最终状态 ──
