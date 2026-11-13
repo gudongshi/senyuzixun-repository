@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v3'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v4'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v3');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v4');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -206,6 +206,7 @@ export default function PrintAllocation() {
         try {
           const existing = JSON.parse(existingStr);
           if (existing.rows && existing.rows.length > 0) {
+            console.warn('🛡️ [AutoSave] 阻止覆盖：当前 rows 为空但草稿中有 ' + existing.rows.length + ' 个部门，拒绝覆盖');
             return; // 保护已有草稿不被空数据覆盖
           }
         } catch (e) { /* ignore */ }
@@ -227,6 +228,7 @@ export default function PrintAllocation() {
       billingMonth,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    console.log('💾 [AutoSave] 草稿已保存：' + rows.length + ' 个部门, invoiceTotal=' + invoiceTotal + ', billingMonth=' + billingMonth, rows);
   }, [rows, invoiceTotal, billingMonth, loaded]);
 
   async function loadDepartments() {
@@ -319,6 +321,9 @@ export default function PrintAllocation() {
       }
       // else: 既无 DB 模板也无草稿 → rows 为空，展示"暂无部门数据"
 
+      if (finalRows.length === 0) {
+        console.warn('⚠️ [PrintAllocation] DB 模板和草稿均为空，页面将显示"暂无部门数据"');
+      }
       console.log('🔍 [PrintAllocation] 合并后的最终渲染数据:', { count: finalRows.length, rows: finalRows });
 
       setRows(finalRows);
@@ -662,7 +667,7 @@ export default function PrintAllocation() {
                             min="0"
                             value={r.bwPages || ''}
                             onChange={e => updatePages(r.key, 'bwPages', e.target.value)}
-                            className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                           />
                         </td>
                         <td className="px-4 py-2.5">
@@ -671,7 +676,7 @@ export default function PrintAllocation() {
                             min="0"
                             value={r.colorPages || ''}
                             onChange={e => updatePages(r.key, 'colorPages', e.target.value)}
-                            className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                           />
                         </td>
                         <td className="px-4 py-2.5 text-slate-600 text-xs">{r.machine_location}</td>
@@ -705,6 +710,7 @@ export default function PrintAllocation() {
                       type="text"
                       value={newLocation}
                       onChange={e => setNewLocation(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') addRow(); }}
                       placeholder="机器所在地"
                       className="w-28 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                     />
@@ -712,6 +718,7 @@ export default function PrintAllocation() {
                       type="text"
                       value={newNumber}
                       onChange={e => setNewNumber(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') addRow(); }}
                       placeholder="机器编号"
                       className="w-24 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                     />
