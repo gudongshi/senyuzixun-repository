@@ -34,7 +34,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 允许缓存最大 4MB 的 chunk
+        skipWaiting: true,     // 新 SW 立即激活，不等待旧页面关闭
+        clientsClaim: true,    // 激活后立即接管所有页面
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {

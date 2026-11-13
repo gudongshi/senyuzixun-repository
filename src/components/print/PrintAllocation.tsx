@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
+const BUILD_VER  = '20251113-draft-fix-v3'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -234,24 +235,27 @@ export default function PrintAllocation() {
       if (draftStr) {
         try { draft = JSON.parse(draftStr); } catch (e) { /* 解析失败则忽略 */ }
       }
+      console.log('🔍 [PrintAllocation] localStorage 草稿数据:', draft);
 
       // 2. 尝试从 API 获取部门模板（允许多种失败形式）
       let apiDepts: Department[] = [];
       try {
         const res = await fetch('/api/print/departments');
         const json = await res.json();
+        console.log('🔍 [PrintAllocation] API 返回原始数据:', { status: res.status, success: json.success, count: json.data?.length, data: json.data });
         if (json.success && Array.isArray(json.data)) {
           apiDepts = json.data;
           setDepartments(apiDepts);
         }
       } catch (err: any) {
-        console.warn('⚠️ 获取部门模板失败，将回退到草稿数据:', err.message);
+        console.warn('⚠️ [PrintAllocation] 获取部门模板失败，将回退到草稿数据:', err.message);
       }
 
       // 3. 构建最终 rows（合并 DB 模板 + 草稿）
       let finalRows: DeptRow[] = [];
 
       if (apiDepts.length > 0) {
+        console.log('🔍 [PrintAllocation] 合并策略: DB 模板为基底 + 草稿印量合并');
         // ── 有 DB 模板：以模板为基底，草稿印量合并进去 ──
         const draftMap = new Map<string, any>();
         if (draft?.rows) {
@@ -297,6 +301,7 @@ export default function PrintAllocation() {
           }
         }
       } else if (draft?.rows?.length > 0) {
+        console.log('🔍 [PrintAllocation] 合并策略: 无 DB 模板，回退到草稿完整数据');
         // ── 无 DB 模板，但有草稿：直接用草稿的完整数据 ──
         finalRows = draft.rows.map((dr: any) => ({
           key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
@@ -310,6 +315,8 @@ export default function PrintAllocation() {
         }));
       }
       // else: 既无 DB 模板也无草稿 → rows 为空，展示"暂无部门数据"
+
+      console.log('🔍 [PrintAllocation] 合并后的最终渲染数据:', { count: finalRows.length, rows: finalRows });
 
       setRows(finalRows);
 
@@ -539,7 +546,9 @@ export default function PrintAllocation() {
         </div>
         <div>
           <h2 className="text-lg font-bold text-slate-800">🖨️ 打印费分摊</h2>
-          <p className="text-xs text-slate-500">部门印量管理 · 阶梯计价 · 抹零分摊</p>
+          <p className="text-xs text-slate-500">部门印量管理 · 阶梯计价 · 抹零分摊
+            <span className="ml-2 text-[10px] text-slate-300 font-mono select-all">{BUILD_VER}</span>
+          </p>
         </div>
       </div>
 
@@ -626,8 +635,8 @@ export default function PrintAllocation() {
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-left">
                       <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">部门</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">黑白印量</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">彩色印量</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-32">黑白印量</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-32">彩色印量</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">所在地</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">编号</th>
                       <th className="px-4 py-3 w-10" />
@@ -650,7 +659,7 @@ export default function PrintAllocation() {
                             min="0"
                             value={r.bwPages || ''}
                             onChange={e => updatePages(r.key, 'bwPages', e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
+                            className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
                         </td>
                         <td className="px-4 py-2.5">
@@ -659,7 +668,7 @@ export default function PrintAllocation() {
                             min="0"
                             value={r.colorPages || ''}
                             onChange={e => updatePages(r.key, 'colorPages', e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
+                            className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
                         </td>
                         <td className="px-4 py-2.5 text-slate-600 text-xs">{r.machine_location}</td>
