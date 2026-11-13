@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251113-draft-fix-v7.6'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7.7'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.6');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.7');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -204,11 +204,15 @@ export default function PrintAllocation() {
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
 
-  // ── 切换月份时自动加载数据（v7.6: 三路分支 — 正式账单 / 本地草稿 / 空模板重置）──
+  // ── 切换月份时自动加载数据（v7.6: 三路分支 / v7.7: isSwitchingMonthRef 防串线）──
   const monthSwitchRef = useRef<string>(''); // 记录当前已加载的状态标识，避免重复覆盖
+  const isSwitchingMonthRef = useRef(false);  // 🔒 切换月份期间的互斥锁，阻止自动保存把旧月数据写入新月 key
   useEffect(() => {
     if (!loaded) return;
     if (!billingMonth) return;
+
+    // 🔒 立刻上锁：从这一刻起，auto-save 禁止写入，直到本 effect 加载/重置完成
+    isSwitchingMonthRef.current = true;
 
     let cancelled = false;
     (async () => {
@@ -253,6 +257,7 @@ export default function PrintAllocation() {
               return loadedRows;
             });
           }
+          isSwitchingMonthRef.current = false; // 🔓 解锁：数据已就位，允许后续自动保存
           showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
           return;
         }
@@ -300,6 +305,7 @@ export default function PrintAllocation() {
             }
             return loadedRows;
           });
+          isSwitchingMonthRef.current = false; // 🔓 解锁：草稿已就位
           showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
           return;
         }
@@ -313,9 +319,11 @@ export default function PrintAllocation() {
         monthSwitchRef.current = tag;
         setInvoiceTotal('');
         setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
+        isSwitchingMonthRef.current = false; // 🔓 解锁：重置完成
         console.log('📅 [Reset] ' + billingMonth + ' 无账单无草稿，已重置为干净模板');
 
       } catch (err: any) {
+        isSwitchingMonthRef.current = false; // 🔓 解锁：查询失败也要释放锁，避免死锁
         console.warn('📅 [History] 查询失败:', err.message);
       }
     })();
@@ -325,6 +333,12 @@ export default function PrintAllocation() {
   // ── 自动保存草稿到 localStorage ──
   useEffect(() => {
     if (!loaded) return; // 初始化期间不保存
+
+    // 🔒 防线 0（v7.7）：月份切换期间绝对禁止保存 — 此时 rows 还是旧月数据但 billingMonth 已是新月
+    if (isSwitchingMonthRef.current) {
+      console.log('🛡️ [AutoSave] 月份切换中，跳过保存（防止旧月数据串入新月 key）');
+      return;
+    }
 
     // 防线 1：本次会话已有过数据，但现在 rows 被意外置空 → 绝对拒绝
     if (rows.length === 0 && hadDataRef.current) {
