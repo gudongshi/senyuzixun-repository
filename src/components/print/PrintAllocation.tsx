@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251113-draft-fix-v7.7'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7.8'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.7');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.8');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -204,18 +204,17 @@ export default function PrintAllocation() {
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
 
-  // ── 切换月份时自动加载数据（v7.6: 三路分支 / v7.7: isSwitchingMonthRef 防串线）──
-  const monthSwitchRef = useRef<string>(''); // 记录当前已加载的状态标识，避免重复覆盖
+  // ── 切换月份时无条件重载数据（v7.8: 移除 monthSwitchRef，每次切月强制执行三路分支）──
   const isSwitchingMonthRef = useRef(false);  // 🔒 切换月份期间的互斥锁，阻止自动保存把旧月数据写入新月 key
   useEffect(() => {
     if (!loaded) return;
     if (!billingMonth) return;
 
-    // 🔒 立刻上锁：从这一刻起，auto-save 禁止写入，直到本 effect 加载/重置完成
-    isSwitchingMonthRef.current = true;
-
     let cancelled = false;
-    (async () => {
+    (async function loadMonthData() {
+      // 🔒 上锁：从现在起禁止 auto-save，直到本函数完成
+      isSwitchingMonthRef.current = true;
+
       try {
         // ── 第 1 路：查 DB 是否有正式账单 ──
         const res = await fetch('/api/print/records/check?month=' + encodeURIComponent(billingMonth));
@@ -223,46 +222,51 @@ export default function PrintAllocation() {
         if (cancelled) return;
 
         if (json.success && json.found) {
-          // ✅ 该月有正式账单 → 加载
+          // ✅ 该月有正式账单 → 无条件加载
           const { record, items } = json;
-          const tag = billingMonth + '|bill|' + record.id;
-          if (monthSwitchRef.current === tag) {
-            console.log('📅 [History] ' + billingMonth + ' 正式账单已加载，跳过');
-            return;
-          }
-          monthSwitchRef.current = tag;
           setInvoiceTotal(String(record.invoice_total));
           if (items && items.length > 0) {
-            setRows(prev => {
-              const existingMap = new Map(prev.map(r => [r.dept_name, r]));
-              const loadedRows: DeptRow[] = [];
-              const seen = new Set<string>();
-              for (const item of items) {
-                const existing = existingMap.get(item.dept_name);
-                seen.add(item.dept_name);
+            // 以数据库部门模板为基底，避免依赖 prev（prev 可能是旧月数据）
+            const templateMap = new Map(departments.map(d => [`dept-${d.id}`, d]));
+            const loadedRows: DeptRow[] = [];
+            const seenDepts = new Set<string>();
+
+            for (const item of items) {
+              const tKey = item.db_dept_id ? `dept-${item.db_dept_id}` : '';
+              const tpl = templateMap.get(tKey);
+              seenDepts.add(item.dept_name);
+              loadedRows.push({
+                key: tpl ? tKey : `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
+                dbId: tpl?.id,
+                dept_name: item.dept_name,
+                machine_location: item.machine_location || tpl?.machine_location || '',
+                machine_number: item.machine_number || tpl?.machine_number || '',
+                sort_order: item.sort_order || tpl?.sort_order || 0,
+                bwPages: item.bw_pages || 0,
+                colorPages: item.color_pages || 0,
+              });
+            }
+
+            // 补上账单中没有但模板里有的部门（空白印量）
+            for (const tpl of departments) {
+              if (!seenDepts.has(tpl.dept_name)) {
                 loadedRows.push({
-                  key: existing?.key || `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
-                  dbId: existing?.dbId,
-                  dept_name: item.dept_name,
-                  machine_location: item.machine_location || existing?.machine_location || '',
-                  machine_number: item.machine_number || existing?.machine_number || '',
-                  sort_order: item.sort_order || existing?.sort_order || 0,
-                  bwPages: item.bw_pages || 0,
-                  colorPages: item.color_pages || 0,
+                  key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
+                  machine_location: tpl.machine_location || '',
+                  machine_number: tpl.machine_number || '',
+                  sort_order: tpl.sort_order || 0,
+                  bwPages: 0, colorPages: 0,
                 });
               }
-              for (const r of prev) {
-                if (!seen.has(r.dept_name)) loadedRows.push({ ...r, bwPages: 0, colorPages: 0 });
-              }
-              return loadedRows;
-            });
+            }
+
+            setRows(loadedRows);
           }
-          isSwitchingMonthRef.current = false; // 🔓 解锁：数据已就位，允许后续自动保存
           showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
           return;
         }
 
-        // ── DB 无正式账单 → 第 2 路：检查该月份本地草稿 ──
+        // ── 第 2 路：DB 无账单 → 检查该月份本地草稿 ──
         const draftKey = getDraftKey(billingMonth);
         const draftStr = localStorage.getItem(draftKey);
         let draft: any = null;
@@ -274,57 +278,60 @@ export default function PrintAllocation() {
         const hasDraftData = hasDraftPages || (draft?.invoiceTotal && parseFloat(draft.invoiceTotal) > 0);
 
         if (hasDraftData) {
-          // 📝 该月有本地草稿 → 加载草稿
-          const tag = billingMonth + '|draft';
-          if (monthSwitchRef.current === tag) {
-            console.log('📅 [Draft] ' + billingMonth + ' 草稿已加载，跳过');
-            return;
-          }
-          monthSwitchRef.current = tag;
+          // 📝 该月有本地草稿 → 无条件加载
           setInvoiceTotal(draft.invoiceTotal || '');
-          setRows(prev => {
-            const existingMap = new Map(prev.map(r => [r.dept_name, r]));
-            const loadedRows: DeptRow[] = [];
-            const seen = new Set<string>();
-            for (const dr of draftRows) {
-              const existing = existingMap.get(dr.dept_name);
-              seen.add(dr.dept_name);
+          const templateMap = new Map(departments.map(d => [`dept-${d.id}`, d]));
+          const loadedRows: DeptRow[] = [];
+          const seenDepts = new Set<string>();
+
+          for (const dr of draftRows) {
+            const tpl = templateMap.get(dr.key) || templateMap.get(`dept-${dr.dbId}`);
+            seenDepts.add(dr.dept_name);
+            loadedRows.push({
+              key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
+              dbId: dr.dbId || tpl?.id,
+              dept_name: dr.dept_name || '未知部门',
+              machine_location: dr.machine_location || tpl?.machine_location || '',
+              machine_number: dr.machine_number || tpl?.machine_number || '',
+              sort_order: dr.sort_order || tpl?.sort_order || 0,
+              bwPages: dr.bwPages || 0,
+              colorPages: dr.colorPages || 0,
+            });
+          }
+
+          // 补上草稿中没有但模板里有的部门
+          for (const tpl of departments) {
+            if (!seenDepts.has(tpl.dept_name)) {
               loadedRows.push({
-                key: dr.key || existing?.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
-                dbId: dr.dbId || existing?.dbId,
-                dept_name: dr.dept_name || '未知部门',
-                machine_location: dr.machine_location || existing?.machine_location || '',
-                machine_number: dr.machine_number || existing?.machine_number || '',
-                sort_order: dr.sort_order || existing?.sort_order || 0,
-                bwPages: dr.bwPages || 0,
-                colorPages: dr.colorPages || 0,
+                key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
+                machine_location: tpl.machine_location || '',
+                machine_number: tpl.machine_number || '',
+                sort_order: tpl.sort_order || 0,
+                bwPages: 0, colorPages: 0,
               });
             }
-            for (const r of prev) {
-              if (!seen.has(r.dept_name)) loadedRows.push({ ...r, bwPages: 0, colorPages: 0 });
-            }
-            return loadedRows;
-          });
-          isSwitchingMonthRef.current = false; // 🔓 解锁：草稿已就位
+          }
+
+          setRows(loadedRows);
           showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
           return;
         }
 
-        // ── 第 3 路：该月既无正式账单也无草稿 → 重置为空模板 ──
-        const tag = billingMonth + '|empty';
-        if (monthSwitchRef.current === tag) {
-          console.log('📅 [Reset] ' + billingMonth + ' 已是空模板，跳过');
-          return;
-        }
-        monthSwitchRef.current = tag;
+        // ── 第 3 路：该月既无账单也无草稿 → 彻底清空 ──
         setInvoiceTotal('');
-        setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
-        isSwitchingMonthRef.current = false; // 🔓 解锁：重置完成
-        console.log('📅 [Reset] ' + billingMonth + ' 无账单无草稿，已重置为干净模板');
+        setRows([]);
+        console.log('📅 [Reset] ' + billingMonth + ' 无账单无草稿，页面已清空');
 
       } catch (err: any) {
-        isSwitchingMonthRef.current = false; // 🔓 解锁：查询失败也要释放锁，避免死锁
-        console.warn('📅 [History] 查询失败:', err.message);
+        // 查询出错也要强制清空，避免残留旧月数据
+        console.error('📅 [History] 查询失败，强制清空:', err.message);
+        setInvoiceTotal('');
+        setRows([]);
+      } finally {
+        // 🔓 无论如何都要解锁，允许后续自动保存
+        if (!cancelled) {
+          isSwitchingMonthRef.current = false;
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -620,7 +627,6 @@ export default function PrintAllocation() {
     const now = new Date();
     setBillingMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
     setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
-    monthSwitchRef.current = ''; // 重置，允许重新加载
     showMessage('success', '数据已清空');
   }
 
@@ -753,7 +759,6 @@ export default function PrintAllocation() {
         localStorage.removeItem(getDraftKey(billingMonth));
         setInvoiceTotal('');
         setRows([]);
-        monthSwitchRef.current = ''; // 重置，允许重新加载
         showMessage('success', '🗑️ ' + billingMonth + ' 账单已彻底删除（共 ' + (json.deleted || 0) + ' 条）');
         // 重置 hadDataRef 避免阻止后续保存
         hadDataRef.current = false;
