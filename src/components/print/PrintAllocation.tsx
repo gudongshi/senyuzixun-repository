@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v7.4'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7.5'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.4');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.5');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -201,12 +201,12 @@ export default function PrintAllocation() {
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
 
-  // ── 切换月份时检查历史账单 ──
-  const lastCheckedMonthRef = useRef<string>('');
+  // ── 切换月份时自动加载历史账单 ──
+  // v7.5: 移除 lastCheckedMonthRef，每次切换月份必须查 API（RLS 已修复用 supabaseAdmin）
+  const monthSwitchRef = useRef<string>(''); // 记录上一次加载成功的月份，避免同一份数据重复覆盖
   useEffect(() => {
     if (!loaded) return;
-    if (!billingMonth || billingMonth === lastCheckedMonthRef.current) return;
-    lastCheckedMonthRef.current = billingMonth;
+    if (!billingMonth) return;
 
     let cancelled = false;
     (async () => {
@@ -220,13 +220,15 @@ export default function PrintAllocation() {
         }
 
         const { record, items } = json;
-        const confirmed = window.confirm(
-          '📋 检测到 ' + billingMonth + ' 已保存过账单（发票总额 ¥' + record.invoice_total + '，' +
-          (items?.length || 0) + ' 个部门明细）。\n\n是否加载该月历史数据？（选择"取消"保留当前输入）'
-        );
-        if (!confirmed) return;
 
-        // 加载历史数据
+        // 如果和当前已加载的是同一条账单，跳过（避免用户手动编辑后被覆盖）
+        if (monthSwitchRef.current === billingMonth + '|' + record.id) {
+          console.log('📅 [History] ' + billingMonth + ' 已加载，跳过');
+          return;
+        }
+        monthSwitchRef.current = billingMonth + '|' + record.id;
+
+        // 自动加载历史数据，不用 confirm
         setInvoiceTotal(String(record.invoice_total));
         if (items && items.length > 0) {
           setRows(prev => {
@@ -260,7 +262,7 @@ export default function PrintAllocation() {
             return loadedRows;
           });
         }
-        showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单');
+        showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
       } catch (err: any) {
         console.warn('📅 [History] 查询失败:', err.message);
       }
@@ -644,12 +646,34 @@ export default function PrintAllocation() {
     }
   }
 
-  // ── 作废整月账单 ──
+  // ── 作废整月账单（v7.5: 先查后删，智能防呆）
   async function deleteMonthRecord() {
-    if (!window.confirm('⚠️ 警告：确定要彻底删除 ' + billingMonth + ' 的账单吗？\n\n该操作不可逆，所有分摊明细将被清空！')) return;
-    if (!window.confirm('🔴 二次确认：删除后无法恢复，是否继续？')) return;
     setDeleting(true);
     try {
+      // 第 1 步：先查询该月是否有账单
+      const checkRes = await fetch('/api/print/records/check?month=' + encodeURIComponent(billingMonth));
+      const checkJson = await checkRes.json();
+
+      if (!checkJson.success || !checkJson.found) {
+        // 该月没有账单，直接提示
+        showMessage('error', '📭 ' + billingMonth + ' 没有任何已保存的账单，无需作废');
+        setDeleting(false);
+        return;
+      }
+
+      const { record, items } = checkJson;
+      const deptCount = items?.length || 0;
+      const confirmMsg = '⚠️ 确定要彻底删除 ' + billingMonth + ' 的账单吗？\n\n' +
+        '📋 发票总额：¥' + (record.invoice_total || 0) + '\n' +
+        '🏢 部门数量：' + deptCount + ' 个\n\n' +
+        '该操作不可逆，删除后所有分摊明细将被清空！';
+
+      if (!window.confirm(confirmMsg)) {
+        setDeleting(false);
+        return;
+      }
+
+      // 第 2 步：确认后执行删除
       const res = await fetch('/api/print/records/month/' + encodeURIComponent(billingMonth), {
         method: 'DELETE',
       });
@@ -659,6 +683,7 @@ export default function PrintAllocation() {
         localStorage.removeItem(DRAFT_KEY);
         setInvoiceTotal('');
         setRows([]);
+        monthSwitchRef.current = ''; // 重置，允许重新加载
         showMessage('success', '🗑️ ' + billingMonth + ' 账单已彻底删除（共 ' + (json.deleted || 0) + ' 条）');
         // 重置 hadDataRef 避免阻止后续保存
         hadDataRef.current = false;
@@ -667,7 +692,7 @@ export default function PrintAllocation() {
         showMessage('error', '作废失败: ' + (json.error || '未知错误'));
       }
     } catch (err: any) {
-      showMessage('error', '作废失败: ' + err.message);
+      showMessage('error', '作废操作失败: ' + err.message);
     } finally {
       setDeleting(false);
     }
