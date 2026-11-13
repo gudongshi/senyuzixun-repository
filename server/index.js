@@ -6982,7 +6982,7 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
     if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
 
     const {
-      invoice_total, total_bw_pages, total_color_pages, total_pages,
+      billing_month, invoice_total, total_bw_pages, total_color_pages, total_pages,
       bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
       items,
     } = req.body;
@@ -6991,7 +6991,7 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
     const { data: record, error: recErr } = await supabaseAdmin
       .from('print_records')
       .insert({
-        invoice_total, total_bw_pages, total_color_pages, total_pages,
+        billing_month, invoice_total, total_bw_pages, total_color_pages, total_pages,
         bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
         created_by: req.user?.name || '',
       })

@@ -172,6 +172,11 @@ export default function PrintAllocation() {
   const [departments, setDepartments]     = useState<Department[]>([]);
   const [rows, setRows]                   = useState<DeptRow[]>([]);
   const [invoiceTotal, setInvoiceTotal]   = useState<string>('');
+  const [billingMonth, setBillingMonth]   = useState<string>(() => {
+    // 默认当前月份（YYYY-MM）
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [loading, setLoading]             = useState(false);
   const [loaded, setLoaded]               = useState(false); // 防止初始化时触发自动保存
   const [saving, setSaving]               = useState(false);
@@ -200,9 +205,10 @@ export default function PrintAllocation() {
         colorPages: r.colorPages,
       })),
       invoiceTotal,
+      billingMonth,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  }, [rows, invoiceTotal, loaded]);
+  }, [rows, invoiceTotal, billingMonth, loaded]);
 
   async function loadDepartments() {
     setLoading(true);
@@ -240,6 +246,11 @@ export default function PrintAllocation() {
         // 恢复发票总额
         if (draft?.invoiceTotal) {
           setInvoiceTotal(draft.invoiceTotal);
+        }
+
+        // 恢复账期月份
+        if (draft?.billingMonth) {
+          setBillingMonth(draft.billingMonth);
         }
 
         // 通知用户
@@ -336,6 +347,8 @@ export default function PrintAllocation() {
   function clearAll() {
     localStorage.removeItem(DRAFT_KEY);
     setInvoiceTotal('');
+    const now = new Date();
+    setBillingMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
     setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
     showMessage('success', '数据已清空');
   }
@@ -350,6 +363,7 @@ export default function PrintAllocation() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          billing_month: billingMonth,
           invoice_total: invoiceVal,
           total_bw_pages: summary.totalBw,
           total_color_pages: summary.totalColor,
@@ -475,6 +489,17 @@ export default function PrintAllocation() {
 
       {/* ── 顶部工具栏 ── */}
       <div className="flex items-center gap-3 flex-wrap mb-5">
+        {/* 账期月份 */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-700 whitespace-nowrap">账期月份</label>
+          <input
+            type="month"
+            value={billingMonth}
+            onChange={e => setBillingMonth(e.target.value)}
+            className="w-36 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
+          />
+        </div>
+
         {/* 发票总额 */}
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium text-slate-700 whitespace-nowrap">本次发票总额</label>
@@ -534,8 +559,8 @@ export default function PrintAllocation() {
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-left">
                       <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">部门</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">黑白印量</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">彩色印量</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">黑白印量</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">彩色印量</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">所在地</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">编号</th>
                       <th className="px-4 py-3 w-10" />
