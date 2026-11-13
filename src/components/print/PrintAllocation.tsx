@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251113-draft-fix-v8.0'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v8.1'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v8.0');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v8.1');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -294,8 +294,60 @@ export default function PrintAllocation() {
             setRows(loadedRows);
           }
           showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
+          return; // 有正式账单，结束（不检查草稿）
         }
-        // 没查到 → 第一步的零印量模板就是最终状态，不做任何额外操作
+
+        // ── 第 2 路（v8.1 恢复）：DB 无账单 → 检查该月份 localStorage 草稿 ──
+        const draftKey = getDraftKey(billingMonth);
+        const draftStr = localStorage.getItem(draftKey);
+        let draft: any = null;
+        if (draftStr) {
+          try { draft = JSON.parse(draftStr); } catch (e) { /* ignore */ }
+        }
+        const draftRows: any[] = (draft && Array.isArray(draft.rows)) ? draft.rows : [];
+        const hasDraftPages = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
+        const hasDraftData = hasDraftPages || (draft?.invoiceTotal && parseFloat(draft.invoiceTotal) > 0);
+
+        if (hasDraftData) {
+          setInvoiceTotal(draft.invoiceTotal || '');
+          const curDepts2 = departmentsRef.current;
+          const tplMap2 = new Map(curDepts2.map(d => [d.dept_name, d]));
+          const seenDepts2 = new Set<string>();
+          const draftLoadedRows: DeptRow[] = [];
+
+          for (const dr of draftRows) {
+            const tpl = tplMap2.get(dr.dept_name);
+            seenDepts2.add(dr.dept_name);
+            draftLoadedRows.push({
+              key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
+              dbId: dr.dbId || tpl?.id,
+              dept_name: dr.dept_name || '未知部门',
+              machine_location: dr.machine_location || tpl?.machine_location || '',
+              machine_number: dr.machine_number || tpl?.machine_number || '',
+              sort_order: dr.sort_order || tpl?.sort_order || 0,
+              bwPages: dr.bwPages || 0,
+              colorPages: dr.colorPages || 0,
+            });
+          }
+
+          // 模板中有但草稿中没有的部门 → 补空白行
+          for (const tpl of curDepts2) {
+            if (!seenDepts2.has(tpl.dept_name)) {
+              draftLoadedRows.push({
+                key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
+                machine_location: tpl.machine_location || '',
+                machine_number: tpl.machine_number || '',
+                sort_order: tpl.sort_order || 0,
+                bwPages: 0, colorPages: 0,
+              });
+            }
+          }
+          setRows(draftLoadedRows);
+          showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
+          return;
+        }
+
+        // ── 第 3 路：既无账单也无草稿 → 第一步的零印量模板就是最终状态 ──
       } catch (err: any) {
         console.error('📅 查询失败，保留干净模板:', err.message);
         // 第一步的干净模板保留，不清空
