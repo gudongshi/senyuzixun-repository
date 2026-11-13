@@ -1,61 +1,14 @@
 import path from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+// ⚠️ PWA 暂时关闭 — 缓存导致线上调试停滞，开发完再启用 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.VITE_BASE || '/',
   plugins: [
     react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      devOptions: {
-        enabled: false, // 开发环境不启用，避免缓存干扰
-      },
-      manifest: {
-        name: '森宇员工工作台',
-        short_name: '森宇工作台',
-        description: '森宇集团员工专属智能工作台',
-        theme_color: '#020617',     // 深色主题 (slate-950)
-        background_color: '#020617',
-        display: 'standalone',      // 全屏无浏览器边框
-        icons: [
-          {
-            src: '/app-icon.svg',
-            sizes: '192x192',
-            type: 'image/svg+xml',
-          },
-          {
-            src: '/app-icon.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
-          },
-        ],
-      },
-      workbox: {
-        skipWaiting: true,     // 新 SW 立即激活，不等待旧页面关闭
-        clientsClaim: true,    // 激活后立即接管所有页面
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/dashboard\.senyuzixun\.com\/api\/.*/i,
-            handler: 'NetworkFirst', // 接口优先请求网络，断网时用缓存
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24, // 缓存 1 天
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-        ],
-      },
-    }),
+    // ⚠️ PWA 已关闭。恢复时在此处加回 VitePWA({...}) 配置
   ],
   resolve: {
     alias: {

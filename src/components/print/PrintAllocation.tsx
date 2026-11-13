@@ -169,6 +169,9 @@ function round2(n: number): number {
 // ══════════════════════════════════════════════════════════════
 
 export default function PrintAllocation() {
+  // ── 强制版本日志（F12 第一条就能看到）──
+  console.log('🚀 当前前端版本：20251113-draft-fix-v3');
+
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
   const [rows, setRows]                   = useState<DeptRow[]>([]);

@@ -16,16 +16,47 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 20m
           script: |
+            set -e  # 任何命令失败立即停止，不再静默跳过
+            echo "=========================================="
+            echo "  🚀 开始部署 dashboard"
+            echo "=========================================="
+
             cd /root/senyu-dashboard
-            git pull origin master
-            
-            # 安装依赖并构建前端
+
+            # ─ 1. 强制同步最新代码（丢弃所有本地修改，避免 git pull 冲突）─
+            echo "📥 [1/5] 拉取最新代码..."
+            git fetch origin master
+            git reset --hard origin/master
+            echo "✅ 当前 HEAD: $(git log -1 --oneline)"
+
+            # ─ 2. 安装依赖 ─
+            echo "📦 [2/5] 安装依赖..."
             npm install
+            echo "✅ npm install 完成"
+
+            # ─ 3. 构建前端 ─
+            echo "🏗️  [3/5] 构建前端..."
             npm run build
-            
-            # 清理 Nginx 旧目录并复制新构建文件（解决覆盖报错问题）
+            echo "✅ build 完成"
+
+            # ─ 4. 验证产物（确保是新代码）─
+            echo "🔍 [4/5] 验证构建产物..."
+            if grep -q "draft-fix-v" /root/senyu-dashboard/dist/assets/index-*.js 2>/dev/null; then
+              echo "✅ 产物验证通过：包含最新版本标识"
+            else
+              echo "❌ 产物验证失败：dist 中未找到版本标识！"
+              exit 1
+            fi
+
+            # ─ 5. 部署到 Nginx ─
+            echo "📂 [5/5] 部署到 Nginx..."
             rm -rf /var/www/dashboard/*
             cp -rf /root/senyu-dashboard/dist/* /var/www/dashboard/
-            
-            # 重启后端服务（如果修改了 server 目录里的代码）
+            echo "✅ 文件已复制到 /var/www/dashboard/"
+
+            # ─ 6. 重启后端（仅当 server 有变更时）─
             pm2 restart senyu-backend || true
+
+            echo "=========================================="
+            echo "  ✅ 部署完成"
+            echo "=========================================="
