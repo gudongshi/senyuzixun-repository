@@ -193,6 +193,21 @@ export default function PrintAllocation() {
   // ── 自动保存草稿到 localStorage ──
   useEffect(() => {
     if (!loaded) return; // 初始化期间不保存
+
+    // 防御：如果当前 rows 为空但 localStorage 中已有含部门的草稿，
+    // 说明初始化阶段出了问题（API 挂掉等），拒绝覆盖已有草稿
+    if (rows.length === 0) {
+      const existingStr = localStorage.getItem(DRAFT_KEY);
+      if (existingStr) {
+        try {
+          const existing = JSON.parse(existingStr);
+          if (existing.rows && existing.rows.length > 0) {
+            return; // 保护已有草稿不被空数据覆盖
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
+
     const draft = {
       rows: rows.map(r => ({
         key: r.key,
@@ -213,52 +228,104 @@ export default function PrintAllocation() {
   async function loadDepartments() {
     setLoading(true);
     try {
-      // 先读取草稿（如果有）
+      // 1. 先读取 localStorage 草稿
       let draft: any = null;
       const draftStr = localStorage.getItem(DRAFT_KEY);
       if (draftStr) {
         try { draft = JSON.parse(draftStr); } catch (e) { /* 解析失败则忽略 */ }
       }
 
-      const res = await fetch('/api/print/departments');
-      const json = await res.json();
-      if (json.success) {
-        const depts: Department[] = json.data || [];
-        setDepartments(depts);
-
-        // 构建 rows，如果有草稿则合并印量数据
-        setRows(() =>
-          depts.map(d => {
-            const draftRow = draft?.rows?.find((dr: any) => dr.key === `dept-${d.id}`);
-            return {
-              key: `dept-${d.id}`,
-              dbId: d.id,
-              dept_name: d.dept_name,
-              machine_location: d.machine_location || '',
-              machine_number: d.machine_number || '',
-              sort_order: d.sort_order || 0,
-              bwPages: draftRow ? (draftRow.bwPages || 0) : 0,
-              colorPages: draftRow ? (draftRow.colorPages || 0) : 0,
-            };
-          })
-        );
-
-        // 恢复发票总额
-        if (draft?.invoiceTotal) {
-          setInvoiceTotal(draft.invoiceTotal);
+      // 2. 尝试从 API 获取部门模板（允许多种失败形式）
+      let apiDepts: Department[] = [];
+      try {
+        const res = await fetch('/api/print/departments');
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          apiDepts = json.data;
+          setDepartments(apiDepts);
         }
+      } catch (err: any) {
+        console.warn('⚠️ 获取部门模板失败，将回退到草稿数据:', err.message);
+      }
 
-        // 恢复账期月份
-        if (draft?.billingMonth) {
-          setBillingMonth(draft.billingMonth);
-        }
+      // 3. 构建最终 rows（合并 DB 模板 + 草稿）
+      let finalRows: DeptRow[] = [];
 
-        // 通知用户
-        if (draft && draft.rows?.length > 0) {
-          const hasData = draft.rows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
-          if (hasData || draft.invoiceTotal) {
-            setTimeout(() => showMessage('success', '📝 检测到上次未保存的草稿，已自动为您恢复'), 400);
+      if (apiDepts.length > 0) {
+        // ── 有 DB 模板：以模板为基底，草稿印量合并进去 ──
+        const draftMap = new Map<string, any>();
+        if (draft?.rows) {
+          for (const dr of draft.rows) {
+            if (dr.key) draftMap.set(dr.key, dr);
           }
+        }
+
+        // 用过的 draft key
+        const usedDraftKeys = new Set<string>();
+
+        finalRows = apiDepts.map(d => {
+          const key = `dept-${d.id}`;
+          const dr = draftMap.get(key);
+          if (dr) usedDraftKeys.add(key);
+          return {
+            key,
+            dbId: d.id,
+            dept_name: d.dept_name,
+            machine_location: d.machine_location || '',
+            machine_number: d.machine_number || '',
+            sort_order: d.sort_order || 0,
+            bwPages: dr ? (dr.bwPages || 0) : 0,
+            colorPages: dr ? (dr.colorPages || 0) : 0,
+          };
+        });
+
+        // 草稿中有但 DB 模板中没有的行 → 追加到末尾
+        if (draft?.rows) {
+          for (const dr of draft.rows) {
+            if (dr.key && !usedDraftKeys.has(dr.key)) {
+              finalRows.push({
+                key: dr.key,
+                dbId: dr.dbId,
+                dept_name: dr.dept_name || '未知部门',
+                machine_location: dr.machine_location || '',
+                machine_number: dr.machine_number || '',
+                sort_order: dr.sort_order || 0,
+                bwPages: dr.bwPages || 0,
+                colorPages: dr.colorPages || 0,
+              });
+            }
+          }
+        }
+      } else if (draft?.rows?.length > 0) {
+        // ── 无 DB 模板，但有草稿：直接用草稿的完整数据 ──
+        finalRows = draft.rows.map((dr: any) => ({
+          key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
+          dbId: dr.dbId,
+          dept_name: dr.dept_name || '未知部门',
+          machine_location: dr.machine_location || '',
+          machine_number: dr.machine_number || '',
+          sort_order: dr.sort_order || 0,
+          bwPages: dr.bwPages || 0,
+          colorPages: dr.colorPages || 0,
+        }));
+      }
+      // else: 既无 DB 模板也无草稿 → rows 为空，展示"暂无部门数据"
+
+      setRows(finalRows);
+
+      // 4. 恢复发票总额和账期月份
+      if (draft?.invoiceTotal) {
+        setInvoiceTotal(draft.invoiceTotal);
+      }
+      if (draft?.billingMonth) {
+        setBillingMonth(draft.billingMonth);
+      }
+
+      // 5. 通知用户
+      if (draft && draft.rows?.length > 0) {
+        const hasData = draft.rows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
+        if (hasData || draft.invoiceTotal) {
+          setTimeout(() => showMessage('success', '📝 检测到上次未保存的草稿，已自动为您恢复'), 400);
         }
       }
     } catch (err: any) {
