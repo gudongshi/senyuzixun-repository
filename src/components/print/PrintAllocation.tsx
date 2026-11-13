@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // ══════════════════════════════════════════════════════════════
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v7.3'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7.4'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.3');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.4');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -185,6 +185,8 @@ export default function PrintAllocation() {
   const [loaded, setLoaded]               = useState(false); // 防止初始化时触发自动保存
   const [saving, setSaving]               = useState(false);
   const [savingDepts, setSavingDepts]     = useState(false); // "保存常用部门" loading
+  const [drafting, setDrafting]           = useState(false);
+  const [deleting, setDeleting]           = useState(false);
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 防草稿误删：记录本次会话是否已有过非空 rows
@@ -600,6 +602,77 @@ export default function PrintAllocation() {
     }
   }
 
+  // ── 保存草稿到数据库 ──
+  async function saveDraft() {
+    if (rows.length === 0) return showMessage('error', '无部门数据可保存');
+    setDrafting(true);
+    try {
+      const res = await fetch('/api/print/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'draft',
+          billing_month: billingMonth,
+          invoice_total: invoiceVal,
+          total_bw_pages: summary.totalBw,
+          total_color_pages: summary.totalColor,
+          total_pages: summary.totalPages,
+          bw_total_fee: summary.bwTotalFee,
+          color_fee: summary.colorTotalFee,
+          secret_fee: summary.secretFee,
+          theoretical_total: summary.theoreticalTotal,
+          difference: summary.difference,
+          items: results.map(r => ({
+            dept_name: r.dept_name, bw_pages: r.bwPages, color_pages: r.colorPages,
+            total_pages: r.totalPages, bw_fee_share: r.bwFeeShare, color_fee: r.colorFee,
+            secret_fee_share: r.secretFeeShare, difference_share: r.differenceShare,
+            actual_fee: r.actualFee, machine_location: r.machine_location,
+            machine_number: r.machine_number, sort_order: 0,
+          })),
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        showMessage('success', '☁️ 草稿已保存至云端（' + billingMonth + '）');
+      } else {
+        showMessage('error', '保存草稿失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      showMessage('error', '保存草稿失败: ' + err.message);
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  // ── 作废整月账单 ──
+  async function deleteMonthRecord() {
+    if (!window.confirm('⚠️ 警告：确定要彻底删除 ' + billingMonth + ' 的账单吗？\n\n该操作不可逆，所有分摊明细将被清空！')) return;
+    if (!window.confirm('🔴 二次确认：删除后无法恢复，是否继续？')) return;
+    setDeleting(true);
+    try {
+      const res = await fetch('/api/print/records/month/' + encodeURIComponent(billingMonth), {
+        method: 'DELETE',
+      });
+      const json = await res.json();
+      if (json.success) {
+        // 清空当前页面数据并重新加载部门模板
+        localStorage.removeItem(DRAFT_KEY);
+        setInvoiceTotal('');
+        setRows([]);
+        showMessage('success', '🗑️ ' + billingMonth + ' 账单已彻底删除（共 ' + (json.deleted || 0) + ' 条）');
+        // 重置 hadDataRef 避免阻止后续保存
+        hadDataRef.current = false;
+        loadDepartments();
+      } else {
+        showMessage('error', '作废失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      showMessage('error', '作废失败: ' + err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // ── 导出 Excel ──
   const exportExcel = useCallback(() => {
     if (rows.length === 0) return showMessage('error', '无数据可导出');
@@ -725,6 +798,15 @@ export default function PrintAllocation() {
         <div className="flex-1" />
 
         <button
+          onClick={saveDraft}
+          disabled={drafting || rows.length === 0}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {drafting ? <Loader2 className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
+          保存草稿
+        </button>
+
+        <button
           onClick={saveRecord}
           disabled={saving || invoiceVal <= 0}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -740,6 +822,16 @@ export default function PrintAllocation() {
         >
           <Download className="size-4" />
           一键导出 Excel
+        </button>
+
+        <button
+          onClick={deleteMonthRecord}
+          disabled={deleting}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-red-200 bg-white text-red-500 text-sm font-medium hover:bg-red-50 hover:border-red-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          title="彻底删除该月的所有账单数据"
+        >
+          {deleting ? <Loader2 className="size-4 animate-spin" /> : <AlertTriangle className="size-4" />}
+          作废本月账单
         </button>
       </div>
 

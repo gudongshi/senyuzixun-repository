@@ -7061,6 +7061,7 @@ app.delete('/api/print/departments/:id', authMiddleware, async (req, res) => {
 });
 
 // POST /api/print/records — 保存一期核算记录（母表 + 子表）
+// status: 'draft' → 一个月仅一份草稿（覆盖旧草稿）；'saved' → 正式账单
 app.post('/api/print/records', authMiddleware, async (req, res) => {
   try {
     if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
@@ -7068,8 +7069,27 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
     const {
       billing_month, invoice_total, total_bw_pages, total_color_pages, total_pages,
       bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
-      items,
+      items, status,
     } = req.body;
+
+    const recordStatus = status || 'saved';
+
+    // 如果是草稿，先删除该月旧草稿（保证一个月只有一个草稿）
+    if (recordStatus === 'draft' && billing_month) {
+      const { data: oldDrafts } = await supabaseAdmin
+        .from('print_records')
+        .select('id')
+        .eq('billing_month', billing_month)
+        .eq('status', 'draft');
+
+      if (oldDrafts && oldDrafts.length > 0) {
+        for (const old of oldDrafts) {
+          await supabaseAdmin.from('print_record_items').delete().eq('record_id', old.id);
+        }
+        await supabaseAdmin.from('print_records').delete().eq('billing_month', billing_month).eq('status', 'draft');
+        console.log('🧹 [print_records] 已删除 ' + billing_month + ' 的旧草稿 ' + oldDrafts.length + ' 条');
+      }
+    }
 
     // 插入母表
     const { data: record, error: recErr } = await supabaseAdmin
@@ -7078,6 +7098,7 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
         billing_month, invoice_total, total_bw_pages, total_color_pages, total_pages,
         bw_total_fee, color_fee, secret_fee, theoretical_total, difference,
         created_by: req.user?.name || '',
+        status: recordStatus,
       })
       .select()
       .single();
@@ -7095,7 +7116,51 @@ app.post('/api/print/records', authMiddleware, async (req, res) => {
       if (itemErr) return res.status(500).json({ success: false, error: itemErr.message });
     }
 
+    console.log('✅ [print_records] ' + recordStatus + ' 已保存: ' + billing_month);
     res.json({ success: true, data: record });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/print/records/month/:month — 彻底删除整月账单（母表 + 子表）
+app.delete('/api/print/records/month/:month', authMiddleware, async (req, res) => {
+  try {
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
+    const month = req.params.month;
+    if (!month) return res.status(400).json({ success: false, error: 'month 参数必填' });
+
+    // 查找该月所有记录
+    const { data: records, error: findErr } = await supabaseAdmin
+      .from('print_records')
+      .select('id')
+      .eq('billing_month', month);
+
+    if (findErr) return res.status(500).json({ success: false, error: findErr.message });
+    if (!records || records.length === 0) {
+      return res.json({ success: true, deleted: 0, message: '该月无账单记录' });
+    }
+
+    const ids = records.map(r => r.id);
+
+    // 删除子表
+    const { error: itemErr } = await supabaseAdmin
+      .from('print_record_items')
+      .delete()
+      .in('record_id', ids);
+
+    if (itemErr) return res.status(500).json({ success: false, error: itemErr.message });
+
+    // 删除母表
+    const { error: recErr } = await supabaseAdmin
+      .from('print_records')
+      .delete()
+      .in('id', ids);
+
+    if (recErr) return res.status(500).json({ success: false, error: recErr.message });
+
+    console.log('🗑️ [print_records] 已彻底删除 ' + month + ' 账单, 共 ' + records.length + ' 条记录');
+    res.json({ success: true, deleted: records.length });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
