@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v7'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7.2'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.2');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -514,8 +514,13 @@ export default function PrintAllocation() {
         body: JSON.stringify({ departments: payload }),
       });
       const json = await res.json();
+      console.log('📝 [saveDeptTemplate] 批量保存响应:', json);
       if (json.success) {
-        showMessage('success', `✅ 已固化 ${json.count || rows.length} 个部门到数据库模板（跳过 ${json.skipped || 0} 个重名）`);
+        if (json.count === 0) {
+          showMessage('success', '📋 所有 ' + rows.length + ' 个部门已存在于数据库中，无需重复添加');
+        } else {
+          showMessage('success', `✅ 已固化 ${json.count} 个部门到数据库模板（跳过 ${json.skipped || 0} 个重名）`);
+        }
         // 刷新部门模板列表
         loadDepartments();
       } else {
