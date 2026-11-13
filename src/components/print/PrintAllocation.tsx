@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251113-draft-fix-v7.8'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v8.0'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.8');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v8.0');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -204,39 +204,71 @@ export default function PrintAllocation() {
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
 
-  // ── 切换月份时无条件重载数据（v7.8: 移除 monthSwitchRef，每次切月强制执行三路分支）──
-  const isSwitchingMonthRef = useRef(false);  // 🔒 切换月份期间的互斥锁，阻止自动保存把旧月数据写入新月 key
+  // ══════════════════════════════════════════════════════════════
+  // v8.0: 部门模板与月份完全解绑，三步严格切换逻辑
+  // ══════════════════════════════════════════════════════════════
+  const isSwitchingMonthRef = useRef(false);    // 🔒 互斥锁：阻止 auto-save 串线
+  const departmentsRef = useRef<Department[]>([]); // 最新模板引用（避免闭包陷阱）
+  const rowsRef = useRef<DeptRow[]>([]);           // 最新 rows 引用（调试用）
+  const initialMountRef = useRef(true);            // 首次挂载标记
+
+  // ref 与 state 同步（顺序优先于业务 effect，确保 ref 总是最新）
+  useEffect(() => { departmentsRef.current = departments; }, [departments]);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+
+  // ── 月份切换：三步严格逻辑（依赖仅 billingMonth，不加 loaded）──
   useEffect(() => {
-    if (!loaded) return;
     if (!billingMonth) return;
 
-    let cancelled = false;
-    (async function loadMonthData() {
-      // 🔒 上锁：从现在起禁止 auto-save，直到本函数完成
-      isSwitchingMonthRef.current = true;
+    // 首次挂载交给 loadDepartments 处理，本 effect 只负责后续手动切换
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      return;
+    }
 
+    console.log('📅 切换月份至:', billingMonth);
+
+    // ── 第一步（同步）：发票清空 + 从部门模板重建零印量 rows ──
+    isSwitchingMonthRef.current = true;
+    setInvoiceTotal('');
+    const depts = departmentsRef.current;
+    if (depts.length > 0) {
+      setRows(depts.map(d => ({
+        key: `dept-${d.id}`,
+        dbId: d.id,
+        dept_name: d.dept_name,
+        machine_location: d.machine_location || '',
+        machine_number: d.machine_number || '',
+        sort_order: d.sort_order || 0,
+        bwPages: 0,
+        colorPages: 0,
+      })));
+    }
+
+    // ── 第二/三步（异步）：查正式账单，查到则覆盖 ──
+    let cancelled = false;
+    (async () => {
       try {
-        // ── 第 1 路：查 DB 是否有正式账单 ──
         const res = await fetch('/api/print/records/check?month=' + encodeURIComponent(billingMonth));
         const json = await res.json();
         if (cancelled) return;
 
+        console.log('📅 查询结果:', json.found ? '有数据' : '无数据');
+
         if (json.success && json.found) {
-          // ✅ 该月有正式账单 → 无条件加载
           const { record, items } = json;
           setInvoiceTotal(String(record.invoice_total));
           if (items && items.length > 0) {
-            // 以数据库部门模板为基底，避免依赖 prev（prev 可能是旧月数据）
-            const templateMap = new Map(departments.map(d => [`dept-${d.id}`, d]));
-            const loadedRows: DeptRow[] = [];
+            const curDepts = departmentsRef.current;
+            const tplMap = new Map(curDepts.map(d => [d.dept_name, d]));
             const seenDepts = new Set<string>();
+            const loadedRows: DeptRow[] = [];
 
             for (const item of items) {
-              const tKey = item.db_dept_id ? `dept-${item.db_dept_id}` : '';
-              const tpl = templateMap.get(tKey);
+              const tpl = tplMap.get(item.dept_name);
               seenDepts.add(item.dept_name);
               loadedRows.push({
-                key: tpl ? tKey : `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
+                key: tpl ? `dept-${tpl.id}` : `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
                 dbId: tpl?.id,
                 dept_name: item.dept_name,
                 machine_location: item.machine_location || tpl?.machine_location || '',
@@ -247,8 +279,8 @@ export default function PrintAllocation() {
               });
             }
 
-            // 补上账单中没有但模板里有的部门（空白印量）
-            for (const tpl of departments) {
+            // 模板中有但账单中没有的部门 → 补空白行
+            for (const tpl of curDepts) {
               if (!seenDepts.has(tpl.dept_name)) {
                 loadedRows.push({
                   key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
@@ -259,83 +291,27 @@ export default function PrintAllocation() {
                 });
               }
             }
-
             setRows(loadedRows);
           }
           showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
-          return;
         }
-
-        // ── 第 2 路：DB 无账单 → 检查该月份本地草稿 ──
-        const draftKey = getDraftKey(billingMonth);
-        const draftStr = localStorage.getItem(draftKey);
-        let draft: any = null;
-        if (draftStr) {
-          try { draft = JSON.parse(draftStr); } catch (e) { /* ignore */ }
-        }
-        const draftRows: any[] = (draft && Array.isArray(draft.rows)) ? draft.rows : [];
-        const hasDraftPages = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
-        const hasDraftData = hasDraftPages || (draft?.invoiceTotal && parseFloat(draft.invoiceTotal) > 0);
-
-        if (hasDraftData) {
-          // 📝 该月有本地草稿 → 无条件加载
-          setInvoiceTotal(draft.invoiceTotal || '');
-          const templateMap = new Map(departments.map(d => [`dept-${d.id}`, d]));
-          const loadedRows: DeptRow[] = [];
-          const seenDepts = new Set<string>();
-
-          for (const dr of draftRows) {
-            const tpl = templateMap.get(dr.key) || templateMap.get(`dept-${dr.dbId}`);
-            seenDepts.add(dr.dept_name);
-            loadedRows.push({
-              key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
-              dbId: dr.dbId || tpl?.id,
-              dept_name: dr.dept_name || '未知部门',
-              machine_location: dr.machine_location || tpl?.machine_location || '',
-              machine_number: dr.machine_number || tpl?.machine_number || '',
-              sort_order: dr.sort_order || tpl?.sort_order || 0,
-              bwPages: dr.bwPages || 0,
-              colorPages: dr.colorPages || 0,
-            });
-          }
-
-          // 补上草稿中没有但模板里有的部门
-          for (const tpl of departments) {
-            if (!seenDepts.has(tpl.dept_name)) {
-              loadedRows.push({
-                key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
-                machine_location: tpl.machine_location || '',
-                machine_number: tpl.machine_number || '',
-                sort_order: tpl.sort_order || 0,
-                bwPages: 0, colorPages: 0,
-              });
-            }
-          }
-
-          setRows(loadedRows);
-          showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
-          return;
-        }
-
-        // ── 第 3 路：该月既无账单也无草稿 → 彻底清空 ──
-        setInvoiceTotal('');
-        setRows([]);
-        console.log('📅 [Reset] ' + billingMonth + ' 无账单无草稿，页面已清空');
-
+        // 没查到 → 第一步的零印量模板就是最终状态，不做任何额外操作
       } catch (err: any) {
-        // 查询出错也要强制清空，避免残留旧月数据
-        console.error('📅 [History] 查询失败，强制清空:', err.message);
-        setInvoiceTotal('');
-        setRows([]);
+        console.error('📅 查询失败，保留干净模板:', err.message);
+        // 第一步的干净模板保留，不清空
       } finally {
-        // 🔓 无论如何都要解锁，允许后续自动保存
         if (!cancelled) {
           isSwitchingMonthRef.current = false;
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [loaded, billingMonth]);
+  }, [billingMonth]);
+
+  // ── 调试日志：每次 rows 提交到 DOM 后输出最终渲染结果 ──
+  useEffect(() => {
+    console.log('📅 当前渲染的部门数量:', rows.length, '首行数据:', rows.length > 0 ? rows[0] : '(空)');
+  }, [rows]);
 
   // ── 自动保存草稿到 localStorage ──
   useEffect(() => {
