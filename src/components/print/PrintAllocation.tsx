@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v4'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v5'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v4');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v5');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -234,52 +234,56 @@ export default function PrintAllocation() {
   async function loadDepartments() {
     setLoading(true);
     try {
-      // 1. 先读取 localStorage 草稿
+      // ── 1. 读取 localStorage 草稿 ──
       let draft: any = null;
       const draftStr = localStorage.getItem(DRAFT_KEY);
       if (draftStr) {
-        try { draft = JSON.parse(draftStr); } catch (e) { /* 解析失败则忽略 */ }
+        try { draft = JSON.parse(draftStr); } catch (e) { console.error('❌ [Init] draft JSON 解析失败:', e); }
       }
-      console.log('🔍 [PrintAllocation] localStorage 草稿数据:', draft);
+      // 安全提取 draft.rows：必须是数组才认，否则当空处理
+      const draftRows: any[] = (draft && Array.isArray(draft.rows)) ? draft.rows : [];
+      console.log('🔍 [Init] localStorage 草稿:', {
+        hasDraft: !!draft,
+        rowsType: typeof draft?.rows,
+        rowsIsArray: Array.isArray(draft?.rows),
+        rowsCount: draftRows.length,
+        rows: draftRows,
+        invoiceTotal: draft?.invoiceTotal,
+        billingMonth: draft?.billingMonth,
+      });
 
-      // 2. 尝试从 API 获取部门模板（允许多种失败形式）
+      // ── 2. 尝试从 API 获取部门模板 ──
       let apiDepts: Department[] = [];
       try {
         const res = await fetch('/api/print/departments');
         const json = await res.json();
-        console.log('🔍 [PrintAllocation] API 返回原始数据:', { status: res.status, success: json.success, count: json.data?.length, data: json.data });
+        console.log('🔍 [Init] API 返回:', { status: res.status, success: json.success, count: json.data?.length });
         if (json.success && Array.isArray(json.data)) {
           apiDepts = json.data;
           setDepartments(apiDepts);
         }
       } catch (err: any) {
-        console.warn('⚠️ [PrintAllocation] 获取部门模板失败，将回退到草稿数据:', err.message);
+        console.warn('⚠️ [Init] API 获取失败，将回退到草稿:', err.message);
       }
 
-      // 3. 构建最终 rows（合并 DB 模板 + 草稿）
+      // ── 3. 构建最终 rows ──
       let finalRows: DeptRow[] = [];
 
       if (apiDepts.length > 0) {
-        console.log('🔍 [PrintAllocation] 合并策略: DB 模板为基底 + 草稿印量合并');
-        // ── 有 DB 模板：以模板为基底，草稿印量合并进去 ──
+        // 策略 A：DB 模板为基底，草稿印量合并
+        console.log('🔍 [Init] 策略: DB 模板合并（' + apiDepts.length + ' 个模板 + ' + draftRows.length + ' 条草稿）');
         const draftMap = new Map<string, any>();
-        if (draft?.rows) {
-          for (const dr of draft.rows) {
-            if (dr.key) draftMap.set(dr.key, dr);
-          }
+        for (const dr of draftRows) {
+          if (dr.key) draftMap.set(dr.key, dr);
         }
-
-        // 用过的 draft key
-        const usedDraftKeys = new Set<string>();
+        const usedKeys = new Set<string>();
 
         finalRows = apiDepts.map(d => {
           const key = `dept-${d.id}`;
           const dr = draftMap.get(key);
-          if (dr) usedDraftKeys.add(key);
+          if (dr) usedKeys.add(key);
           return {
-            key,
-            dbId: d.id,
-            dept_name: d.dept_name,
+            key, dbId: d.id, dept_name: d.dept_name,
             machine_location: d.machine_location || '',
             machine_number: d.machine_number || '',
             sort_order: d.sort_order || 0,
@@ -288,66 +292,57 @@ export default function PrintAllocation() {
           };
         });
 
-        // 草稿中有但 DB 模板中没有的行 → 追加到末尾
-        if (draft?.rows) {
-          for (const dr of draft.rows) {
-            if (dr.key && !usedDraftKeys.has(dr.key)) {
-              finalRows.push({
-                key: dr.key,
-                dbId: dr.dbId,
-                dept_name: dr.dept_name || '未知部门',
-                machine_location: dr.machine_location || '',
-                machine_number: dr.machine_number || '',
-                sort_order: dr.sort_order || 0,
-                bwPages: dr.bwPages || 0,
-                colorPages: dr.colorPages || 0,
-              });
-            }
+        // 追加草稿特有行
+        for (const dr of draftRows) {
+          if (dr.key && !usedKeys.has(dr.key)) {
+            finalRows.push({
+              key: dr.key, dbId: dr.dbId, dept_name: dr.dept_name || '未知部门',
+              machine_location: dr.machine_location || '',
+              machine_number: dr.machine_number || '',
+              sort_order: dr.sort_order || 0,
+              bwPages: dr.bwPages || 0, colorPages: dr.colorPages || 0,
+            });
           }
         }
-      } else if (draft?.rows?.length > 0) {
-        console.log('🔍 [PrintAllocation] 合并策略: 无 DB 模板，回退到草稿完整数据');
-        // ── 无 DB 模板，但有草稿：直接用草稿的完整数据 ──
-        finalRows = draft.rows.map((dr: any) => ({
+      } else if (draftRows.length > 0) {
+        // 策略 B：无 DB 模板，直接用草稿
+        console.log('🔍 [Init] 策略: 纯草稿回退（' + draftRows.length + ' 个部门）');
+        finalRows = draftRows.map((dr: any) => ({
           key: dr.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
-          dbId: dr.dbId,
-          dept_name: dr.dept_name || '未知部门',
+          dbId: dr.dbId, dept_name: dr.dept_name || '未知部门',
           machine_location: dr.machine_location || '',
           machine_number: dr.machine_number || '',
           sort_order: dr.sort_order || 0,
-          bwPages: dr.bwPages || 0,
-          colorPages: dr.colorPages || 0,
+          bwPages: dr.bwPages || 0, colorPages: dr.colorPages || 0,
         }));
       }
-      // else: 既无 DB 模板也无草稿 → rows 为空，展示"暂无部门数据"
+      // 策略 C：两者都空 → finalRows = []（正常，首次使用）
 
-      if (finalRows.length === 0) {
-        console.warn('⚠️ [PrintAllocation] DB 模板和草稿均为空，页面将显示"暂无部门数据"');
-      }
-      console.log('🔍 [PrintAllocation] 合并后的最终渲染数据:', { count: finalRows.length, rows: finalRows });
+      console.log('🔍 [Init] 最终渲染: ' + finalRows.length + ' 行', finalRows.map(r => r.dept_name));
 
+      // ── 4. 写入状态（必须在 setLoaded(true) 之前）──
       setRows(finalRows);
+      if (draft?.invoiceTotal) setInvoiceTotal(draft.invoiceTotal);
+      if (draft?.billingMonth) setBillingMonth(draft.billingMonth);
 
-      // 4. 恢复发票总额和账期月份
-      if (draft?.invoiceTotal) {
-        setInvoiceTotal(draft.invoiceTotal);
-      }
-      if (draft?.billingMonth) {
-        setBillingMonth(draft.billingMonth);
-      }
+      // ── 5. 标记初始化完成 ──
+      // 关键：只有到这里才允许 AutoSave，此时 rows 已经是正确数据
+      setLoaded(true);
 
-      // 5. 通知用户
-      if (draft && draft.rows?.length > 0) {
-        const hasData = draft.rows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
-        if (hasData || draft.invoiceTotal) {
+      // ── 6. 通知用户 ──
+      if (draftRows.length > 0) {
+        const hasData = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
+        if (hasData || draft?.invoiceTotal) {
           setTimeout(() => showMessage('success', '📝 检测到上次未保存的草稿，已自动为您恢复'), 400);
         }
       }
     } catch (err: any) {
+      console.error('❌ [Init] loadDepartments 崩溃:', err);
       showMessage('error', '加载部门列表失败: ' + err.message);
+      // 异常时仍需标记 loaded，避免 UI 永远 loading
+      setLoaded(true);
     } finally {
       setLoading(false);
-      setLoaded(true);
     }
   }
 
