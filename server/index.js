@@ -6961,6 +6961,54 @@ app.post('/api/print/departments', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/print/departments/batch — 批量保存部门模板（去重）
+app.post('/api/print/departments/batch', authMiddleware, async (req, res) => {
+  try {
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，请联系管理员' });
+    const { departments } = req.body;
+    if (!Array.isArray(departments) || departments.length === 0) {
+      return res.status(400).json({ success: false, error: 'departments 必须是非空数组' });
+    }
+
+    // 先查出所有已有部门名
+    const { data: existing } = await supabaseAdmin
+      .from('print_departments')
+      .select('dept_name');
+
+    const existingNames = new Set((existing || []).map(d => d.dept_name));
+    const toInsert = [];
+    let skipped = 0;
+
+    for (const d of departments) {
+      if (!d.dept_name || existingNames.has(d.dept_name)) {
+        skipped++;
+        continue;
+      }
+      toInsert.push({
+        dept_name: d.dept_name,
+        machine_location: d.machine_location || '',
+        machine_number: d.machine_number || '',
+        sort_order: d.sort_order || 0,
+      });
+      existingNames.add(d.dept_name); // 防止传入的列表里自己重复
+    }
+
+    if (toInsert.length === 0) {
+      return res.json({ success: true, count: 0, skipped, message: '所有部门已存在，无新增' });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('print_departments')
+      .insert(toInsert);
+
+    if (error) return res.status(500).json({ success: false, error: error.message });
+
+    res.json({ success: true, count: toInsert.length, skipped });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // DELETE /api/print/departments/:id — 删除部门模板
 app.delete('/api/print/departments/:id', authMiddleware, async (req, res) => {
   try {

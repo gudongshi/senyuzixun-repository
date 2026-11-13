@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // ══════════════════════════════════════════════════════════════
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v5'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v6'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v5');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v6');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -184,7 +184,11 @@ export default function PrintAllocation() {
   const [loading, setLoading]             = useState(false);
   const [loaded, setLoaded]               = useState(false); // 防止初始化时触发自动保存
   const [saving, setSaving]               = useState(false);
+  const [savingDepts, setSavingDepts]     = useState(false); // "保存常用部门" loading
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // 防草稿误删：记录本次会话是否已有过非空 rows
+  const hadDataRef = useRef(false);
 
   // 新增行临时状态
   const [newName, setNewName]             = useState('');
@@ -198,8 +202,13 @@ export default function PrintAllocation() {
   useEffect(() => {
     if (!loaded) return; // 初始化期间不保存
 
-    // 防御：如果当前 rows 为空但 localStorage 中已有含部门的草稿，
-    // 说明初始化阶段出了问题（API 挂掉等），拒绝覆盖已有草稿
+    // 防线 1：本次会话已有过数据，但现在 rows 被意外置空 → 绝对拒绝
+    if (rows.length === 0 && hadDataRef.current) {
+      console.error('🛡️🛡️ [AutoSave] 紧急阻止：本次会话曾有数据，现在 rows 意外变空，拒绝覆盖草稿！');
+      return;
+    }
+
+    // 防线 2：当前空 + localStorage 中有草稿 → 拒绝覆盖（冷启动保护）
     if (rows.length === 0) {
       const existingStr = localStorage.getItem(DRAFT_KEY);
       if (existingStr) {
@@ -207,10 +216,15 @@ export default function PrintAllocation() {
           const existing = JSON.parse(existingStr);
           if (existing.rows && existing.rows.length > 0) {
             console.warn('🛡️ [AutoSave] 阻止覆盖：当前 rows 为空但草稿中有 ' + existing.rows.length + ' 个部门，拒绝覆盖');
-            return; // 保护已有草稿不被空数据覆盖
+            return;
           }
         } catch (e) { /* ignore */ }
       }
+    }
+
+    // 标记：本次会话已经有过数据
+    if (rows.length > 0) {
+      hadDataRef.current = true;
     }
 
     const draft = {
@@ -410,6 +424,37 @@ export default function PrintAllocation() {
       showMessage('success', '部门已添加');
     } catch (err: any) {
       showMessage('error', '添加失败: ' + err.message);
+    }
+  }
+
+  // 批量保存当前所有部门到数据库模板（永久固化）
+  async function saveDeptTemplate() {
+    if (rows.length === 0) return showMessage('error', '当前无部门可保存');
+    setSavingDepts(true);
+    try {
+      const payload = rows.map(r => ({
+        dept_name: r.dept_name,
+        machine_location: r.machine_location,
+        machine_number: r.machine_number,
+        sort_order: r.sort_order,
+      }));
+      const res = await fetch('/api/print/departments/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departments: payload }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        showMessage('success', `✅ 已固化 ${json.count || rows.length} 个部门到数据库模板（跳过 ${json.skipped || 0} 个重名）`);
+        // 刷新部门模板列表
+        loadDepartments();
+      } else {
+        showMessage('error', '固化失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      showMessage('error', '固化失败: ' + err.message);
+    } finally {
+      setSavingDepts(false);
     }
   }
 
@@ -723,6 +768,15 @@ export default function PrintAllocation() {
                     >
                       <Plus size={15} />
                       新增
+                    </button>
+                    <button
+                      onClick={saveDeptTemplate}
+                      disabled={savingDepts || rows.length === 0}
+                      className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="将当前部门列表永久保存到数据库，以后打开页面自动加载"
+                    >
+                      {savingDepts ? <Loader2 className="size-4 animate-spin" /> : <Database size={15} />}
+                      保存为常用部门
                     </button>
                   </div>
                 </div>
