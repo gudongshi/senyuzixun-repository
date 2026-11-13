@@ -5,8 +5,11 @@ import * as XLSX from 'xlsx';
 // ══════════════════════════════════════════════════════════════
 // localStorage key
 // ══════════════════════════════════════════════════════════════
-const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v7.5'; // 版本标识：改一次代码就改这个值
+/** 按月隔离草稿：每个月份独立存储，杜绝 A 月数据串到 B 月 */
+function getDraftKey(month: string): string {
+  return 'print_draft_' + month;
+}
+const BUILD_VER  = '20251113-draft-fix-v7.6'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.5');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.6');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -201,9 +204,8 @@ export default function PrintAllocation() {
   // ── 加载部门模板 ──
   useEffect(() => { loadDepartments(); }, []);
 
-  // ── 切换月份时自动加载历史账单 ──
-  // v7.5: 移除 lastCheckedMonthRef，每次切换月份必须查 API（RLS 已修复用 supabaseAdmin）
-  const monthSwitchRef = useRef<string>(''); // 记录上一次加载成功的月份，避免同一份数据重复覆盖
+  // ── 切换月份时自动加载数据（v7.6: 三路分支 — 正式账单 / 本地草稿 / 空模板重置）──
+  const monthSwitchRef = useRef<string>(''); // 记录当前已加载的状态标识，避免重复覆盖
   useEffect(() => {
     if (!loaded) return;
     if (!billingMonth) return;
@@ -211,58 +213,108 @@ export default function PrintAllocation() {
     let cancelled = false;
     (async () => {
       try {
+        // ── 第 1 路：查 DB 是否有正式账单 ──
         const res = await fetch('/api/print/records/check?month=' + encodeURIComponent(billingMonth));
         const json = await res.json();
         if (cancelled) return;
-        if (!json.success || !json.found) {
-          console.log('📅 [History] ' + billingMonth + ' 无历史账单');
+
+        if (json.success && json.found) {
+          // ✅ 该月有正式账单 → 加载
+          const { record, items } = json;
+          const tag = billingMonth + '|bill|' + record.id;
+          if (monthSwitchRef.current === tag) {
+            console.log('📅 [History] ' + billingMonth + ' 正式账单已加载，跳过');
+            return;
+          }
+          monthSwitchRef.current = tag;
+          setInvoiceTotal(String(record.invoice_total));
+          if (items && items.length > 0) {
+            setRows(prev => {
+              const existingMap = new Map(prev.map(r => [r.dept_name, r]));
+              const loadedRows: DeptRow[] = [];
+              const seen = new Set<string>();
+              for (const item of items) {
+                const existing = existingMap.get(item.dept_name);
+                seen.add(item.dept_name);
+                loadedRows.push({
+                  key: existing?.key || `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
+                  dbId: existing?.dbId,
+                  dept_name: item.dept_name,
+                  machine_location: item.machine_location || existing?.machine_location || '',
+                  machine_number: item.machine_number || existing?.machine_number || '',
+                  sort_order: item.sort_order || existing?.sort_order || 0,
+                  bwPages: item.bw_pages || 0,
+                  colorPages: item.color_pages || 0,
+                });
+              }
+              for (const r of prev) {
+                if (!seen.has(r.dept_name)) loadedRows.push({ ...r, bwPages: 0, colorPages: 0 });
+              }
+              return loadedRows;
+            });
+          }
+          showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
           return;
         }
 
-        const { record, items } = json;
-
-        // 如果和当前已加载的是同一条账单，跳过（避免用户手动编辑后被覆盖）
-        if (monthSwitchRef.current === billingMonth + '|' + record.id) {
-          console.log('📅 [History] ' + billingMonth + ' 已加载，跳过');
-          return;
+        // ── DB 无正式账单 → 第 2 路：检查该月份本地草稿 ──
+        const draftKey = getDraftKey(billingMonth);
+        const draftStr = localStorage.getItem(draftKey);
+        let draft: any = null;
+        if (draftStr) {
+          try { draft = JSON.parse(draftStr); } catch (e) { /* ignore */ }
         }
-        monthSwitchRef.current = billingMonth + '|' + record.id;
+        const draftRows: any[] = (draft && Array.isArray(draft.rows)) ? draft.rows : [];
+        const hasDraftPages = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
+        const hasDraftData = hasDraftPages || (draft?.invoiceTotal && parseFloat(draft.invoiceTotal) > 0);
 
-        // 自动加载历史数据，不用 confirm
-        setInvoiceTotal(String(record.invoice_total));
-        if (items && items.length > 0) {
+        if (hasDraftData) {
+          // 📝 该月有本地草稿 → 加载草稿
+          const tag = billingMonth + '|draft';
+          if (monthSwitchRef.current === tag) {
+            console.log('📅 [Draft] ' + billingMonth + ' 草稿已加载，跳过');
+            return;
+          }
+          monthSwitchRef.current = tag;
+          setInvoiceTotal(draft.invoiceTotal || '');
           setRows(prev => {
-            // 用现有行的 key/dbId 做基底，填入历史印量
             const existingMap = new Map(prev.map(r => [r.dept_name, r]));
             const loadedRows: DeptRow[] = [];
             const seen = new Set<string>();
-
-            for (const item of items) {
-              const existing = existingMap.get(item.dept_name);
-              seen.add(item.dept_name);
+            for (const dr of draftRows) {
+              const existing = existingMap.get(dr.dept_name);
+              seen.add(dr.dept_name);
               loadedRows.push({
-                key: existing?.key || `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
-                dbId: existing?.dbId,
-                dept_name: item.dept_name,
-                machine_location: item.machine_location || existing?.machine_location || '',
-                machine_number: item.machine_number || existing?.machine_number || '',
-                sort_order: item.sort_order || existing?.sort_order || 0,
-                bwPages: item.bw_pages || 0,
-                colorPages: item.color_pages || 0,
+                key: dr.key || existing?.key || `draft-${Math.random().toString(36).slice(2, 8)}`,
+                dbId: dr.dbId || existing?.dbId,
+                dept_name: dr.dept_name || '未知部门',
+                machine_location: dr.machine_location || existing?.machine_location || '',
+                machine_number: dr.machine_number || existing?.machine_number || '',
+                sort_order: dr.sort_order || existing?.sort_order || 0,
+                bwPages: dr.bwPages || 0,
+                colorPages: dr.colorPages || 0,
               });
             }
-
-            // 追加当前列表中历史账单里没有的部门（保留空白印量）
             for (const r of prev) {
-              if (!seen.has(r.dept_name)) {
-                loadedRows.push({ ...r, bwPages: 0, colorPages: 0 });
-              }
+              if (!seen.has(r.dept_name)) loadedRows.push({ ...r, bwPages: 0, colorPages: 0 });
             }
-
             return loadedRows;
           });
+          showMessage('success', '📝 已加载 ' + billingMonth + ' 本地草稿（' + draftRows.length + ' 个部门）');
+          return;
         }
-        showMessage('success', '✅ 已加载 ' + billingMonth + ' 历史账单（¥' + record.invoice_total + '，' + (items?.length || 0) + ' 个部门）');
+
+        // ── 第 3 路：该月既无正式账单也无草稿 → 重置为空模板 ──
+        const tag = billingMonth + '|empty';
+        if (monthSwitchRef.current === tag) {
+          console.log('📅 [Reset] ' + billingMonth + ' 已是空模板，跳过');
+          return;
+        }
+        monthSwitchRef.current = tag;
+        setInvoiceTotal('');
+        setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
+        console.log('📅 [Reset] ' + billingMonth + ' 无账单无草稿，已重置为干净模板');
+
       } catch (err: any) {
         console.warn('📅 [History] 查询失败:', err.message);
       }
@@ -280,9 +332,9 @@ export default function PrintAllocation() {
       return;
     }
 
-    // 防线 2：当前空 + localStorage 中有草稿 → 拒绝覆盖（冷启动保护）
+    // 防线 2：当前空 + 该月份的 localStorage 中有草稿 → 拒绝覆盖（冷启动保护）
     if (rows.length === 0) {
-      const existingStr = localStorage.getItem(DRAFT_KEY);
+      const existingStr = localStorage.getItem(getDraftKey(billingMonth));
       if (existingStr) {
         try {
           const existing = JSON.parse(existingStr);
@@ -313,27 +365,26 @@ export default function PrintAllocation() {
       invoiceTotal,
       billingMonth,
     };
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    console.log('💾 [AutoSave] 草稿已保存：' + rows.length + ' 个部门, invoiceTotal=' + invoiceTotal + ', billingMonth=' + billingMonth, rows);
+    localStorage.setItem(getDraftKey(billingMonth), JSON.stringify(draft));
+    console.log('💾 [AutoSave] 草稿已保存到 ' + getDraftKey(billingMonth) + '：' + rows.length + ' 个部门, invoiceTotal=' + invoiceTotal, rows);
   }, [rows, invoiceTotal, billingMonth, loaded]);
 
   async function loadDepartments() {
     setLoading(true);
     try {
-      // ── 1. 读取 localStorage 草稿 ──
+      // ── 1. 读取该月份 localStorage 草稿 ──
       let draft: any = null;
-      const draftStr = localStorage.getItem(DRAFT_KEY);
+      const draftStr = localStorage.getItem(getDraftKey(billingMonth));
       if (draftStr) {
         try { draft = JSON.parse(draftStr); } catch (e) { console.error('❌ [Init] draft JSON 解析失败:', e); }
       }
       // 安全提取 draft.rows：必须是数组才认，否则当空处理
       const draftRows: any[] = (draft && Array.isArray(draft.rows)) ? draft.rows : [];
-      console.log('🔍 [Init] localStorage 草稿:', {
+      console.log('🔍 [Init] localStorage 草稿 (' + getDraftKey(billingMonth) + '):', {
         hasDraft: !!draft,
         rowsType: typeof draft?.rows,
         rowsIsArray: Array.isArray(draft?.rows),
         rowsCount: draftRows.length,
-        rows: draftRows,
         invoiceTotal: draft?.invoiceTotal,
         billingMonth: draft?.billingMonth,
       });
@@ -546,11 +597,16 @@ export default function PrintAllocation() {
 
   // ── 清空数据和草稿 ──
   function clearAll() {
-    localStorage.removeItem(DRAFT_KEY);
+    // 清除当前月份草稿（需在 billingMonth 被重置前捕获）
+    const oldMonth = billingMonth;
+    localStorage.removeItem(getDraftKey(oldMonth));
+    // 同时清理旧版全局草稿（向前兼容 v7.5 及之前的遗留数据）
+    localStorage.removeItem('print_draft_data');
     setInvoiceTotal('');
     const now = new Date();
     setBillingMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
     setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
+    monthSwitchRef.current = ''; // 重置，允许重新加载
     showMessage('success', '数据已清空');
   }
 
@@ -592,7 +648,7 @@ export default function PrintAllocation() {
       });
       const json = await res.json();
       if (json.success) {
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(getDraftKey(billingMonth));
         showMessage('success', '✅ 本期账单已保存');
       } else {
         showMessage('error', '保存失败: ' + (json.error || '未知错误'));
@@ -680,7 +736,7 @@ export default function PrintAllocation() {
       const json = await res.json();
       if (json.success) {
         // 清空当前页面数据并重新加载部门模板
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(getDraftKey(billingMonth));
         setInvoiceTotal('');
         setRows([]);
         monthSwitchRef.current = ''; // 重置，允许重新加载
