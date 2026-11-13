@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 // localStorage key
 // ══════════════════════════════════════════════════════════════
 const DRAFT_KEY = 'print_draft_data';
-const BUILD_VER  = '20251113-draft-fix-v7.2'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251113-draft-fix-v7.3'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -170,7 +170,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v7.2');
+  console.log('🚀 当前前端版本：20251113-draft-fix-v7.3');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -670,7 +670,7 @@ export default function PrintAllocation() {
         <div>
           <h2 className="text-lg font-bold text-slate-800">🖨️ 打印费分摊</h2>
           <p className="text-xs text-slate-500">部门印量管理 · 阶梯计价 · 抹零分摊
-            <span className="ml-2 text-[10px] text-slate-300 font-mono select-all">{BUILD_VER}</span>
+            <span className="ml-2 text-[11px] text-amber-600 font-mono font-semibold select-all bg-amber-50 px-1.5 py-0.5 rounded">{BUILD_VER}</span>
           </p>
         </div>
       </div>

@@ -2098,15 +2098,22 @@ export default function ProjectManager() {
   // ---- 侧边栏导航（F5 刷新保持当前页）----
   const [activePage, setActivePage] = useState<PageKey>(() => {
     const saved = sessionStorage.getItem('activePage');
+    console.log('🔄 [Router] 初始化读取 sessionStorage:', saved);
     return (saved as PageKey) || 'home';
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // 导航时同步到 sessionStorage
   const navigateTo = useCallback((page: PageKey) => {
+    console.log('🔄 [Router] 导航到:', page);
     sessionStorage.setItem('activePage', page);
     setActivePage(page);
   }, []);
+
+  // 挂载后打印当前页面（方便 F12 确认）
+  useEffect(() => {
+    console.log('🔄 [Router] 当前渲染页面:', activePage);
+  }, [activePage]);
 
     const [qualifications, setQualifications] = useState<any[]>([]);
   const [qualTotal, setQualTotal] = useState(0);

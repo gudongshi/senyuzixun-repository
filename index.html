@@ -14,6 +14,17 @@
       </head>
   <body>
     <div id="root"></div>
+    <!-- ⚠️ 清除所有旧 PWA Service Worker（解决旧缓存干扰） -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (var i = 0; i < registrations.length; i++) {
+            registrations[i].unregister();
+            console.log('🧹 [SW] 已注销旧 Service Worker:', registrations[i].scope);
+          }
+        });
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
