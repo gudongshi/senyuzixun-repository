@@ -17,6 +17,7 @@ const axios = require('axios');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 const cron = require('node-cron');
@@ -7208,6 +7209,133 @@ app.get('/api/print/records/check', authMiddleware, async (req, res) => {
     res.json({ success: true, found: true, record, items });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// OCR 视觉识别上传（v9.0）
+// ══════════════════════════════════════════════════════════════
+const DASHSCOPE_VISION_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+
+const ocrUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) return cb(null, true);
+    cb(new Error('仅支持 JPG / PNG / PDF 格式的账单文件'));
+  },
+});
+
+// POST /api/print/ocr — AI 视觉识别上传
+app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '请上传账单照片或 PDF 文件' });
+    }
+
+    if (!DASHSCOPE_API_KEY) {
+      console.error('❌ [OCR] DASHSCOPE_API_KEY 未配置');
+      return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员设置 API Key' });
+    }
+
+    // 文件转 Base64
+    const mime = req.file.mimetype || 'image/jpeg';
+    const b64 = req.file.buffer.toString('base64');
+    const dataUri = `data:${mime};base64,${b64}`;
+
+    console.log(`📷 [OCR] 接收文件: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB), MIME: ${mime}`);
+
+    const prompt = '你是一个表格识别助手。请提取图片中的打印费表格数据。提取每行的"部门名称"、"黑白印量"、"彩色印量"。仅返回合法的 JSON 数组，格式为：[{"dept_name": "部门A", "bw_pages": 100, "color_pages": 10}]。不要包含任何解释性文字。';
+
+    // 调用通义千问视觉模型
+    console.log('⏳ [OCR] 正在调用 qwen3-vl-plus 视觉模型...');
+    const response = await retryRequest(() => axios.post(
+      DASHSCOPE_VISION_URL,
+      {
+        model: 'qwen3-vl-plus',
+        input: {
+          messages: [{
+            role: 'user',
+            content: [
+              { image: dataUri },
+              { text: prompt },
+            ],
+          }],
+        },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+      }
+    ));
+
+    console.log('✅ [OCR] 视觉模型响应成功');
+
+    // 提取文本内容（multimodal 响应结构：output.choices[0].message.content 是数组）
+    const outputContent = response.data?.output?.choices?.[0]?.message?.content;
+    if (!outputContent) {
+      console.error('❌ [OCR] 响应结构异常:', JSON.stringify(response.data).slice(0, 500));
+      return res.status(500).json({ success: false, error: 'AI 模型返回数据异常，请重试' });
+    }
+
+    // content 可能是字符串或数组（multimodal 格式）
+    let resultText = '';
+    if (typeof outputContent === 'string') {
+      resultText = outputContent;
+    } else if (Array.isArray(outputContent)) {
+      resultText = outputContent.map((c: any) => c.text || '').join('');
+    }
+    console.log('📝 [OCR] AI 原始响应:', resultText.slice(0, 300));
+
+    // 解析 JSON（兼容模型返回 ```json 代码块包裹）
+    let items;
+    try {
+      let jsonStr = resultText.trim();
+      // 策略 1：提取 markdown 代码块中的 JSON
+      const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (match) {
+        jsonStr = match[1].trim();
+        console.log('🔧 [OCR] 从 markdown 代码块中提取 JSON');
+      }
+      // 策略 2：尝试直接解析（去除可能的 BOM 和首尾空白）
+      items = JSON.parse(jsonStr);
+    } catch (parseErr: any) {
+      console.error('❌ [OCR] JSON 解析失败:', parseErr.message);
+      console.error('   原始文本:', resultText.slice(0, 500));
+      return res.status(400).json({
+        success: false,
+        error: 'AI 返回格式异常，请重试。提示：确保图片清晰、表格完整。',
+        rawPreview: resultText.slice(0, 200),
+      });
+    }
+
+    // 校验结果格式
+    if (!Array.isArray(items)) {
+      console.error('❌ [OCR] 返回结果不是数组:', typeof items);
+      return res.status(400).json({ success: false, error: 'AI 返回格式异常（非数组），请重试' });
+    }
+
+    // 清洗数据：确保每项有 dept_name / bw_pages / color_pages
+    const cleaned = items.map((item: any) => ({
+      dept_name: String(item.dept_name || '').trim(),
+      bw_pages: parseInt(item.bw_pages, 10) || 0,
+      color_pages: parseInt(item.color_pages, 10) || 0,
+    })).filter((item: any) => item.dept_name); // 剔除空部门名
+
+    console.log(`✅ [OCR] 识别成功: ${cleaned.length} 个部门`, cleaned);
+    res.json({ success: true, items: cleaned });
+  } catch (err: any) {
+    console.error('❌ [OCR] 调用失败:', err.message);
+    if (err.response) {
+      console.error('   响应状态:', err.response.status);
+      console.error('   响应数据:', JSON.stringify(err.response.data || {}).slice(0, 500));
+    }
+    res.status(500).json({ success: false, error: 'AI 识别服务调用失败: ' + (err.response?.data?.message || err.message) });
   }
 });
 

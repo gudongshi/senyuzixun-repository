@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw, Upload } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
 
 // ══════════════════════════════════════════════════════════════
@@ -9,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-draft-fix-v8.3'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-ocr-v9.0'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +174,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-draft-fix-v8.3');
+  console.log('🚀 当前前端版本：20251116-ocr-v9.0');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -190,6 +191,7 @@ export default function PrintAllocation() {
   const [savingDepts, setSavingDepts]     = useState(false); // "保存常用部门" loading
   const [drafting, setDrafting]           = useState(false);
   const [deleting, setDeleting]           = useState(false);
+  const [ocrLoading, setOcrLoading]       = useState(false); // v9.0: AI 视觉识别上传 loading
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 防草稿误删：记录本次会话是否已有过非空 rows
@@ -681,6 +683,56 @@ export default function PrintAllocation() {
     showMessage('success', '数据已清空（' + billingMonth + '）');
   }
 
+  // ── AI 视觉识别上传（v9.0）──
+  const handleOcrUpload = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+    const file = acceptedFiles[0];
+    setOcrLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/print/ocr', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (json.success && Array.isArray(json.items)) {
+        const items: any[] = json.items;
+        if (items.length === 0) {
+          showMessage('error', '未识别到有效数据');
+          return;
+        }
+        // 按 dept_name 匹配并填入印量
+        let filled = 0;
+        setRows(prev => prev.map(r => {
+          const match = items.find((item: any) => item.dept_name === r.dept_name);
+          if (match) {
+            filled++;
+            return { ...r, bwPages: match.bw_pages || 0, colorPages: match.color_pages || 0 };
+          }
+          return r;
+        }));
+        if (filled > 0) {
+          showMessage('success', '✅ 成功识别并填充 ' + filled + ' 个部门的数据');
+        } else {
+          showMessage('error', '未识别到有效数据（部门名称不匹配）');
+        }
+      } else {
+        showMessage('error', json.error || '识别失败，请重试');
+      }
+    } catch (err: any) {
+      showMessage('error', '上传失败: ' + (err.message || '网络错误'));
+    } finally {
+      setOcrLoading(false);
+    }
+  }, []);
+
+  // react-dropzone 配置
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    multiple: false,
+    accept: { 'image/*': ['.jpg', '.jpeg', '.png'], 'application/pdf': ['.pdf'] },
+    maxSize: 5 * 1024 * 1024,
+    onDrop: handleOcrUpload,
+    disabled: ocrLoading,
+  });
+
   // ── 保存本期账单 ──
   async function saveRecord() {
     if (invoiceVal <= 0) return showMessage('error', '请先输入本次发票总额');
@@ -984,6 +1036,32 @@ export default function PrintAllocation() {
           {deleting ? <Loader2 className="size-4 animate-spin" /> : <AlertTriangle className="size-4" />}
           作废本月账单
         </button>
+      </div>
+
+      {/* ── AI 视觉识别上传（v9.0）── */}
+      <div className="mb-5">
+        <div
+          {...getRootProps()}
+          className={`border-2 border-dashed rounded-xl px-6 py-8 text-center cursor-pointer transition-colors ${
+            isDragActive
+              ? 'border-blue-400 bg-blue-50/50'
+              : 'border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-50'
+          } ${ocrLoading ? 'cursor-wait opacity-80' : ''}`}
+        >
+          <input {...getInputProps()} />
+          {ocrLoading ? (
+            <div className="flex items-center justify-center gap-2 text-slate-500">
+              <Loader2 className="size-5 animate-spin" />
+              <span className="text-sm">🤖 AI 正在深度识别表格，请稍候...</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1">
+              <Upload className="size-6 text-slate-400" />
+              <span className="text-sm text-slate-500">点击或拖拽上传账单照片/PDF</span>
+              <span className="text-xs text-slate-400">支持 JPG / PNG / PDF，最大 5MB</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── 主内容：部门列表 + 计算面板 ── */}
