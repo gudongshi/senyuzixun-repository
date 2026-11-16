@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251113-draft-fix-v8.2'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-draft-fix-v8.3'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -173,7 +173,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251113-draft-fix-v8.2');
+  console.log('🚀 当前前端版本：20251116-draft-fix-v8.3');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -671,16 +671,14 @@ export default function PrintAllocation() {
 
   // ── 清空数据和草稿 ──
   function clearAll() {
-    // 清除当前月份草稿（需在 billingMonth 被重置前捕获）
-    const oldMonth = billingMonth;
-    localStorage.removeItem(getDraftKey(oldMonth));
+    // 清除当前月份草稿
+    localStorage.removeItem(getDraftKey(billingMonth));
     // 同时清理旧版全局草稿（向前兼容 v7.5 及之前的遗留数据）
     localStorage.removeItem('print_draft_data');
     setInvoiceTotal('');
-    const now = new Date();
-    setBillingMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    // v8.3 fix: 绝对不改变 billingMonth，只清空印量和发票金额
     setRows(prev => prev.map(r => ({ ...r, bwPages: 0, colorPages: 0 })));
-    showMessage('success', '数据已清空');
+    showMessage('success', '数据已清空（' + billingMonth + '）');
   }
 
   // ── 保存本期账单 ──
