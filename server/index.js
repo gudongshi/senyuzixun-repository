@@ -7247,22 +7247,23 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
 
     console.log(`📷 [OCR] 接收文件: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB), MIME: ${mime}`);
 
-    const prompt = `你是一个极其严谨的企业财务账单识别专家。请提取图片中的打印费表格数据。
+    const prompt = `你是一个高精度的表格提取助手。请严格按照物理列的相对位置提取数据。
 
-【表格结构说明】
-- 表格行分为"部门行"（如"1 鉴定"）和"总计行"（如"总计"、"大尺寸"）。我们只需要"部门行"。
-- 每一个部门行下方，紧跟一行数据，包含多个列。
-- 第一列是"总计张数"，千万不要提取第一列！
-- 第二列是"黑色"印量，提取填入 bw_pages。
-- 第三列是"全彩色"印量，提取填入 color_pages。
+【核心规则：无视表头，只看每行的数据列】
+找到每一个部门名称（如"5 行政"、"6 数据中心"），顺着该行向右看紧挨着的两行数字（总计、大尺寸）。
 
-【特殊标记识别规则】
-- 如果表格中某个数字被画了横线，且旁边有手写的数字（如 0 被划掉旁边写了 9），请提取手写的数字（9）。
-- 如果某个部门的数据全为 0，必须输出 0。
+对于"总计"这一行，从左到右：
+- 第 1 列数字（通常最大）：是总印量，【绝对不要提取】！
+- 第 2 列数字：是"黑色"印量，提取填入 bw_pages。
+- 第 3 列数字：是"彩色"印量，提取填入 color_pages。
 
-【输出要求】
-严格输出 JSON 数组，格式：[{"dept_name": "鉴定", "bw_pages": 9, "color_pages": 10}]
-不要任何解释，不要包含第一列的"总计张数"。`;
+【下划线/手写优先规则】
+如果发现第 2 列或第 3 列的数字有手写的下划线，或者原数字被划掉旁边写了新数字，必须提取手写或修改后的最终数字。
+例如："295 被划掉手写 293"提取 293；"0 被划掉手写 2"提取 2。
+
+【输出格式】
+仅返回 JSON 数组：[{"dept_name": "行政", "bw_pages": 72, "color_pages": 0}]
+不要任何解释文字。`;
 
     // 调用通义千问视觉模型
     console.log('⏳ [OCR] 正在调用 qwen3-vl-plus 视觉模型...');
@@ -7351,6 +7352,85 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
       console.error('   响应数据:', JSON.stringify(err.response.data || {}).slice(0, 500));
     }
     res.status(500).json({ success: false, error: 'AI 识别服务调用失败: ' + (err.response?.data?.message || err.message) });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// 发票金额 OCR（v9.7）
+// ══════════════════════════════════════════════════════════════
+const invoiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) return cb(null, true);
+    cb(new Error('仅支持 JPG / PNG / PDF 格式'));
+  },
+});
+
+// POST /api/print/ocr-invoice — AI 发票金额识别
+app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '请上传发票照片' });
+    }
+    if (!DASHSCOPE_API_KEY) {
+      return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
+    }
+
+    const mime = req.file.mimetype || 'image/jpeg';
+    const b64 = req.file.buffer.toString('base64');
+    const dataUri = `data:${mime};base64,${b64}`;
+
+    console.log(`🧾 [Invoice-OCR] 接收发票: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)`);
+
+    const invoicePrompt = '请提取这张发票的【价税合计】或【总计金额】。仅返回纯数字（如 923.00），不要带任何符号、单位或解释文字。';
+
+    console.log('⏳ [Invoice-OCR] 调用 qwen3-vl-plus...');
+    const response = await retryRequest(() => axios.post(
+      DASHSCOPE_VISION_URL,
+      {
+        model: 'qwen3-vl-plus',
+        input: {
+          messages: [{
+            role: 'user',
+            content: [
+              { image: dataUri },
+              { text: invoicePrompt },
+            ],
+          }],
+        },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+      }
+    ));
+
+    const outputContent = response.data?.output?.choices?.[0]?.message?.content;
+    let resultText = '';
+    if (typeof outputContent === 'string') {
+      resultText = outputContent;
+    } else if (Array.isArray(outputContent)) {
+      resultText = outputContent.map((c) => c.text || '').join('');
+    }
+    console.log('📝 [Invoice-OCR] 原始响应:', resultText);
+
+    // 提取数字（含小数点）
+    const numMatch = resultText.match(/(\d+\.?\d*)/);
+    if (!numMatch) {
+      return res.status(400).json({ success: false, error: '未能识别发票金额，请手动输入' });
+    }
+    const totalAmount = parseFloat(numMatch[1]);
+    console.log('✅ [Invoice-OCR] 识别金额:', totalAmount);
+    res.json({ success: true, totalAmount });
+  } catch (err) {
+    console.error('❌ [Invoice-OCR] 调用失败:', err.message);
+    res.status(500).json({ success: false, error: '发票识别失败: ' + (err.response?.data?.message || err.message) });
   }
 });
 

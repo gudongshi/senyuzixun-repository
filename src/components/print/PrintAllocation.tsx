@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-fix-v9.5'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-fix-v9.7'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-fix-v9.5');
+  console.log('🚀 当前前端版本：20251116-fix-v9.7');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -203,7 +203,9 @@ export default function PrintAllocation() {
   const [savingDepts, setSavingDepts]     = useState(false); // "保存常用部门" loading
   const [drafting, setDrafting]           = useState(false);
   const [deleting, setDeleting]           = useState(false);
-  const [ocrLoading, setOcrLoading]       = useState(false); // v9.0: AI 视觉识别上传 loading
+  const [ocrLoading, setOcrLoading]       = useState(false); // v9.0: AI 账单识别 loading
+  const [ocrInvoiceLoading, setOcrInvoiceLoading] = useState(false); // v9.7: AI 发票识别 loading
+  const invoiceFileRef = useRef<HTMLInputElement>(null);
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 防草稿误删：记录本次会话是否已有过非空 rows
@@ -715,7 +717,7 @@ export default function PrintAllocation() {
     return null;
   }
 
-  // ── AI 视觉识别上传（v9.5 严格列映射 + 精简 Toast）──
+  // ── AI 视觉识别上传（v9.7 强校验计数 + 不可见空格清洗）──
   const handleOcrUpload = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     const file = acceptedFiles[0];
@@ -738,27 +740,26 @@ export default function PrintAllocation() {
         return;
       }
 
-      // ── 第一步：强力清洗 → 别名映射 → 同名合并（黑白只加黑白，彩色只加彩色）──
-      // v9.5: 严格字段隔离，防止跨字段污染
+      // ── 第一步：强力清洗 → 别名映射 → 同名合并 ──
       const merged = new Map<string, { bw: number; color: number; aliases: string[] }>();
       const cleanedItems: { raw: string; cleaned: string; std: string; bw: number; color: number }[] = [];
 
       for (const item of rawItems) {
         const raw = (item.dept_name || '').trim();
         if (!raw) continue;
-        const cleaned = cleanDeptName(raw);               // "1 鉴定" → "鉴定"
-        const stdName = deptAliasMap[cleaned] || cleaned;  // "造价" → "工程造价"
+        const cleaned = cleanDeptName(raw);
+        const stdName = deptAliasMap[cleaned] || cleaned;
         const bw = Number(item.bw_pages) || 0;
         const color = Number(item.color_pages) || 0;
 
-        if (bw === 0 && color === 0) continue; // 跳过全零行（空行/总计行误识别）
+        if (bw === 0 && color === 0) continue;
 
         cleanedItems.push({ raw, cleaned, std: stdName, bw, color });
 
         const entry = merged.get(stdName);
         if (entry) {
-          entry.bw += bw;          // v9.5: 严格只加 bw
-          entry.color += color;    // v9.5: 严格只加 color
+          entry.bw += bw;
+          entry.color += color;
           if (raw !== stdName) entry.aliases.push(raw);
         } else {
           merged.set(stdName, { bw, color, aliases: raw !== stdName ? [raw] : [] });
@@ -771,40 +772,69 @@ export default function PrintAllocation() {
           `${k}（bw=${v.bw}, color=${v.color}${v.aliases.length ? ' ← ' + v.aliases.join(',') : ''}）`
         ));
 
-      // ── 第二步：精确匹配 + 模糊匹配兜底 ──
-      let filled = 0;
-      const matchedNames: string[] = [];
-      // 拷贝一份 merged keys，在 row map 中用 delete 消费，确保每个条目只匹配一次
+      // ── 第二步：离线精确匹配 + 模糊兜底（先计算，再 setRows）──
+      // v9.7 fix: 不能在 setRows 回调里数 filled，React 18 批处理导致计数器始终为 0
       const remaining = new Map(merged);
+      type MatchResult = { rowKey: string; bw: number; color: number };
+      const matchMap = new Map<string, MatchResult>(); // rowKey → 匹配值
+      const matchedLog: string[] = [];
 
-      setRows(prev => prev.map(r => {
-        const rowName = r.dept_name;
-        // 精确匹配
-        if (remaining.has(rowName)) {
-          const entry = remaining.get(rowName)!;
-          filled++;
-          matchedNames.push(`${rowName}[精确]`);
-          remaining.delete(rowName);
-          return { ...r, bwPages: entry.bw, colorPages: entry.color };
+      // 获取当前 rows 的快照（在 setRows 之外，确保是最新值）
+      const rowSnapshot = rows.map(r => ({
+        key: r.key,
+        name: r.dept_name.trim().replace(/\s+/g, ''), // v9.7: 清洗不可见空格
+      }));
+      console.log('🔍 [OCR] 系统部门名:', rowSnapshot.map(r => r.name));
+
+      for (const row of rowSnapshot) {
+        // 精确匹配（用清洗后的名字）
+        if (remaining.has(row.name)) {
+          const e = remaining.get(row.name)!;
+          matchMap.set(row.key, { rowKey: row.key, bw: e.bw, color: e.color });
+          matchedLog.push(`${row.name}[精确]`);
+          remaining.delete(row.name);
+          continue;
         }
-        // 模糊匹配兜底
+        // 精确：remaining 的 key 可能也含空格 → 双向清洗后比较
+        let found = false;
         for (const [mk, mv] of remaining.entries()) {
-          if (fuzzyMatchName(mk, [rowName])) {
-            filled++;
-            matchedNames.push(`${mk}→${rowName}[模糊]`);
+          const cleanMk = mk.trim().replace(/\s+/g, '');
+          if (cleanMk === row.name) {
+            matchMap.set(row.key, { rowKey: row.key, bw: mv.bw, color: mv.color });
+            matchedLog.push(`${mk}≈${row.name}[清洗精确]`);
             remaining.delete(mk);
-            return { ...r, bwPages: mv.bw, colorPages: mv.color };
+            found = true;
+            break;
           }
         }
-        return r;
-      }));
-      console.log('✅ [OCR] 成功匹配 ' + filled + ' 个:', matchedNames);
+        if (found) continue;
+        // 模糊匹配兜底
+        for (const [mk, mv] of remaining.entries()) {
+          if (fuzzyMatchName(mk, [row.name])) {
+            matchMap.set(row.key, { rowKey: row.key, bw: mv.bw, color: mv.color });
+            matchedLog.push(`${mk}→${row.name}[模糊]`);
+            remaining.delete(mk);
+            found = true;
+            break;
+          }
+        }
+      }
 
-      // ── 第三步：精简 Toast ──
+      const filled = matchMap.size;
+      console.log('✅ [OCR] 成功匹配 ' + filled + ' 个:', matchedLog);
+
+      // 第三步：一次性 setRows（纯数据驱动，不依赖闭包计数器）
+      if (filled > 0) {
+        setRows(prev => prev.map(r => {
+          const m = matchMap.get(r.key);
+          return m ? { ...r, bwPages: m.bw, colorPages: m.color } : r;
+        }));
+      }
+
+      // ── 第四步：Toast ──
       const unmatchedCount = remaining.size;
       if (unmatchedCount > 0) {
-        const names = Array.from(remaining.keys());
-        names.forEach(n => console.warn('  ⚠️ 未匹配部门:', n));
+        Array.from(remaining.keys()).forEach(n => console.warn('  ⚠️ 未匹配部门:', n));
       }
 
       if (filled > 0) {
@@ -822,6 +852,31 @@ export default function PrintAllocation() {
       setOcrLoading(false);
     }
   }, [rows]);
+
+  // ── v9.7: 发票金额 OCR 上传 ──
+  const handleInvoiceOcr = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrInvoiceLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/print/ocr-invoice', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (json.success && typeof json.totalAmount === 'number') {
+        setInvoiceTotal(String(json.totalAmount));
+        showMessage('success', '🧾 已识别发票金额 ¥' + json.totalAmount, 5000);
+      } else {
+        showMessage('error', json.error || '发票识别失败，请手动输入', 5000);
+      }
+    } catch (err) {
+      showMessage('error', '上传失败: ' + ((err as Error)?.message || '网络错误'), 5000);
+    } finally {
+      setOcrInvoiceLoading(false);
+      // 清空 input 以便重复上传同一文件
+      if (invoiceFileRef.current) invoiceFileRef.current.value = '';
+    }
+  }, []);
 
   // react-dropzone 配置
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -1086,6 +1141,16 @@ export default function PrintAllocation() {
             placeholder="¥ 0.00"
             className="w-36 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
           />
+          {/* v9.7: 发票拍照识别按钮 */}
+          <input ref={invoiceFileRef} type="file" accept="image/*,.pdf" onChange={handleInvoiceOcr} className="hidden" />
+          <button
+            onClick={() => invoiceFileRef.current?.click()}
+            disabled={ocrInvoiceLoading}
+            className="flex-shrink-0 size-8 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center disabled:opacity-50"
+            title="拍照/上传识别发票金额"
+          >
+            {ocrInvoiceLoading ? <Loader2 className="size-3.5 animate-spin" /> : <span className="text-sm">📷</span>}
+          </button>
         </div>
 
         <button
