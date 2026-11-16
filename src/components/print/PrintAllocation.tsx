@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-fix-v9.3'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-fix-v9.4'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-fix-v9.3');
+  console.log('🚀 当前前端版本：20251116-fix-v9.4');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -572,9 +572,9 @@ export default function PrintAllocation() {
   }
 
   // ── 工具 ──
-  function showMessage(type: 'success' | 'error', text: string) {
+  function showMessage(type: 'success' | 'error', text: string, duration?: number) {
     setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3000);
+    setTimeout(() => setMessage(null), duration || 3000);
   }
 
   // 更新印量
@@ -695,7 +695,27 @@ export default function PrintAllocation() {
     showMessage('success', '数据已清空（' + billingMonth + '）');
   }
 
-  // ── AI 视觉识别上传（v9.3 列错位修复 + 空值兜底）──
+  // ── v9.4: 部门名称强力清洗（去掉数字前缀和符号）──
+  function cleanDeptName(raw: string): string {
+    return raw
+      .trim()
+      .replace(/^[\d\s\.\-_、，。]+/, '') // 去开头数字/空格/符号: "1 鉴定" → "鉴定"
+      .replace(/\s+/g, '')                   // 去所有内部空格: "品控 彩" → "品控彩"
+      .trim();
+  }
+
+  // ── v9.4: 双向模糊匹配工具 ──
+  function fuzzyMatchName(aiName: string, rowNames: string[]): string | null {
+    // 先精确匹配
+    if (rowNames.includes(aiName)) return aiName;
+    // 双向 includes: AI名包含系统名 或 系统名包含AI名
+    for (const rn of rowNames) {
+      if (aiName.includes(rn) || rn.includes(aiName)) return rn;
+    }
+    return null;
+  }
+
+  // ── AI 视觉识别上传（v9.4 强力清洗 + 模糊匹配）──
   const handleOcrUpload = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     const file = acceptedFiles[0];
@@ -706,25 +726,33 @@ export default function PrintAllocation() {
       const res = await fetch('/api/print/ocr', { method: 'POST', body: fd });
       const json = await res.json();
       if (!json.success || !Array.isArray(json.items)) {
-        showMessage('error', json.error || '识别失败，请重试');
+        showMessage('error', json.error || '识别失败，请重试', 5000);
         return;
       }
       const rawItems: { dept_name: string; bw_pages: number; color_pages: number }[] = json.items;
+      console.log('📷 [OCR] AI 原始返回 (' + rawItems.length + ' 条):', rawItems);
+
       if (rawItems.length === 0) {
         console.warn('⚠️ [OCR] AI 返回空数组');
-        showMessage('success', '🤖 AI 未识别到有效数据，请检查照片是否清晰');
+        showMessage('success', '🤖 AI 未识别到有效数据，请检查照片是否清晰', 5000);
         return;
       }
 
-      // 第一步：别名映射 → 标准部门名，然后合并同名条目（累加印量）
-      // v9.3: 数值强制 Number() || 0 兜底，防止 AI 返回空字符串 / null
+      // ── 第一步：强力清洗 + 别名映射 → 标准部门名，同名合并 ──
+      // v9.4: 数值兜底 Number() || 0
       const merged = new Map<string, { bw: number; color: number; aliases: string[] }>();
+      const cleanedItems: { raw: string; cleaned: string; std: string }[] = [];
+
       for (const item of rawItems) {
         const raw = (item.dept_name || '').trim();
         if (!raw) continue;
+        const cleaned = cleanDeptName(raw);            // "1 鉴定" → "鉴定"
+        const stdName = deptAliasMap[cleaned] || cleaned; // "造价" → "工程造价"
         const bw = Number(item.bw_pages) || 0;
         const color = Number(item.color_pages) || 0;
-        const stdName = deptAliasMap[raw] || raw; // 别名 → 标准名，无映射则保留原名
+
+        cleanedItems.push({ raw, cleaned, std: stdName });
+
         const entry = merged.get(stdName);
         if (entry) {
           entry.bw += bw;
@@ -734,26 +762,39 @@ export default function PrintAllocation() {
           merged.set(stdName, { bw, color, aliases: raw !== stdName ? [raw] : [] });
         }
       }
+      console.log('🧹 [OCR] 清洗后 (' + cleanedItems.length + ' 条):', cleanedItems);
       console.log('🔗 [OCR] 别名映射后:', Array.from(merged.entries()).map(([k, v]) =>
         `${k}（bw=${v.bw}, color=${v.color}${v.aliases.length ? ', 来自: ' + v.aliases.join(',') : ''}）`
       ));
 
-      // 第二步：按标准名匹配表格 rows，覆盖填入
+      // ── 第二步：精确匹配 + 模糊匹配兜底 ──
       let filled = 0;
       const log: string[] = [];
+      const rowNames = rows.map(r => r.dept_name); // 当前表格所有部门名
+
       setRows(prev => prev.map(r => {
-        const entry = merged.get(r.dept_name);
+        // 先精确匹配
+        let entry = merged.get(r.dept_name);
         if (entry) {
           filled++;
-          log.push(`${r.dept_name} → bw=${entry.bw} / color=${entry.color}`);
-          merged.delete(r.dept_name); // 消费掉，避免重复匹配
+          log.push(`${r.dept_name} → bw=${entry.bw} / color=${entry.color} [精确]`);
+          merged.delete(r.dept_name);
           return { ...r, bwPages: entry.bw, colorPages: entry.color };
+        }
+        // 模糊匹配兜底：用 merged 中的每个 key 去 fuzzy 匹配当前行名
+        for (const [mk, mv] of merged.entries()) {
+          if (fuzzyMatchName(mk, [r.dept_name])) {
+            filled++;
+            log.push(`${mk} → ${r.dept_name} → bw=${mv.bw} / color=${mv.color} [模糊]`);
+            merged.delete(mk);
+            return { ...r, bwPages: mv.bw, colorPages: mv.color };
+          }
         }
         return r;
       }));
       console.log('✅ [OCR] 匹配结果:', log);
 
-      // 第三步：未匹配到的剩余条目 → console.warn 记录，不弹红字报错
+      // ── 第三步：未匹配报告 ──
       const unmatched = Array.from(merged.keys());
       if (unmatched.length > 0) {
         console.warn('⚠️ [OCR] 未匹配 ' + unmatched.length + ' 个部门:', unmatched.join('、'));
@@ -762,22 +803,23 @@ export default function PrintAllocation() {
       if (filled > 0) {
         showMessage('success',
           '🤖 识别了 ' + rawItems.length + ' 个部门，其中 ' + filled + ' 个成功匹配' +
-          (unmatched.length > 0 ? '，' + unmatched.length + ' 个未能与系统匹配' : '')
+          (unmatched.length > 0 ? '，' + unmatched.length + ' 个未能与系统匹配' : ''),
+          5000
         );
       } else {
-        // v9.3: 不弹红字报错，用 success 样式提示（非阻塞）
         console.warn('⚠️ [OCR] 所有识别结果均未匹配到系统部门');
         showMessage('success',
           '🤖 AI 识别了 ' + rawItems.length + ' 个部门，但全部未能与系统匹配' +
-          (unmatched.length > 0 ? '（' + unmatched.join('、') + '）' : '')
+          (unmatched.length > 0 ? '（' + unmatched.join('、') + '）' : ''),
+          5000
         );
       }
     } catch (err) {
-      showMessage('error', '上传失败: ' + ((err as Error)?.message || '网络错误'));
+      showMessage('error', '上传失败: ' + ((err as Error)?.message || '网络错误'), 5000);
     } finally {
       setOcrLoading(false);
     }
-  }, []);
+  }, [rows]);
 
   // react-dropzone 配置
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
