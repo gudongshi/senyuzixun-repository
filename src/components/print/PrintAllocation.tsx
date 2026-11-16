@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-ocr-v9.0'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-fix-v9.1'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -174,7 +174,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-ocr-v9.0');
+  console.log('🚀 当前前端版本：20251116-fix-v9.1');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);

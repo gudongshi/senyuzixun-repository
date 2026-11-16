@@ -7288,7 +7288,7 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
     if (typeof outputContent === 'string') {
       resultText = outputContent;
     } else if (Array.isArray(outputContent)) {
-      resultText = outputContent.map((c: any) => c.text || '').join('');
+      resultText = outputContent.map((c) => c.text || '').join('');
     }
     console.log('📝 [OCR] AI 原始响应:', resultText.slice(0, 300));
 
@@ -7304,7 +7304,7 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
       }
       // 策略 2：尝试直接解析（去除可能的 BOM 和首尾空白）
       items = JSON.parse(jsonStr);
-    } catch (parseErr: any) {
+    } catch (parseErr) {
       console.error('❌ [OCR] JSON 解析失败:', parseErr.message);
       console.error('   原始文本:', resultText.slice(0, 500));
       return res.status(400).json({
@@ -7321,15 +7321,15 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
     }
 
     // 清洗数据：确保每项有 dept_name / bw_pages / color_pages
-    const cleaned = items.map((item: any) => ({
+    const cleaned = items.map((item) => ({
       dept_name: String(item.dept_name || '').trim(),
       bw_pages: parseInt(item.bw_pages, 10) || 0,
       color_pages: parseInt(item.color_pages, 10) || 0,
-    })).filter((item: any) => item.dept_name); // 剔除空部门名
+    })).filter((item) => item.dept_name); // 剔除空部门名
 
     console.log(`✅ [OCR] 识别成功: ${cleaned.length} 个部门`, cleaned);
     res.json({ success: true, items: cleaned });
-  } catch (err: any) {
+  } catch (err) {
     console.error('❌ [OCR] 调用失败:', err.message);
     if (err.response) {
       console.error('   响应状态:', err.response.status);
