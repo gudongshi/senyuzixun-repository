@@ -7247,7 +7247,16 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
 
     console.log(`📷 [OCR] 接收文件: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB), MIME: ${mime}`);
 
-    const prompt = '你是一个表格识别助手。请提取图片中的打印费表格数据。提取每行的"部门名称"、"黑白印量"、"彩色印量"。仅返回合法的 JSON 数组，格式为：[{"dept_name": "部门A", "bw_pages": 100, "color_pages": 10}]。不要包含任何解释性文字。';
+    const prompt = `你是一个表格识别助手。请提取图片中的打印费表格数据。
+
+【强制规则】
+1. 零值必填：如果某列的数值是 0 或空白，必须在 JSON 中输出数字 0，禁止输出空字符串 ""、null 或省略该字段。
+2. 划痕过滤：表格中部分数字可能被手写笔画划掉。遇到划线数字请忽略，提取旁边或下方清晰的手写/印刷数字。
+3. 别名容忍：请原样提取第一列最左侧的部门名称（如"造价"、"市场"、"何朝辉"、"中心"），不要自行合并或纠错。
+
+【输出格式】
+仅返回合法的 JSON 数组，不要包含任何解释性文字：
+[{"dept_name": "部门名称", "bw_pages": 100, "color_pages": 10}]`;
 
     // 调用通义千问视觉模型
     console.log('⏳ [OCR] 正在调用 qwen3-vl-plus 视觉模型...');
