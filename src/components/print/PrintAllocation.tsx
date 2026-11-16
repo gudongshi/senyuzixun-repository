@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-fix-v9.4'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-fix-v9.5'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-fix-v9.4');
+  console.log('🚀 当前前端版本：20251116-fix-v9.5');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -715,7 +715,7 @@ export default function PrintAllocation() {
     return null;
   }
 
-  // ── AI 视觉识别上传（v9.4 强力清洗 + 模糊匹配）──
+  // ── AI 视觉识别上传（v9.5 严格列映射 + 精简 Toast）──
   const handleOcrUpload = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     const file = acceptedFiles[0];
@@ -738,81 +738,83 @@ export default function PrintAllocation() {
         return;
       }
 
-      // ── 第一步：强力清洗 + 别名映射 → 标准部门名，同名合并 ──
-      // v9.4: 数值兜底 Number() || 0
+      // ── 第一步：强力清洗 → 别名映射 → 同名合并（黑白只加黑白，彩色只加彩色）──
+      // v9.5: 严格字段隔离，防止跨字段污染
       const merged = new Map<string, { bw: number; color: number; aliases: string[] }>();
-      const cleanedItems: { raw: string; cleaned: string; std: string }[] = [];
+      const cleanedItems: { raw: string; cleaned: string; std: string; bw: number; color: number }[] = [];
 
       for (const item of rawItems) {
         const raw = (item.dept_name || '').trim();
         if (!raw) continue;
-        const cleaned = cleanDeptName(raw);            // "1 鉴定" → "鉴定"
-        const stdName = deptAliasMap[cleaned] || cleaned; // "造价" → "工程造价"
+        const cleaned = cleanDeptName(raw);               // "1 鉴定" → "鉴定"
+        const stdName = deptAliasMap[cleaned] || cleaned;  // "造价" → "工程造价"
         const bw = Number(item.bw_pages) || 0;
         const color = Number(item.color_pages) || 0;
 
-        cleanedItems.push({ raw, cleaned, std: stdName });
+        if (bw === 0 && color === 0) continue; // 跳过全零行（空行/总计行误识别）
+
+        cleanedItems.push({ raw, cleaned, std: stdName, bw, color });
 
         const entry = merged.get(stdName);
         if (entry) {
-          entry.bw += bw;
-          entry.color += color;
+          entry.bw += bw;          // v9.5: 严格只加 bw
+          entry.color += color;    // v9.5: 严格只加 color
           if (raw !== stdName) entry.aliases.push(raw);
         } else {
           merged.set(stdName, { bw, color, aliases: raw !== stdName ? [raw] : [] });
         }
       }
-      console.log('🧹 [OCR] 清洗后 (' + cleanedItems.length + ' 条):', cleanedItems);
-      console.log('🔗 [OCR] 别名映射后:', Array.from(merged.entries()).map(([k, v]) =>
-        `${k}（bw=${v.bw}, color=${v.color}${v.aliases.length ? ', 来自: ' + v.aliases.join(',') : ''}）`
-      ));
+      console.log('🧹 [OCR] 清洗后 (' + cleanedItems.length + ' 条):');
+      cleanedItems.forEach(ci => console.log(`   ${ci.raw} → ${ci.std} [bw=${ci.bw}, color=${ci.color}]`));
+      console.log('🔗 [OCR] 合并后 (' + merged.size + ' 项):',
+        Array.from(merged.entries()).map(([k, v]) =>
+          `${k}（bw=${v.bw}, color=${v.color}${v.aliases.length ? ' ← ' + v.aliases.join(',') : ''}）`
+        ));
 
       // ── 第二步：精确匹配 + 模糊匹配兜底 ──
       let filled = 0;
-      const log: string[] = [];
-      const rowNames = rows.map(r => r.dept_name); // 当前表格所有部门名
+      const matchedNames: string[] = [];
+      // 拷贝一份 merged keys，在 row map 中用 delete 消费，确保每个条目只匹配一次
+      const remaining = new Map(merged);
 
       setRows(prev => prev.map(r => {
-        // 先精确匹配
-        let entry = merged.get(r.dept_name);
-        if (entry) {
+        const rowName = r.dept_name;
+        // 精确匹配
+        if (remaining.has(rowName)) {
+          const entry = remaining.get(rowName)!;
           filled++;
-          log.push(`${r.dept_name} → bw=${entry.bw} / color=${entry.color} [精确]`);
-          merged.delete(r.dept_name);
+          matchedNames.push(`${rowName}[精确]`);
+          remaining.delete(rowName);
           return { ...r, bwPages: entry.bw, colorPages: entry.color };
         }
-        // 模糊匹配兜底：用 merged 中的每个 key 去 fuzzy 匹配当前行名
-        for (const [mk, mv] of merged.entries()) {
-          if (fuzzyMatchName(mk, [r.dept_name])) {
+        // 模糊匹配兜底
+        for (const [mk, mv] of remaining.entries()) {
+          if (fuzzyMatchName(mk, [rowName])) {
             filled++;
-            log.push(`${mk} → ${r.dept_name} → bw=${mv.bw} / color=${mv.color} [模糊]`);
-            merged.delete(mk);
+            matchedNames.push(`${mk}→${rowName}[模糊]`);
+            remaining.delete(mk);
             return { ...r, bwPages: mv.bw, colorPages: mv.color };
           }
         }
         return r;
       }));
-      console.log('✅ [OCR] 匹配结果:', log);
+      console.log('✅ [OCR] 成功匹配 ' + filled + ' 个:', matchedNames);
 
-      // ── 第三步：未匹配报告 ──
-      const unmatched = Array.from(merged.keys());
-      if (unmatched.length > 0) {
-        console.warn('⚠️ [OCR] 未匹配 ' + unmatched.length + ' 个部门:', unmatched.join('、'));
+      // ── 第三步：精简 Toast ──
+      const unmatchedCount = remaining.size;
+      if (unmatchedCount > 0) {
+        const names = Array.from(remaining.keys());
+        names.forEach(n => console.warn('  ⚠️ 未匹配部门:', n));
       }
 
       if (filled > 0) {
         showMessage('success',
-          '🤖 识别了 ' + rawItems.length + ' 个部门，其中 ' + filled + ' 个成功匹配' +
-          (unmatched.length > 0 ? '，' + unmatched.length + ' 个未能与系统匹配' : ''),
+          '🤖 成功填充 ' + filled + ' 个部门' +
+          (unmatchedCount > 0 ? '，' + unmatchedCount + ' 个未匹配' : ''),
           5000
         );
       } else {
-        console.warn('⚠️ [OCR] 所有识别结果均未匹配到系统部门');
-        showMessage('success',
-          '🤖 AI 识别了 ' + rawItems.length + ' 个部门，但全部未能与系统匹配' +
-          (unmatched.length > 0 ? '（' + unmatched.join('、') + '）' : ''),
-          5000
-        );
+        showMessage('success', '🤖 识别了 ' + cleanedItems.length + ' 个部门，但均未匹配到系统', 5000);
       }
     } catch (err) {
       showMessage('error', '上传失败: ' + ((err as Error)?.message || '网络错误'), 5000);
