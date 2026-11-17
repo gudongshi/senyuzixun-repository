@@ -2,11 +2,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-
-// v10.8: 显式引入本地 Worker，避免 CDN 跨版本不兼容
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // ══════════════════════════════════════════════════════════════
 // localStorage key
@@ -15,7 +10,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v10.9'; // 版本标识：PDF 文本层提取 + 后端文本/图片双模式
+const BUILD_VER  = 'v11.0'; // 版本标识：后端 pdf.js 解析 PDF + 前端纯上传
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -191,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v10.9');
+  console.log('🚀 当前前端版本：v11.0');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -864,59 +859,21 @@ export default function PrintAllocation() {
     }
   }, [rows]);
 
-  // ── v10.7: 发票金额 OCR — PDF 前端渲染为图片后发送 ──
+  // ── v11.0: 发票金额 OCR — 直接上传文件到后端解析 ──
   const handleInvoiceOcr = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     const file = acceptedFiles[0];
     setOcrInvoiceLoading(true);
     try {
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      let payload: Record<string, string>;
-
       if (isPdf) {
-        // ══════ v10.9: PDF → 文本层提取（不用 canvas）══════
         showMessage('success', '⏳ 正在解析 PDF 并提取金额...', 10000);
-        console.log('📄 [Invoice-OCR] 提取 PDF 文本层...');
-
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          const page = await pdf.getPage(1);
-          const textContent = await page.getTextContent();
-          const text = textContent.items.map((item: any) => item.str).join('');
-
-          if (text.length < 20) {
-            console.warn('⚠️ [Invoice-OCR] PDF 文本过短（<20字符），疑似纯图片扫描件');
-            setOcrInvoiceLoading(false);
-            showMessage('error', '⚠️ 检测到纯图片 PDF，请截图后上传', 8000);
-            return;
-          }
-          console.log('✅ [Invoice-OCR] PDF 文本提取成功 (', text.length, '字符)');
-          payload = { text };
-        } catch (pdfErr) {
-          console.error('❌ [Invoice-OCR] PDF 解析失败:', pdfErr);
-          setOcrInvoiceLoading(false);
-          showMessage('error', '⚠️ 当前浏览器解析此 PDF 失败，请您用截图工具截取发票画面，保存为 JPG 图片后上传，效果一样好！', 8000);
-          return;
-        }
-      } else {
-        // ══════ 图片：读为 data URL → 后端视觉模型识别 ══════
-        const imageBase64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        console.log('🖼️ [Invoice-OCR] 图片已读取 (', (imageBase64.length / 1024).toFixed(1), 'KB)');
-        payload = { image: imageBase64 };
       }
+      console.log(`🧾 [Invoice-OCR] 上传 ${isPdf ? 'PDF' : '图片'}: ${file.name} (${(file.size / 1024).toFixed(1)}KB)`);
 
-      // 统一发送（text 或 image，后端自动分流）
-      const res = await fetch('/api/print/ocr-invoice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/print/ocr-invoice', { method: 'POST', body: fd });
 
       const json = await res.json();
       if (json.success && typeof json.totalAmount === 'number') {

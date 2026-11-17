@@ -10,9 +10,6 @@ export default defineConfig({
     react(),
     // ⚠️ PWA 已关闭。恢复时在此处加回 VitePWA({...}) 配置
   ],
-  optimizeDeps: {
-    exclude: ['pdfjs-dist'], // v10.8: 修复 pdfjs Worker 在 Vite 中的加载崩溃
-  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
