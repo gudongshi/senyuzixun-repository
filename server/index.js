@@ -21,6 +21,7 @@ const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 const cron = require('node-cron');
+const sharp = require('sharp');
 
 // ============================================================
 // AI 表格配置（钉钉 AI 表格同步）
@@ -7369,7 +7370,7 @@ const invoiceUpload = multer({
   },
 });
 
-// POST /api/print/ocr-invoice — AI 发票金额识别
+// POST /api/print/ocr-invoice — AI 发票金额识别（v9.9 PDF 转图支持）
 app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -7379,11 +7380,26 @@ app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'),
       return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
     }
 
-    const mime = req.file.mimetype || 'image/jpeg';
-    const b64 = req.file.buffer.toString('base64');
-    const dataUri = `data:${mime};base64,${b64}`;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const isPdf = ext === '.pdf';
+    console.log(`🧾 [Invoice-OCR] 接收发票: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)${isPdf ? ' [PDF→JPEG]' : ''}`);
 
-    console.log(`🧾 [Invoice-OCR] 接收发票: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)`);
+    // v9.9: PDF 先用 sharp 转第一页为 JPEG，再发给视觉模型
+    let imageBuffer = req.file.buffer;
+    if (isPdf) {
+      try {
+        imageBuffer = await sharp(req.file.buffer, { page: 0, density: 150 })
+          .jpeg({ quality: 85 })
+          .toBuffer();
+        console.log(`🖼️  [Invoice-OCR] PDF 第1页已转为 JPEG (${(imageBuffer.length / 1024).toFixed(1)}KB)`);
+      } catch (pdfErr) {
+        console.error('❌ [Invoice-OCR] PDF 转图失败:', pdfErr.message);
+        return res.status(400).json({ success: false, error: 'PDF 转图失败，请确认文件为有效电子发票' });
+      }
+    }
+
+    const b64 = imageBuffer.toString('base64');
+    const dataUri = 'data:image/jpeg;base64,' + b64;
 
     const invoicePrompt = '请提取这张发票的【价税合计】或【总计金额】。仅返回纯数字（如 923.00），不要带任何符号、单位或解释文字。';
 

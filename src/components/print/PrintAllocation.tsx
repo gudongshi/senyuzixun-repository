@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-fix-v9.7'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = '20251116-fix-v9.9'; // 版本标识：改一次代码就改这个值
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-fix-v9.7');
+  console.log('🚀 当前前端版本：20251116-fix-v9.9');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -752,7 +752,7 @@ export default function PrintAllocation() {
         const bw = Number(item.bw_pages) || 0;
         const color = Number(item.color_pages) || 0;
 
-        if (bw === 0 && color === 0) continue;
+        // v9.8: 不再过滤零值行 — 零值也是有效数据，必须填入表格清零对应部门
 
         cleanedItems.push({ raw, cleaned, std: stdName, bw, color });
 
@@ -1141,8 +1141,8 @@ export default function PrintAllocation() {
             placeholder="¥ 0.00"
             className="w-36 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
           />
-          {/* v9.7: 发票拍照识别按钮 */}
-          <input ref={invoiceFileRef} type="file" accept="image/*,.pdf" onChange={handleInvoiceOcr} className="hidden" />
+          {/* v9.9: 发票拍照识别按钮（支持 PDF） */}
+          <input ref={invoiceFileRef} type="file" accept="image/jpeg,image/png,.pdf" onChange={handleInvoiceOcr} className="hidden" />
           <button
             onClick={() => invoiceFileRef.current?.click()}
             disabled={ocrInvoiceLoading}
