@@ -60,6 +60,8 @@ export function AuthGate({ children, loginError }: AuthGateProps) {
     const useDevMock = () => {
       if (!import.meta.env.DEV) return false;
       console.log('🔧 [DEV] 启用本地 Mock 用户，拥有高管权限');
+      // v11.6: 写入 mock token cookie，所有 API 请求自动携带
+      document.cookie = 'token=dev-mock-token;path=/;SameSite=Lax';
       setUser({
         userId: 'dev',
         name: '赵萃(本地测试)',

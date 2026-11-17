@@ -1026,6 +1026,23 @@ async function getUserNameByUserId(userId) {
 // ============================================================
 function authMiddleware(req, res, next) {
   const token = req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
+
+  // v11.7: DEV mock token — 双重防御（非生产环境 + 本地回环 IP）
+  if (token === 'dev-mock-token') {
+    const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+    if (process.env.NODE_ENV === 'production' || !isLocal) {
+      console.warn(`⚠️ [Auth] 拒绝 dev-mock-token: NODE_ENV=${process.env.NODE_ENV}, ip=${req.ip}`);
+      return res.status(401).json({ success: false, error: '非法调试凭证' });
+    }
+    console.log('🔧 [DEV] Mock token 鉴权通过 → 赵萃(本地测试)');
+    req.user = {
+      userId: 'dev',
+      name: '赵萃(本地测试)',
+      roles: { dashboard: true, manager: true },
+    };
+    return next();
+  }
+
   if (!token) {
     return res.status(401).json({ success: false, error: '未登录' });
   }
