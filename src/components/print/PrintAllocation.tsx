@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v11.2'; // 版本标识：修复首次加载全0 + Excel 下载空白
+const BUILD_VER  = 'v11.3'; // 版本标识：修复 Excel !ref 缺失 + 调试日志
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v11.2');
+  console.log('🚀 当前前端版本：v11.3');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -1163,14 +1163,26 @@ export default function PrintAllocation() {
       { wch: 6 }, { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 14 }
     ];
 
+    // ══════ v11.3: 显式设置 !ref 范围（手动cell方式必须设置，否则空白）══════
+    const lastRow = descRow2;
+    ws['!ref'] = `A1:G${lastRow + 1}`;
+    console.log('📊 [Excel] !ref 范围:', ws['!ref'], '| 总行数:', lastRow + 1, '| 数据行:', N);
+
+    // Debug: 打印关键 cell 确认有数据
+    const sample = [0, 1, 2, 3].map(r => {
+      const ref = XLSX.utils.encode_cell({ r, c: 0 });
+      return `${ref}=${JSON.stringify(ws[ref]?.v)}`;
+    }).join(', ');
+    console.log('📊 [Excel] 前4行A列数据:', sample);
+
     XLSX.utils.book_append_sheet(wb, ws, '打印费分摊');
-    // v11.2: 改用底层 write + Blob 下载，兼容性最好
+    // v11.3: 最保守 Blob 下载
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `打印费分摊_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.download = `森宇打印费_${billingMonth}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
