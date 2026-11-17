@@ -7356,7 +7356,7 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
 });
 
 // ══════════════════════════════════════════════════════════════
-// 发票金额识别（v10.7 前端渲染PDF为图片，后端只接图片）
+// 发票金额识别（v10.9 前端PDF文本提取 / 图片视觉模型 双模式）
 // ══════════════════════════════════════════════════════════════
 
 /**
@@ -7410,28 +7410,70 @@ async function extractInvoiceAmountFromImage(base64Data, mimeType) {
   return parseFloat(numMatch[1]);
 }
 
-// POST /api/print/ocr-invoice — AI 发票金额识别（v10.7 只接图片）
+// POST /api/print/ocr-invoice — AI 发票金额识别（v10.9 文本/图片双模式）
 app.post('/api/print/ocr-invoice', authMiddleware, async (req, res) => {
   try {
-    const { image } = req.body; // data:image/jpeg;base64,...
-    if (!image || typeof image !== 'string') {
-      return res.status(400).json({ success: false, error: '请上传发票照片' });
+    const { text, image } = req.body;
+
+    // ══════ 模式 1：文本提取（PDF 文字层）══════
+    if (text && typeof text === 'string') {
+      console.log(`🧾 [Invoice-OCR] 文本模式 (${text.length} 字符)`);
+
+      // 正则匹配"价税合计"金额
+      const amountMatch = text.match(/价税合计[（(]?小写[）)]?[：:]?\s*[¥￥]?\s*([\d,]+\.?\d*)/);
+      const fallbackMatch = !amountMatch ? text.match(/价税合计[：:]?\s*[¥￥]?\s*([\d,]+\.?\d*)/) : null;
+
+      let totalAmount;
+      if (amountMatch && amountMatch[1]) {
+        totalAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
+        console.log('✅ [Invoice-OCR] 正则匹配(主):', amountMatch[1], '→', totalAmount);
+      } else if (fallbackMatch && fallbackMatch[1]) {
+        totalAmount = parseFloat(fallbackMatch[1].replace(/,/g, ''));
+        console.log('✅ [Invoice-OCR] 正则匹配(兜底):', fallbackMatch[1], '→', totalAmount);
+      } else {
+        // 正则失败 → LLM 文本兜底
+        console.warn('⚠️ [Invoice-OCR] 正则未匹配，启用 LLM 文本兜底...');
+        if (!DASHSCOPE_API_KEY) {
+          return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
+        }
+        try {
+          const llmResult = await callAIText(
+            '请从以下文本中提取发票的价税合计金额，仅返回数字。文本：' + text.slice(0, 2000)
+          );
+          console.log('🤖 [Invoice-OCR] LLM 兜底响应:', llmResult);
+          const numMatch = llmResult.match(/(\d+\.?\d*)/);
+          if (!numMatch) {
+            return res.status(400).json({ success: false, error: '未找到价税合计金额，请确认PDF为有效电子发票' });
+          }
+          totalAmount = parseFloat(numMatch[1]);
+          console.log('✅ [Invoice-OCR] LLM 兜底成功:', numMatch[1], '→', totalAmount);
+        } catch (llmErr) {
+          console.error('❌ [Invoice-OCR] LLM 兜底也失败了:', llmErr.message);
+          return res.status(400).json({ success: false, error: '未找到价税合计金额，请确认PDF为有效电子发票' });
+        }
+      }
+
+      console.log('✅ [Invoice-OCR] 最终金额:', totalAmount);
+      return res.json({ success: true, totalAmount });
     }
-    if (!DASHSCOPE_API_KEY) {
-      return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
+
+    // ══════ 模式 2：图片（JPG/PNG visual model）══════
+    if (image && typeof image === 'string') {
+      if (!DASHSCOPE_API_KEY) {
+        return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
+      }
+      console.log(`🧾 [Invoice-OCR] 图片模式 (${(image.length / 1024).toFixed(1)}KB base64)`);
+
+      const matches = image.match(/^data:([^;]+);base64,(.+)$/);
+      const mime = matches ? matches[1] : 'image/jpeg';
+      const b64  = matches ? matches[2] : image;
+
+      const totalAmount = await extractInvoiceAmountFromImage(b64, mime);
+      console.log('✅ [Invoice-OCR] 识别金额:', totalAmount);
+      return res.json({ success: true, totalAmount });
     }
 
-    console.log(`🧾 [Invoice-OCR] 接收图片 (${(image.length / 1024).toFixed(1)}KB base64)`);
-
-    // 解析 data URL → mimeType + 纯 base64
-    const matches = image.match(/^data:([^;]+);base64,(.+)$/);
-    const mime = matches ? matches[1] : 'image/jpeg';
-    const b64  = matches ? matches[2] : image;
-
-    const totalAmount = await extractInvoiceAmountFromImage(b64, mime);
-
-    console.log('✅ [Invoice-OCR] 识别金额:', totalAmount);
-    res.json({ success: true, totalAmount });
+    return res.status(400).json({ success: false, error: '请上传发票照片或 PDF 文件' });
   } catch (err) {
     console.error('❌ [Invoice-OCR] 调用失败:', err.message);
     if (err.response) {
