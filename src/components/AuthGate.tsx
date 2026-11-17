@@ -53,20 +53,22 @@ export function AuthGate({ children, loginError }: AuthGateProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 本地开发环境跳过钉钉登录（mock 用户）
-    if (import.meta.env.DEV) {
-      console.log('🔧 开发模式：使用 mock 用户（双角色）');
+    let cancelled = false;
+
+    // v11.4: 本地开发环境 — 先尝试真实登录，失败则注入 Mock 用户
+    // import.meta.env.DEV 在 npm run build 时为 false，整块代码被 tree-shake 剔除
+    const useDevMock = () => {
+      if (!import.meta.env.DEV) return false;
+      console.log('🔧 [DEV] 启用本地 Mock 用户，拥有高管权限');
       setUser({
         userId: 'dev',
-        name: '本地开发',
+        name: '赵萃(本地测试)',
         loginTime: Date.now(),
         roles: { dashboard: true, manager: true },
       });
       setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
+      return true;
+    };
 
     fetch('/api/dingtalk/me')
       .then((r) => r.json())
@@ -80,12 +82,15 @@ export function AuthGate({ children, loginError }: AuthGateProps) {
             loginTime: u.loginTime,
             roles: u.roles || { dashboard: false, manager: false },
           });
-        } else {
+        } else if (!useDevMock()) {
           setError(data.error || '未登录');
         }
       })
       .catch(() => {
-        if (!cancelled) setError('网络错误，请检查网络连接');
+        if (cancelled) return;
+        if (!useDevMock()) {
+          setError('网络错误，请检查网络连接');
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

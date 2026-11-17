@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v11.3'; // 版本标识：修复 Excel !ref 缺失 + 调试日志
+const BUILD_VER  = 'v11.4'; // 版本标识：DEV Mock 用户 + 钉钉登录排查
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v11.3');
+  console.log('🚀 当前前端版本：v11.4');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
