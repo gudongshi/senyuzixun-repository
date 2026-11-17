@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw, Upload } from 'lucide-react';
+import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
 
@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = '20251116-fix-v9.9'; // 版本标识：改一次代码就改这个值
+const BUILD_VER  = 'v10.1'; // 版本标识：原生 PDF 发票识别 + 双入口 UI
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：20251116-fix-v9.9');
+  console.log('🚀 当前前端版本：v10.1');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -205,7 +205,6 @@ export default function PrintAllocation() {
   const [deleting, setDeleting]           = useState(false);
   const [ocrLoading, setOcrLoading]       = useState(false); // v9.0: AI 账单识别 loading
   const [ocrInvoiceLoading, setOcrInvoiceLoading] = useState(false); // v9.7: AI 发票识别 loading
-  const invoiceFileRef = useRef<HTMLInputElement>(null);
   const [message, setMessage]             = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 防草稿误删：记录本次会话是否已有过非空 rows
@@ -853,10 +852,10 @@ export default function PrintAllocation() {
     }
   }, [rows]);
 
-  // ── v9.7: 发票金额 OCR 上传 ──
-  const handleInvoiceOcr = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ── v10.1: 发票金额 OCR 上传（dropzone 模式）──
+  const handleInvoiceOcr = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+    const file = acceptedFiles[0];
     setOcrInvoiceLoading(true);
     try {
       const fd = new FormData();
@@ -873,18 +872,25 @@ export default function PrintAllocation() {
       showMessage('error', '上传失败: ' + ((err as Error)?.message || '网络错误'), 5000);
     } finally {
       setOcrInvoiceLoading(false);
-      // 清空 input 以便重复上传同一文件
-      if (invoiceFileRef.current) invoiceFileRef.current.value = '';
     }
   }, []);
 
-  // react-dropzone 配置
+  // react-dropzone 配置（v10.1: 双入口）
+  // 左：打印账单 OCR（识别表格 → 填入印量）
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     multiple: false,
     accept: { 'image/*': ['.jpg', '.jpeg', '.png'], 'application/pdf': ['.pdf'] },
     maxSize: 5 * 1024 * 1024,
     onDrop: handleOcrUpload,
     disabled: ocrLoading,
+  });
+  // 右：发票 OCR（识别金额 → 填入总额）
+  const { getRootProps: getInvoiceRootProps, getInputProps: getInvoiceInputProps, isDragActive: isInvoiceDragActive } = useDropzone({
+    multiple: false,
+    accept: { 'image/*': ['.jpg', '.jpeg', '.png'], 'application/pdf': ['.pdf'] },
+    maxSize: 5 * 1024 * 1024,
+    onDrop: handleInvoiceOcr,
+    disabled: ocrInvoiceLoading,
   });
 
   // ── 保存本期账单 ──
@@ -893,21 +899,28 @@ export default function PrintAllocation() {
     if (rows.length === 0) return showMessage('error', '无部门数据');
     setSaving(true);
     try {
+      // v10.1: 强制清洗 — 确保 bwPages/colorPages 为有效数字，防止脏数据持久化
+      const sanitizedRows = rows.map(r => ({
+        ...r,
+        bwPages: Number(r.bwPages) || 0,
+        colorPages: Number(r.colorPages) || 0
+      }));
+      const sanitized = calculateAllocation(sanitizedRows, invoiceVal);
       const res = await fetch('/api/print/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           billing_month: billingMonth,
           invoice_total: invoiceVal,
-          total_bw_pages: summary.totalBw,
-          total_color_pages: summary.totalColor,
-          total_pages: summary.totalPages,
-          bw_total_fee: summary.bwTotalFee,
-          color_fee: summary.colorTotalFee,
-          secret_fee: summary.secretFee,
-          theoretical_total: summary.theoreticalTotal,
-          difference: summary.difference,
-          items: results.map(r => ({
+          total_bw_pages: sanitized.summary.totalBw,
+          total_color_pages: sanitized.summary.totalColor,
+          total_pages: sanitized.summary.totalPages,
+          bw_total_fee: sanitized.summary.bwTotalFee,
+          color_fee: sanitized.summary.colorTotalFee,
+          secret_fee: sanitized.summary.secretFee,
+          theoretical_total: sanitized.summary.theoreticalTotal,
+          difference: sanitized.summary.difference,
+          items: sanitized.results.map(r => ({
             dept_name: r.dept_name,
             bw_pages: r.bwPages,
             color_pages: r.colorPages,
@@ -942,6 +955,13 @@ export default function PrintAllocation() {
     if (rows.length === 0) return showMessage('error', '无部门数据可保存');
     setDrafting(true);
     try {
+      // v10.1: 强制清洗
+      const sanitizedRows = rows.map(r => ({
+        ...r,
+        bwPages: Number(r.bwPages) || 0,
+        colorPages: Number(r.colorPages) || 0
+      }));
+      const sanitized = calculateAllocation(sanitizedRows, invoiceVal);
       const res = await fetch('/api/print/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -949,15 +969,15 @@ export default function PrintAllocation() {
           status: 'draft',
           billing_month: billingMonth,
           invoice_total: invoiceVal,
-          total_bw_pages: summary.totalBw,
-          total_color_pages: summary.totalColor,
-          total_pages: summary.totalPages,
-          bw_total_fee: summary.bwTotalFee,
-          color_fee: summary.colorTotalFee,
-          secret_fee: summary.secretFee,
-          theoretical_total: summary.theoreticalTotal,
-          difference: summary.difference,
-          items: results.map(r => ({
+          total_bw_pages: sanitized.summary.totalBw,
+          total_color_pages: sanitized.summary.totalColor,
+          total_pages: sanitized.summary.totalPages,
+          bw_total_fee: sanitized.summary.bwTotalFee,
+          color_fee: sanitized.summary.colorTotalFee,
+          secret_fee: sanitized.summary.secretFee,
+          theoretical_total: sanitized.summary.theoreticalTotal,
+          difference: sanitized.summary.difference,
+          items: sanitized.results.map(r => ({
             dept_name: r.dept_name, bw_pages: r.bwPages, color_pages: r.colorPages,
             total_pages: r.totalPages, bw_fee_share: r.bwFeeShare, color_fee: r.colorFee,
             secret_fee_share: r.secretFeeShare, difference_share: r.differenceShare,
@@ -1035,9 +1055,18 @@ export default function PrintAllocation() {
     if (rows.length === 0) return showMessage('error', '无数据可导出');
     if (invoiceVal <= 0) return showMessage('error', '请先输入本次发票总额');
 
-    const bwInRange = Math.min(summary.totalBw, 10000);
-    const bwExcess   = Math.max(summary.totalBw - 10000, 0);
-    const excessAndColorFee = round2(bwExcess * 0.07 + summary.colorTotalFee);
+    // v10.1: 强制清洗 — 确保 bwPages/colorPages 为有效数字
+    const sanitizedRows = rows.map(r => ({
+      ...r,
+      bwPages: Number(r.bwPages) || 0,
+      colorPages: Number(r.colorPages) || 0
+    }));
+    const sanitized = calculateAllocation(sanitizedRows, invoiceVal);
+    const { results: sanitizedResults, summary: sanitizedSummary } = sanitized;
+
+    const bwInRange = Math.min(sanitizedSummary.totalBw, 10000);
+    const bwExcess   = Math.max(sanitizedSummary.totalBw - 10000, 0);
+    const excessAndColorFee = round2(bwExcess * 0.07 + sanitizedSummary.colorTotalFee);
     const baseFee900 = round2((bwInRange > 0 ? 800 : 0) + 100); // 黑白基础 + 机密
 
     // ── 数据区 ──
@@ -1045,7 +1074,7 @@ export default function PrintAllocation() {
       ['序号', '部门', '印量/张', '彩/张', '费用（元）', '机器所在地', '机器编号'],
     ];
 
-    results.forEach((r, i) => {
+    sanitizedResults.forEach((r, i) => {
       sheetData.push([
         i + 1,
         r.dept_name,
@@ -1063,7 +1092,7 @@ export default function PrintAllocation() {
     const desc1 = '说明：Public为打印的公共账号,管理时偶尔使用，1为初始时设置的账号，现已不用。';
     sheetData.push([desc1]);
 
-    const desc2 = `说明2：实际费用¥${summary.invoiceTotal}，（实际印量${summary.totalPages}张，超出${summary.totalBw - 10000 > 0 ? summary.totalBw - 10000 : 0}张，基础费用¥${baseFee900}（含机密打印100元），超出及彩色部分¥${excessAndColorFee}。黑白1万张以内0.08元/页，超出0.07元/页。彩色0.7元/页。）`;
+    const desc2 = `说明2：实际费用¥${sanitizedSummary.invoiceTotal}，（实际印量${sanitizedSummary.totalPages}张，超出${sanitizedSummary.totalBw - 10000 > 0 ? sanitizedSummary.totalBw - 10000 : 0}张，基础费用¥${baseFee900}（含机密打印100元），超出及彩色部分¥${excessAndColorFee}。黑白1万张以内0.08元/页，超出0.07元/页。彩色0.7元/页。）`;
     sheetData.push([desc2]);
 
     // ── 创建工作簿 ──
@@ -1084,7 +1113,7 @@ export default function PrintAllocation() {
     XLSX.utils.book_append_sheet(wb, ws, '打印费分摊');
     XLSX.writeFile(wb, `打印费分摊_${new Date().toISOString().slice(0, 10)}.xlsx`);
     showMessage('success', '✅ Excel 已导出');
-  }, [rows, results, summary, invoiceVal]);
+  }, [rows, invoiceVal]);
 
   // ══════════════════════════════════════════════════════════
   // 渲染
@@ -1141,16 +1170,6 @@ export default function PrintAllocation() {
             placeholder="¥ 0.00"
             className="w-36 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
           />
-          {/* v9.9: 发票拍照识别按钮（支持 PDF） */}
-          <input ref={invoiceFileRef} type="file" accept="image/jpeg,image/png,.pdf" onChange={handleInvoiceOcr} className="hidden" />
-          <button
-            onClick={() => invoiceFileRef.current?.click()}
-            disabled={ocrInvoiceLoading}
-            className="flex-shrink-0 size-8 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center disabled:opacity-50"
-            title="拍照/上传识别发票金额"
-          >
-            {ocrInvoiceLoading ? <Loader2 className="size-3.5 animate-spin" /> : <span className="text-sm">📷</span>}
-          </button>
         </div>
 
         <button
@@ -1202,11 +1221,12 @@ export default function PrintAllocation() {
         </button>
       </div>
 
-      {/* ── AI 视觉识别上传（v9.0）── */}
-      <div className="mb-5">
+      {/* ── v10.1: 双入口 AI 上传区 ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+        {/* 左：上传打印账单 → OCR 识别表格，填入印量 */}
         <div
           {...getRootProps()}
-          className={`border-2 border-dashed rounded-xl px-6 py-8 text-center cursor-pointer transition-colors ${
+          className={`border-2 border-dashed rounded-xl px-6 py-7 text-center cursor-pointer transition-colors ${
             isDragActive
               ? 'border-blue-400 bg-blue-50/50'
               : 'border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-50'
@@ -1216,13 +1236,39 @@ export default function PrintAllocation() {
           {ocrLoading ? (
             <div className="flex items-center justify-center gap-2 text-slate-500">
               <Loader2 className="size-5 animate-spin" />
-              <span className="text-sm">🤖 AI 正在深度识别表格，请稍候...</span>
+              <span className="text-sm">🤖 AI 正在深度识别表格...</span>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-1">
-              <Upload className="size-6 text-slate-400" />
-              <span className="text-sm text-slate-500">点击或拖拽上传账单照片/PDF</span>
-              <span className="text-xs text-slate-400">支持 JPG / PNG / PDF，最大 5MB</span>
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-2xl">📄</span>
+              <span className="text-sm font-semibold text-slate-700">上传打印账单</span>
+              <span className="text-xs text-slate-400">AI 识别表格，自动填入部门印量</span>
+              <span className="text-xs text-slate-400">JPG / PNG / PDF，最大 5MB</span>
+            </div>
+          )}
+        </div>
+
+        {/* 右：上传发票 → OCR 识别金额，填入总额 */}
+        <div
+          {...getInvoiceRootProps()}
+          className={`border-2 border-dashed rounded-xl px-6 py-7 text-center cursor-pointer transition-colors ${
+            isInvoiceDragActive
+              ? 'border-emerald-400 bg-emerald-50/50'
+              : 'border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-50'
+          } ${ocrInvoiceLoading ? 'cursor-wait opacity-80' : ''}`}
+        >
+          <input {...getInvoiceInputProps()} />
+          {ocrInvoiceLoading ? (
+            <div className="flex items-center justify-center gap-2 text-slate-500">
+              <Loader2 className="size-5 animate-spin" />
+              <span className="text-sm">🤖 AI 正在识别发票金额...</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-2xl">🧾</span>
+              <span className="text-sm font-semibold text-slate-700">上传发票提取金额</span>
+              <span className="text-xs text-slate-400">AI 识别发票，自动填入总额</span>
+              <span className="text-xs text-slate-400">JPG / PNG / PDF，最大 5MB</span>
             </div>
           )}
         </div>
