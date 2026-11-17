@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 
 // ══════════════════════════════════════════════════════════════
 // localStorage key
@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v11.0'; // 版本标识：后端 pdf.js 解析 PDF + 前端纯上传
+const BUILD_VER  = 'v11.1'; // 版本标识：Excel 财务标准格式导出（标题/总计/合并/边框）
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v11.0');
+  console.log('🚀 当前前端版本：v11.1');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -1064,70 +1064,110 @@ export default function PrintAllocation() {
     }
   }
 
-  // ── 导出 Excel ──
+  // ── 导出 Excel（v11.1 财务标准格式）──
   const exportExcel = useCallback(() => {
     if (rows.length === 0) return showMessage('error', '无数据可导出');
     if (invoiceVal <= 0) return showMessage('error', '请先输入本次发票总额');
 
-    // v10.1: 强制清洗 — 确保 bwPages/colorPages 为有效数字
+    // 强制清洗
     const sanitizedRows = rows.map(r => ({
       ...r,
       bwPages: Number(r.bwPages) || 0,
       colorPages: Number(r.colorPages) || 0
     }));
     const sanitized = calculateAllocation(sanitizedRows, invoiceVal);
-    const { results: sanitizedResults, summary: sanitizedSummary } = sanitized;
+    const { results, summary } = sanitized;
 
-    const bwInRange = Math.min(sanitizedSummary.totalBw, 10000);
-    const bwExcess   = Math.max(sanitizedSummary.totalBw - 10000, 0);
-    const excessAndColorFee = round2(bwExcess * 0.07 + sanitizedSummary.colorTotalFee);
-    const baseFee900 = round2((bwInRange > 0 ? 800 : 0) + 100); // 黑白基础 + 机密
+    const bwInRange = Math.min(summary.totalBw, 10000);
+    const bwExcess   = Math.max(summary.totalBw - 10000, 0);
+    const excessAndColorFee = round2(bwExcess * 0.07 + summary.colorTotalFee);
+    const baseFee900 = round2((bwInRange > 0 ? 800 : 0) + 100);
+    const monthLabel = billingMonth.replace(/^(\d{4})-(\d{2})$/, '$1年$2月');
+    const N = results.length;
 
-    // ── 数据区 ──
-    const sheetData: any[][] = [
-      ['序号', '部门', '印量/张', '彩/张', '费用（元）', '机器所在地', '机器编号'],
+    // ══════ 构建 sheet（手动 cell 方式，支持样式）══════
+    const wb = XLSX.utils.book_new();
+    const ws: any = {};
+
+    // 通用样式
+    const border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} };
+    const center = { horizontal:'center', vertical:'center' };
+    const left   = { horizontal:'left',   vertical:'center', wrapText: true };
+    const titleFont = { bold: true, sz: 14, name: '宋体' };
+    const boldFont   = { bold: true, sz: 11, name: '宋体' };
+    const normFont   = { sz: 11, name: '宋体' };
+
+    function setCell(row: number, col: number, v: any, s?: any) {
+      const ref = XLSX.utils.encode_cell({ r: row, c: col });
+      ws[ref] = { t: typeof v === 'number' ? 'n' : 's', v, s };
+    }
+
+    // ── 第1行：大标题（合并 A1:G1）──
+    setCell(0, 0, '森宇公司各部门公用复印机使用明细', { font: titleFont, alignment: center, border });
+    for (let c = 1; c < 7; c++) setCell(0, c, '', { border });
+
+    // ── 第2行：账期月份（合并 A2:G2）──
+    setCell(1, 0, monthLabel, { font: { bold: true, sz: 11, name: '宋体' }, alignment: center, border });
+    for (let c = 1; c < 7; c++) setCell(1, c, '', { border });
+
+    // ── 第3行：表头 ──
+    const headers = ['序号', '部门', '印量/张', '彩/张', '费用（元）', '机器所在地', '机器编号'];
+    headers.forEach((h, c) => setCell(2, c, h, { font: boldFont, alignment: center, border, fill: { fgColor: { rgb: 'D9E1F2' } } }));
+
+    // ── 数据行（从第4行开始）──
+    let totalBw = 0, totalColor = 0;
+    for (let i = 0; i < N; i++) {
+      const r = results[i];
+      totalBw += r.bwPages;
+      totalColor += r.colorPages;
+      const row = 3 + i;
+      const rowData = [i + 1, r.dept_name, r.bwPages, r.colorPages, r.actualFee, r.machine_location || '', r.machine_number || ''];
+      rowData.forEach((v, c) => setCell(row, c, v, { font: normFont, alignment: c === 0 || c >= 3 ? center : left, border }));
+    }
+
+    // ── 总计行 ──
+    const totalRow = 3 + N;
+    setCell(totalRow, 0, '', { border });
+    setCell(totalRow, 1, '总  计', { font: boldFont, alignment: center, border });
+    setCell(totalRow, 2, totalBw, { font: boldFont, alignment: center, border });
+    setCell(totalRow, 3, totalColor, { font: boldFont, alignment: center, border });
+    setCell(totalRow, 4, summary.invoiceTotal, { font: boldFont, alignment: center, border });
+    setCell(totalRow, 5, '', { border });
+    setCell(totalRow, 6, '', { border });
+
+    // ── 空行 ──
+    const blankRow = totalRow + 1;
+    for (let c = 0; c < 7; c++) setCell(blankRow, c, '', { border });
+
+    // ── 说明1（合并 A:G）──
+    const descRow1 = blankRow + 1;
+    const desc1 = '说明：Public为打印的公共账号,管理时偶尔使用，1为初始时设置的账号，现已不用。';
+    setCell(descRow1, 0, desc1, { font: normFont, alignment: left, border });
+    for (let c = 1; c < 7; c++) setCell(descRow1, c, '', { border });
+
+    // ── 说明2（合并 A:G）──
+    const descRow2 = descRow1 + 1;
+    const desc2 = `说明2：实际费用¥${summary.invoiceTotal}，（实际印量${summary.totalPages}张，超出${summary.totalBw - 10000 > 0 ? summary.totalBw - 10000 : 0}张，基础费用¥${baseFee900}（含机密打印100元），超出及彩色部分¥${excessAndColorFee}。黑白1万张以内0.08元/页，超出0.07元/页。彩色0.7元/页。）`;
+    setCell(descRow2, 0, desc2, { font: normFont, alignment: left, border });
+    for (let c = 1; c < 7; c++) setCell(descRow2, c, '', { border });
+
+    // ══════ 合并单元格 ══════
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },                // 第1行标题合并 A1:G1
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },                // 第2行月份合并 A2:G2
+      { s: { r: descRow1, c: 0 }, e: { r: descRow1, c: 6 } },   // 说明1合并
+      { s: { r: descRow2, c: 0 }, e: { r: descRow2, c: 6 } },   // 说明2合并
     ];
 
-    sanitizedResults.forEach((r, i) => {
-      sheetData.push([
-        i + 1,
-        r.dept_name,
-        r.bwPages,
-        r.colorPages,
-        r.actualFee,
-        r.machine_location || '',
-        r.machine_number || '',
-      ]);
-    });
-
-    // 空行
-    sheetData.push([]);
-    // 说明行
-    const desc1 = '说明：Public为打印的公共账号,管理时偶尔使用，1为初始时设置的账号，现已不用。';
-    sheetData.push([desc1]);
-
-    const desc2 = `说明2：实际费用¥${sanitizedSummary.invoiceTotal}，（实际印量${sanitizedSummary.totalPages}张，超出${sanitizedSummary.totalBw - 10000 > 0 ? sanitizedSummary.totalBw - 10000 : 0}张，基础费用¥${baseFee900}（含机密打印100元），超出及彩色部分¥${excessAndColorFee}。黑白1万张以内0.08元/页，超出0.07元/页。彩色0.7元/页。）`;
-    sheetData.push([desc2]);
-
-    // ── 创建工作簿 ──
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-    // 设置列宽
+    // ══════ 列宽 ══════
     ws['!cols'] = [
-      { wch: 6 },   // 序号
-      { wch: 16 },  // 部门
-      { wch: 10 },  // 印量
-      { wch: 8 },   // 彩
-      { wch: 12 },  // 费用
-      { wch: 16 },  // 机器所在地
-      { wch: 14 },  // 机器编号
+      { wch: 6 }, { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 14 }
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, '打印费分摊');
     XLSX.writeFile(wb, `打印费分摊_${new Date().toISOString().slice(0, 10)}.xlsx`);
     showMessage('success', '✅ Excel 已导出');
-  }, [rows, invoiceVal]);
+  }, [rows, invoiceVal, billingMonth]);
 
   // ══════════════════════════════════════════════════════════
   // 渲染
