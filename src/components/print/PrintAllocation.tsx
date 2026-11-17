@@ -3,9 +3,10 @@ import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Down
 import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// pdf.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+// v10.8: 显式引入本地 Worker，避免 CDN 跨版本不兼容
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // ══════════════════════════════════════════════════════════════
 // localStorage key
@@ -14,7 +15,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v10.7'; // 版本标识：前端 PDF 渲染为图片 + 后端纯图片接口
+const BUILD_VER  = 'v10.8'; // 版本标识：修复 pdfjs Vite Worker 崩溃 + 渲染兜底提示
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -190,7 +191,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v10.7');
+  console.log('🚀 当前前端版本：v10.8');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -878,19 +879,26 @@ export default function PrintAllocation() {
         showMessage('success', '⏳ 正在解析 PDF 并提取金额...', 10000);
         console.log('📄 [Invoice-OCR] 前端渲染 PDF 第1页...');
 
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 1.5 });
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 1.5 });
 
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d')!;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d')!;
+          await page.render({ canvasContext: ctx, viewport }).promise;
 
-        imageBase64 = canvas.toDataURL('image/jpeg', 0.85);
-        console.log('✅ [Invoice-OCR] PDF 已渲染为 JPEG (', (imageBase64.length / 1024).toFixed(1), 'KB)');
+          imageBase64 = canvas.toDataURL('image/jpeg', 0.85);
+          console.log('✅ [Invoice-OCR] PDF 已渲染为 JPEG (', (imageBase64.length / 1024).toFixed(1), 'KB)');
+        } catch (pdfErr) {
+          console.error('❌ [Invoice-OCR] PDF 前端渲染失败:', pdfErr);
+          setOcrInvoiceLoading(false);
+          showMessage('error', '⚠️ 当前浏览器解析此 PDF 失败，请您用截图工具截取发票画面，保存为 JPG 图片后上传，效果一样好！', 8000);
+          return;
+        }
       } else {
         // ── 图片：直接读为 data URL ──
         imageBase64 = await new Promise<string>((resolve, reject) => {
