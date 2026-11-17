@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v11.1'; // 版本标识：Excel 财务标准格式导出（标题/总计/合并/边框）
+const BUILD_VER  = 'v11.2'; // 版本标识：修复首次加载全0 + Excel 下载空白
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v11.1');
+  console.log('🚀 当前前端版本：v11.2');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -235,9 +235,9 @@ export default function PrintAllocation() {
   useEffect(() => {
     if (!billingMonth) return;
 
-    // 首次挂载交给 loadDepartments 处理，本 effect 只负责后续手动切换
+    // v11.2 fix: 首次挂载交给 loadDepartments 处理，本 effect 只负责后续手动切换
+    // initialMountRef 只在 loadDepartments 完成后才置 false，避免竞态覆盖真实数据
     if (initialMountRef.current) {
-      initialMountRef.current = false;
       return;
     }
 
@@ -552,10 +552,9 @@ export default function PrintAllocation() {
       if (draft?.billingMonth) setBillingMonth(draft.billingMonth);
 
       // ── 5. 标记初始化完成 ──
-      // 关键：只有到这里才允许 AutoSave，此时 rows 已经是正确数据
+      // 关键：只有到这里才允许 AutoSave 和月份切换，此时 rows 已经是正确数据
       setLoaded(true);
-
-      // ── 6. 通知用户 ──
+      initialMountRef.current = false; // v11.2: 在此之后才允许月份切换 effect 运行
       if (draftRows.length > 0) {
         const hasData = draftRows.some((r: any) => (r.bwPages || 0) > 0 || (r.colorPages || 0) > 0);
         if (hasData || draft?.invoiceTotal) {
@@ -1165,7 +1164,17 @@ export default function PrintAllocation() {
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, '打印费分摊');
-    XLSX.writeFile(wb, `打印费分摊_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    // v11.2: 改用底层 write + Blob 下载，兼容性最好
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `打印费分摊_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
     showMessage('success', '✅ Excel 已导出');
   }, [rows, invoiceVal, billingMonth]);
 
