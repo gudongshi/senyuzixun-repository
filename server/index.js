@@ -1027,11 +1027,14 @@ async function getUserNameByUserId(userId) {
 function authMiddleware(req, res, next) {
   const token = req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
 
-  // v11.7: DEV mock token — 双重防御（非生产环境 + 本地回环 IP）
+  // v11.8: DEV mock token — 双重防御（非生产 + 本地 IP, includes 匹配）
   if (token === 'dev-mock-token') {
-    const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+    const clientIp = req.ip || req.socket?.remoteAddress || '';
+    console.log('🔍 [Mock Auth] 收到请求，来源 IP:', req.ip, '| socket IP:', req.socket?.remoteAddress, '| Cookie:', req.headers.cookie);
+    // 使用 includes 匹配，兼容 ::ffff:127.0.0.1、::1 等 IPv4-mapped-IPv6 格式
+    const isLocal = clientIp.includes('127.0.0.1') || clientIp.includes('::1');
     if (process.env.NODE_ENV === 'production' || !isLocal) {
-      console.warn(`⚠️ [Auth] 拒绝 dev-mock-token: NODE_ENV=${process.env.NODE_ENV}, ip=${req.ip}`);
+      console.warn(`⚠️ [Auth] 拒绝 dev-mock-token: NODE_ENV=${process.env.NODE_ENV}, clientIp=${clientIp}`);
       return res.status(401).json({ success: false, error: '非法调试凭证' });
     }
     console.log('🔧 [DEV] Mock token 鉴权通过 → 赵萃(本地测试)');
