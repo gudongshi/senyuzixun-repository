@@ -7370,12 +7370,12 @@ async function extractInvoiceAmount(base64Data, mimeType) {
   const dataUri = `data:${mimeType};base64,${base64Data}`;
   const prompt = '提取这张发票的价税合计金额，仅返回纯数字。';
 
-  console.log('⏳ [extractInvoiceAmount] 调用 qwen-vl-max（原生识别）...');
+  console.log('⏳ [extractInvoiceAmount] 调用 qwen3-vl-plus（与账单识别同模型）...');
 
   const response = await retryRequest(() => axios.post(
     DASHSCOPE_VISION_URL,
     {
-      model: 'qwen-vl-max',
+      model: 'qwen3-vl-plus',
       input: {
         messages: [{
           role: 'user',
@@ -7443,6 +7443,10 @@ app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'),
     res.json({ success: true, totalAmount });
   } catch (err) {
     console.error('❌ [Invoice-OCR] 调用失败:', err.message);
+    if (err.response) {
+      console.error('   HTTP 状态:', err.response.status);
+      console.error('   响应体:', JSON.stringify(err.response.data || {}).slice(0, 1000));
+    }
     res.status(500).json({ success: false, error: '发票识别失败: ' + (err.response?.data?.message || err.message) });
   }
 });

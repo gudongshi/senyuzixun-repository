@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v10.1'; // 版本标识：原生 PDF 发票识别 + 双入口 UI
+const BUILD_VER  = 'v10.2'; // 版本标识：OCR 填 0 修复 + 发票模型纠错 + 错误日志增强
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v10.1');
+  console.log('🚀 当前前端版本：v10.2');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -823,11 +823,18 @@ export default function PrintAllocation() {
       console.log('✅ [OCR] 成功匹配 ' + filled + ' 个:', matchedLog);
 
       // 第三步：一次性 setRows（纯数据驱动，不依赖闭包计数器）
-      if (filled > 0) {
-        setRows(prev => prev.map(r => {
-          const m = matchMap.get(r.key);
-          return m ? { ...r, bwPages: m.bw, colorPages: m.color } : r;
-        }));
+      // v10.2: 合并后强制清洗 — 空白输入框立刻变成 0
+      const mergedRows = (filled > 0)
+        ? rows.map(r => { const m = matchMap.get(r.key); return m ? { ...r, bwPages: m.bw, colorPages: m.color } : r; })
+        : rows;
+      // 强制映射：所有 bwPages / colorPages 转数字，null/undefined/NaN → 0
+      const sanitized = mergedRows.map(r => ({
+        ...r,
+        bwPages: Number(r.bwPages) || 0,
+        colorPages: Number(r.colorPages) || 0
+      }));
+      if (filled > 0 || sanitized.length !== rows.length) {
+        setRows(sanitized);
       }
 
       // ── 第四步：Toast ──
@@ -1311,7 +1318,7 @@ export default function PrintAllocation() {
                           <input
                             type="number"
                             min="0"
-                            value={r.bwPages || ''}
+                            value={r.bwPages}
                             onChange={e => updatePages(r.key, 'bwPages', e.target.value)}
                             className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                           />
@@ -1320,7 +1327,7 @@ export default function PrintAllocation() {
                           <input
                             type="number"
                             min="0"
-                            value={r.colorPages || ''}
+                            value={r.colorPages}
                             onChange={e => updatePages(r.key, 'colorPages', e.target.value)}
                             className="min-w-[80px] w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 text-sm focus:outline-none focus:border-slate-300 focus:ring-1 focus:ring-slate-400/20 transition-colors"
                           />
