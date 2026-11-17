@@ -18,6 +18,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const pdfParse = require('pdf-parse');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 const cron = require('node-cron');
@@ -7266,11 +7267,11 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
 不要任何解释文字。`;
 
     // 调用通义千问视觉模型
-    console.log('⏳ [OCR] 正在调用 qwen3-vl-plus 视觉模型...');
+    console.log('⏳ [OCR] 正在调用 qwen4-max 视觉模型...');
     const response = await retryRequest(() => axios.post(
       DASHSCOPE_VISION_URL,
       {
-        model: 'qwen3-vl-plus',
+        model: 'qwen4-max',
         input: {
           messages: [{
             role: 'user',
@@ -7356,26 +7357,25 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
 });
 
 // ══════════════════════════════════════════════════════════════
-// 发票金额 OCR（v10.1 原生 PDF 支持 + 独立模块化）
+// 发票金额识别（v10.3 PDF文本提取+正则 / 图片视觉模型）
 // ══════════════════════════════════════════════════════════════
 
 /**
- * 使用通义千问原生 PDF 理解能力提取发票金额（独立函数，可复用）
- * @param {string} base64Data - 文件的 base64 编码
- * @param {string} mimeType - 文件的 MIME 类型（如 image/jpeg, application/pdf）
+ * 图片发票：使用通义千问视觉模型提取金额
+ * @param {string} base64Data - 图片的 base64 编码
+ * @param {string} mimeType - MIME 类型（image/jpeg, image/png）
  * @returns {Promise<number>} 识别出的发票价税合计金额
  */
-async function extractInvoiceAmount(base64Data, mimeType) {
-  // PDF 直接使用原生格式；图片保持原有 data:image/... 格式
+async function extractInvoiceAmountFromImage(base64Data, mimeType) {
   const dataUri = `data:${mimeType};base64,${base64Data}`;
   const prompt = '提取这张发票的价税合计金额，仅返回纯数字。';
 
-  console.log('⏳ [extractInvoiceAmount] 调用 qwen3-vl-plus（与账单识别同模型）...');
+  console.log('⏳ [Invoice-OCR] 图片模式 → 调用 qwen4-max...');
 
   const response = await retryRequest(() => axios.post(
     DASHSCOPE_VISION_URL,
     {
-      model: 'qwen3-vl-plus',
+      model: 'qwen4-max',
       input: {
         messages: [{
           role: 'user',
@@ -7402,9 +7402,8 @@ async function extractInvoiceAmount(base64Data, mimeType) {
   } else if (Array.isArray(outputContent)) {
     resultText = outputContent.map((c) => c.text || '').join('');
   }
-  console.log('📝 [extractInvoiceAmount] 原始响应:', resultText);
+  console.log('📝 [Invoice-OCR] 图片模式响应:', resultText);
 
-  // 提取数字（含小数点）
   const numMatch = resultText.match(/(\d+\.?\d*)/);
   if (!numMatch) {
     throw new Error('未能识别发票金额，原始响应: ' + resultText.slice(0, 100));
@@ -7423,23 +7422,60 @@ const invoiceUpload = multer({
   },
 });
 
-// POST /api/print/ocr-invoice — AI 发票金额识别（v10.1 原生 PDF 支持）
+// POST /api/print/ocr-invoice — AI 发票金额识别（v10.3 PDF文本提取 / 图片视觉模型双路径）
 app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: '请上传发票照片或 PDF 文件' });
     }
-    if (!DASHSCOPE_API_KEY) {
-      return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
+
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const isPdf = ext === '.pdf';
+    console.log(`🧾 [Invoice-OCR] 接收发票: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)${isPdf ? ' [PDF→文本提取]' : ' [图片→视觉模型]'}`);
+
+    let totalAmount;
+
+    if (isPdf) {
+      // ══════ PDF 路径：文本提取 + 正则匹配 ══════
+      console.log('📄 [Invoice-OCR] 开始 PDF 文本提取...');
+      let pdfData;
+      try {
+        pdfData = await pdfParse(req.file.buffer);
+      } catch (pdfErr) {
+        console.error('❌ [Invoice-OCR] PDF 解析失败:', pdfErr.message);
+        return res.status(400).json({ success: false, error: 'PDF 解析失败，请确认文件为有效电子发票' });
+      }
+      const fullText = pdfData.text;
+      console.log('📝 [Invoice-OCR] PDF 文本（前300字符）:', fullText.slice(0, 300));
+
+      // 正则匹配"价税合计（小写）"后的金额（电子发票文字层规整）
+      const amountMatch = fullText.match(/价税合计[（(]?小写[）)]?[：:]?\s*[¥￥]?\s*([\d,]+\.?\d*)/);
+      if (!amountMatch || !amountMatch[1]) {
+        // 兜底：尝试匹配"价税合计"后紧跟的任意金额
+        const fallbackMatch = fullText.match(/价税合计[：:]?\s*[¥￥]?\s*([\d,]+\.?\d*)/);
+        if (!fallbackMatch || !fallbackMatch[1]) {
+          console.error('❌ [Invoice-OCR] 未在 PDF 文本中找到价税合计金额');
+          console.error('   全文（前500）:', fullText.slice(0, 500));
+          return res.status(400).json({ success: false, error: '未找到价税合计金额，请确认PDF为有效电子发票' });
+        }
+        // 去千分位逗号 → Number
+        totalAmount = parseFloat(fallbackMatch[1].replace(/,/g, ''));
+        console.log('✅ [Invoice-OCR] 兜底匹配成功:', fallbackMatch[1], '→', totalAmount);
+      } else {
+        totalAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
+        console.log('✅ [Invoice-OCR] 价税合计匹配:', amountMatch[1], '→', totalAmount);
+      }
+    } else {
+      // ══════ 图片路径：视觉模型识别 ══════
+      if (!DASHSCOPE_API_KEY) {
+        return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员' });
+      }
+      const mime = req.file.mimetype || 'image/jpeg';
+      const b64 = req.file.buffer.toString('base64');
+      totalAmount = await extractInvoiceAmountFromImage(b64, mime);
     }
 
-    const mime = req.file.mimetype || 'image/jpeg';
-    const b64 = req.file.buffer.toString('base64');
-    console.log(`🧾 [Invoice-OCR] 接收发票: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB), MIME: ${mime}`);
-
-    const totalAmount = await extractInvoiceAmount(b64, mime);
-
-    console.log('✅ [Invoice-OCR] 识别金额:', totalAmount);
+    console.log('✅ [Invoice-OCR] 最终金额:', totalAmount);
     res.json({ success: true, totalAmount });
   } catch (err) {
     console.error('❌ [Invoice-OCR] 调用失败:', err.message);
