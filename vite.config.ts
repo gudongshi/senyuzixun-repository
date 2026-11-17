@@ -27,8 +27,9 @@ export default defineConfig({
     ],
     proxy: {
       '/api': {
-        target: 'http://localhost:9000', // 指向你的后端地址
+        target: 'http://localhost:9000',
         changeOrigin: true,
+        cookieDomainRewrite: 'localhost', // v11.9: 确保 Cookie 在 proxy 转发时不被浏览器丢弃
       }
     }
   },

@@ -1025,25 +1025,32 @@ async function getUserNameByUserId(userId) {
 // JWT 验证中间件
 // ============================================================
 function authMiddleware(req, res, next) {
+  // v11.9: 请求诊断日志
+  console.log('📦 [Auth] 收到请求:', req.method, req.url);
   const token = req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
 
-  // v11.8: DEV mock token — 双重防御（非生产 + 本地 IP, includes 匹配）
+  // v11.10: DEV mock token — 双重必须：非生产环境 AND 本地请求
   if (token === 'dev-mock-token') {
-    const clientIp = req.ip || req.socket?.remoteAddress || '';
-    console.log('🔍 [Mock Auth] 收到请求，来源 IP:', req.ip, '| socket IP:', req.socket?.remoteAddress, '| Cookie:', req.headers.cookie);
-    // 使用 includes 匹配，兼容 ::ffff:127.0.0.1、::1 等 IPv4-mapped-IPv6 格式
-    const isLocal = clientIp.includes('127.0.0.1') || clientIp.includes('::1');
-    if (process.env.NODE_ENV === 'production' || !isLocal) {
-      console.warn(`⚠️ [Auth] 拒绝 dev-mock-token: NODE_ENV=${process.env.NODE_ENV}, clientIp=${clientIp}`);
-      return res.status(401).json({ success: false, error: '非法调试凭证' });
+    console.log('🍪 [Auth] Cookies 原文:', req.headers.cookie);
+    console.log('🌐 [Auth] IP:', req.ip, '| X-Forwarded-For:', req.headers['x-forwarded-for'], '| socket:', req.socket?.remoteAddress);
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
+    const host = req.headers.host || '';
+
+    // 必须是本地请求：IP 或 Host 包含本地标识
+    const isLocalRequest =
+      String(clientIp).includes('127.0.0.1') || String(clientIp).includes('::1') ||
+      String(host).includes('localhost') || String(host).includes('127.0.0.1');
+
+    if (!isProduction && isLocalRequest) {
+      console.log('🔧 [DEV] Mock token 鉴权通过 → 赵萃(本地测试)');
+      req.user = { userId: 'dev', name: '赵萃(本地测试)', roles: { dashboard: true, manager: true } };
+      return next();
     }
-    console.log('🔧 [DEV] Mock token 鉴权通过 → 赵萃(本地测试)');
-    req.user = {
-      userId: 'dev',
-      name: '赵萃(本地测试)',
-      roles: { dashboard: true, manager: true },
-    };
-    return next();
+
+    console.warn(`⚠️ [Auth] 拒绝 dev-mock-token: isProduction=${isProduction}, isLocal=${isLocalRequest}, ip=${clientIp}, host=${host}`);
+    return res.status(401).json({ success: false, error: '非法调试凭证' });
   }
 
   if (!token) {
