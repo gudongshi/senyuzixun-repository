@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import ProjectManager from './pages/ProjectManager';
 import ClientManager from './pages/ClientManager';
 import FinancialDataManager from './pages/FinancialDataManager';
+import KnowledgeBase from './pages/KnowledgeBase';
 import { AuthGate, useAuthUser } from './components/AuthGate';
 
 /**
@@ -207,6 +208,16 @@ function AppRoutes() {
             <FinancialDataManager />
           ) : (
             <Navigate to={dashboard ? '/' : '/financial-data'} replace />
+          )
+        }
+      />
+      <Route
+        path="/knowledge-base"
+        element={
+          manager ? (
+            <KnowledgeBase />
+          ) : (
+            <Navigate to={dashboard ? '/' : '/knowledge-base'} replace />
           )
         }
       />

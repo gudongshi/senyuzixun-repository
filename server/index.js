@@ -6956,6 +6956,467 @@ app.listen(PORT, () => {
 });
 
 // ============================================================
+// v12.1 企业知识库管理 API（审批流转 + 自动脱敏扫描）
+// ============================================================
+
+const zlib = require('zlib');
+
+/**
+ * 从 DOCX 缓冲区提取纯文本（内置 ZIP 解析，无外部依赖）
+ * DOCX 本质是 ZIP 包，其中 word/document.xml 包含正文
+ */
+function extractDocxText(buffer) {
+  try {
+    // 查找 word/document.xml 的 Local File Header
+    const targetName = Buffer.from('word/document.xml', 'utf8');
+    let offset = 0;
+    while (offset < buffer.length - 30) {
+      // Local File Header signature: 0x504B0304
+      if (buffer[offset] === 0x50 && buffer[offset + 1] === 0x4B &&
+          buffer[offset + 2] === 0x03 && buffer[offset + 3] === 0x04) {
+        // 读取文件名长度 (offset 26, 2 bytes LE)
+        const nameLen = buffer.readUInt16LE(offset + 26);
+        const extraLen = buffer.readUInt16LE(offset + 28);
+        const name = buffer.slice(offset + 30, offset + 30 + nameLen).toString('utf8');
+
+        if (name === 'word/document.xml') {
+          // 压缩数据在 30 + nameLen + extraLen 之后
+          const compStart = offset + 30 + nameLen + extraLen;
+          // 压缩大小在 offset 18 (4 bytes LE)
+          const compSize = buffer.readUInt32LE(offset + 18);
+          const compressed = buffer.slice(compStart, compStart + compSize);
+
+          // 尝试 zlib inflate
+          const xml = zlib.inflateRawSync(compressed).toString('utf8');
+          // 去除 XML 标签
+          return xml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+      }
+      offset++;
+    }
+    return '';
+  } catch (e) {
+    console.warn('⚠️ [kb] DOCX 文本提取失败:', e.message);
+    return '';
+  }
+}
+
+/**
+ * 从 PDF 缓冲区提取纯文本（使用 pdfjs-dist）
+ */
+async function extractPdfText(buffer) {
+  try {
+    // pdfjs-dist 需要 Uint8Array
+    const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const doc = await getDocument({ data }).promise;
+    let text = '';
+    for (let i = 1; i <= Math.min(doc.numPages, 5); i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + ' ';
+      if (text.length > 6000) break; // 够用就停
+    }
+    return text.replace(/\s+/g, ' ').trim();
+  } catch (e) {
+    console.warn('⚠️ [kb] PDF 文本提取失败:', e.message);
+    return '';
+  }
+}
+
+/**
+ * 扫描文本中的敏感信息（手机号、身份证号）
+ * @returns 命中的敏感信息列表，为空表示安全
+ */
+function scanSensitiveInfo(text) {
+  const findings = [];
+
+  // 手机号：1[3-9] 开头 + 9 位数字，前后需是边界
+  const phoneRegex = /1[3-9]\d{9}/g;
+  let phoneMatch;
+  while ((phoneMatch = phoneRegex.exec(text)) !== null) {
+    // 过滤明显不是手机号的（前后紧跟数字说明是更大数字的一部分）
+    const start = phoneMatch.index;
+    const end = start + 11;
+    const prevChar = start > 0 ? text[start - 1] : '';
+    const nextChar = end < text.length ? text[end] : '';
+    if (!/\d/.test(prevChar) && !/\d/.test(nextChar)) {
+      findings.push({ type: '手机号', value: phoneMatch[0] });
+    }
+    if (findings.length >= 5) break; // 已经够了
+  }
+
+  // 身份证号：17 位数字 + 数字或 X
+  const idRegex = /\d{17}[\dXx]/g;
+  let idMatch;
+  while ((idMatch = idRegex.exec(text)) !== null) {
+    // 简单校验：前 6 位像地区码，第 7-14 位像生日
+    const id = idMatch[0];
+    const birth = id.substring(6, 14);
+    const year = parseInt(birth.substring(0, 4));
+    const month = parseInt(birth.substring(4, 6));
+    const day = parseInt(birth.substring(6, 8));
+    if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      findings.push({ type: '身份证号', value: id.substring(0, 3) + '****' + id.substring(14) + '(已脱敏显示)' });
+    }
+    if (findings.length >= 5) break;
+  }
+
+  return findings;
+}
+
+/**
+ * 提取文件文本内容（前 5000 字符），供敏感信息扫描
+ */
+async function extractTextForScan(file) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mime = file.mimetype || '';
+
+  try {
+    if (ext === '.pdf' || mime === 'application/pdf') {
+      return await extractPdfText(file.buffer);
+    }
+
+    if (ext === '.docx' || mime.includes('officedocument.wordprocessingml')) {
+      return extractDocxText(file.buffer).slice(0, 5000);
+    }
+
+    if (ext === '.txt' || mime === 'text/plain') {
+      return file.buffer.toString('utf8').slice(0, 5000).replace(/\s+/g, ' ').trim();
+    }
+
+    // DOC / XLS / XLSX：暂不提取（二进制旧格式复杂）
+    if (ext === '.doc' || ext === '.xls') {
+      return ''; // 旧格式跳过扫描
+    }
+
+    // XLSX 也是 ZIP，里面是 shared strings + sheet xml，跳过
+    if (ext === '.xlsx' || mime.includes('spreadsheetml')) {
+      return ''; // Excel 是结构化数据，跳过文本扫描
+    }
+
+    return '';
+  } catch (e) {
+    console.warn('⚠️ [kb] 文本提取异常:', e.message);
+    return '';
+  }
+}
+
+const kbUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.pdf', '.doc', '.docx', '.txt', '.xls', '.xlsx'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) return cb(null, true);
+    cb(new Error('仅支持 PDF / Word / Excel / TXT 格式'));
+  },
+});
+
+// GET /api/kb/documents — 文档列表
+app.get('/api/kb/documents', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('kb_documents')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ [kb] 查询文档列表失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`📚 [kb] 查询文档列表: ${data?.length || 0} 条`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ [kb] 查询文档列表异常:', err.message);
+    res.status(500).json({ success: false, error: '查询文档列表失败' });
+  }
+});
+
+// POST /api/kb/documents — 上传文档（v12.1：含自动脱敏扫描）
+app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '请选择要上传的文件' });
+    }
+
+    const { category, doc_type, security_level, department, experience_risk, experience_strategy, experience_motto } = req.body;
+    if (!category || !doc_type || !security_level) {
+      return res.status(400).json({ success: false, error: '请填写文档分类信息（业务大类/文档类型/密级）' });
+    }
+
+    // v12.1: 经验提炼表单必填
+    if (!experience_risk || !experience_strategy || !experience_motto) {
+      return res.status(400).json({ success: false, error: '请完整填写经验提炼表单（隐蔽风险、化解策略、避坑箴言）' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，无法上传文件' });
+    }
+
+    // ── v12.1: 自动脱敏扫描 ──
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    const scanableExts = ['.pdf', '.docx', '.txt'];
+    if (scanableExts.includes(fileExt)) {
+      console.log(`🔍 [kb] 开始敏感信息扫描: ${req.file.originalname}`);
+      const text = await extractTextForScan(req.file);
+      if (text.length > 0) {
+        const findings = scanSensitiveInfo(text);
+        if (findings.length > 0) {
+          const detail = findings.map(f => `• ${f.type}: ${f.value}`).join('\n');
+          console.warn(`⚠️ [kb] 检测到敏感信息:\n${detail}`);
+          return res.status(400).json({
+            success: false,
+            error: '文件包含未脱敏的敏感信息，请处理后重试',
+            findings: findings.map(f => ({ type: f.type, value: f.value })),
+          });
+        }
+        console.log(`✅ [kb] 敏感信息扫描通过 (扫描 ${text.length} 字符)`);
+      } else {
+        console.log(`ℹ️ [kb] 未能提取文本内容，跳过敏感信息扫描`);
+      }
+    }
+
+    // 从 token 解析上传人 + userId
+    let uploader = '未知用户';
+    let uploaderId = '';
+    try {
+      const token = req.cookies?.token || (req.headers.authorization || '').replace('Bearer ', '');
+      if (token) {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        uploader = decoded.name || decoded.userId || '未知用户';
+        uploaderId = decoded.userId || '';
+      }
+    } catch (e) {
+      console.warn('⚠️ [kb] 无法解析上传用户:', e.message);
+    }
+
+    // 生成存储路径: kb_docs/YYYY/MM/filename
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const timestamp = Date.now();
+    const safeFileName = `${timestamp}_${req.file.originalname}`;
+    const storagePath = `kb_docs/${year}/${month}/${safeFileName}`;
+
+    console.log(`📤 [kb] 上传文件: ${req.file.originalname} → ${storagePath}`);
+
+    // 上传到 Supabase Storage
+    const { data: uploadData, error: uploadErr } = await client.storage
+      .from('kb_files')
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      console.error('❌ [kb] Supabase Storage 上传失败:', uploadErr);
+      return res.status(500).json({ success: false, error: '文件存储失败: ' + uploadErr.message });
+    }
+
+    // 获取公开 URL
+    const { data: urlData } = await client.storage
+      .from('kb_files')
+      .getPublicUrl(storagePath);
+
+    const fileUrl = urlData?.publicUrl || '';
+
+    // 写入数据库（状态为 '待审核'）
+    const { data: doc, error: dbErr } = await client
+      .from('kb_documents')
+      .insert({
+        file_name: req.file.originalname,
+        file_url: fileUrl,
+        category,
+        doc_type,
+        security_level,
+        uploader,
+        uploader_id: uploaderId,
+        department: department || '',
+        experience_risk: experience_risk || '',
+        experience_strategy: experience_strategy || '',
+        experience_motto: experience_motto || '',
+        status: '待审核',
+        reject_reason: '',
+      })
+      .select()
+      .single();
+
+    if (dbErr) {
+      console.error('❌ [kb] 数据库写入失败:', dbErr);
+      try { await client.storage.from('kb_files').remove([storagePath]); } catch (_) {}
+      return res.status(500).json({ success: false, error: '保存文档信息失败: ' + dbErr.message });
+    }
+
+    console.log(`✅ [kb] 文档上传成功(待审核): ID=${doc.id} | ${doc.file_name}`);
+    res.json({ success: true, data: doc });
+  } catch (err) {
+    console.error('❌ [kb] 上传文档异常:', err.message);
+    res.status(500).json({ success: false, error: '上传文档失败: ' + err.message });
+  }
+});
+
+// PUT /api/kb/documents/:id/approve — 确认入库（高管审批通过）
+app.put('/api/kb/documents/:id/approve', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // 权限校验：仅 dashboard 白名单用户可审批
+    let currentUserId = '';
+    try {
+      const token = req.cookies?.token || (req.headers.authorization || '').replace('Bearer ', '');
+      if (token) {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        currentUserId = decoded.userId || '';
+      }
+    } catch (_) {}
+
+    const isDashboardUser = ALLOWED_USERS_DASHBOARD.includes(currentUserId);
+    if (!isDashboardUser) {
+      return res.status(403).json({ success: false, error: '仅管理层可审批入库，您没有此权限' });
+    }
+
+    const { data: updated, error } = await client
+      .from('kb_documents')
+      .update({ status: '已入库', reject_reason: '' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ [kb] 审批入库失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`✅ [kb] 文档已入库: ID=${id} | ${updated.file_name}`);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('❌ [kb] 审批入库异常:', err.message);
+    res.status(500).json({ success: false, error: '审批入库失败' });
+  }
+});
+
+// PUT /api/kb/documents/:id/reject — 打回（高管审批拒绝）
+app.put('/api/kb/documents/:id/reject', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: '请填写打回原因' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // 权限校验
+    let currentUserId = '';
+    try {
+      const token = req.cookies?.token || (req.headers.authorization || '').replace('Bearer ', '');
+      if (token) {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        currentUserId = decoded.userId || '';
+      }
+    } catch (_) {}
+
+    const isDashboardUser = ALLOWED_USERS_DASHBOARD.includes(currentUserId);
+    if (!isDashboardUser) {
+      return res.status(403).json({ success: false, error: '仅管理层可执行打回操作，您没有此权限' });
+    }
+
+    const { data: updated, error } = await client
+      .from('kb_documents')
+      .update({ status: '已打回', reject_reason: reason.trim() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ [kb] 打回失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`↩️ [kb] 文档已打回: ID=${id} | 原因: ${reason.trim()}`);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('❌ [kb] 打回异常:', err.message);
+    res.status(500).json({ success: false, error: '打回操作失败' });
+  }
+});
+
+// DELETE /api/kb/documents/:id — 删除文档
+app.delete('/api/kb/documents/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，无法删除文档' });
+    }
+
+    // 先查出文档记录（获取 file_url）
+    const { data: doc, error: findErr } = await client
+      .from('kb_documents')
+      .select('id, file_name, file_url')
+      .eq('id', id)
+      .single();
+
+    if (findErr || !doc) {
+      return res.status(404).json({ success: false, error: '文档不存在' });
+    }
+
+    // 从 file_url 中提取 storage path
+    const url = doc.file_url;
+    let deletedFromStorage = false;
+    try {
+      // URL 格式: https://xxx.supabase.co/storage/v1/object/public/kb_files/kb_docs/2026/11/xxx.pdf
+      const urlObj = new URL(url);
+      const pathMatch = urlObj.pathname.match(/\/kb_files\/(.+)$/);
+      if (pathMatch) {
+        const storagePath = decodeURIComponent(pathMatch[1]);
+        console.log(`🗑️ [kb] 删除存储文件: ${storagePath}`);
+        const { error: rmErr } = await client.storage
+          .from('kb_files')
+          .remove([storagePath]);
+        if (rmErr) {
+          console.warn('⚠️ [kb] 存储文件删除失败（继续删除数据库记录）:', rmErr.message);
+        } else {
+          deletedFromStorage = true;
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [kb] 解析 file_url 失败，跳过存储删除:', e.message);
+    }
+
+    // 删除数据库记录（外键 CASCADE 会自动删除关联的 kb_chunks）
+    const { error: delErr } = await client
+      .from('kb_documents')
+      .delete()
+      .eq('id', id);
+
+    if (delErr) {
+      console.error('❌ [kb] 删除文档失败:', delErr);
+      return res.status(500).json({ success: false, error: '删除文档失败: ' + delErr.message });
+    }
+
+    console.log(`✅ [kb] 文档已删除: ID=${id} | ${doc.file_name} | 存储清理: ${deletedFromStorage}`);
+    res.json({ success: true, message: '文档已删除' });
+  } catch (err) {
+    console.error('❌ [kb] 删除文档异常:', err.message);
+    res.status(500).json({ success: false, error: '删除文档失败' });
+  }
+});
+
+// ============================================================
+
+// ============================================================
 // 打印费分摊 API
 // ============================================================
 

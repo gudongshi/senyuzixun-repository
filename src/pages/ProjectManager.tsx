@@ -9,6 +9,7 @@ import {
 import Sidebar, { type PageKey } from '../components/layout/Sidebar';
 import SiteHubManager from '../components/site/SiteHubManager';
 import PrintAllocation from '../components/print/PrintAllocation';
+import KnowledgeBase from './KnowledgeBase';
 import ErrorBoundary from '../components/ErrorBoundary';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
@@ -3363,6 +3364,13 @@ export default function ProjectManager() {
         {activePage === 'print' && (
           <div className="flex-1 flex flex-col min-h-screen">
             <PrintAllocation />
+          </div>
+        )}
+
+        {/* ── 企业知识库页面 v12.0 ── */}
+        {activePage === 'knowledgeBase' && (
+          <div className="flex-1 flex flex-col min-h-screen">
+            <KnowledgeBase />
           </div>
         )}
 
