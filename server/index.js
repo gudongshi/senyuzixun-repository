@@ -7193,12 +7193,14 @@ app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (re
       console.warn('⚠️ [kb] 无法解析上传用户:', e.message);
     }
 
-    // 生成存储路径: kb_docs/YYYY/MM/filename
+    // 生成存储路径: kb_docs/YYYY/MM/timestamp_UUID.ext（v12.3：移除中文文件名，避免乱码）
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const timestamp = Date.now();
-    const safeFileName = `${timestamp}_${req.file.originalname}`;
+    const crypto = require('crypto');
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const safeFileName = `${timestamp}_${crypto.randomUUID()}${ext}`;
     const storagePath = `kb_docs/${year}/${month}/${safeFileName}`;
 
     console.log(`📤 [kb] 上传文件: ${req.file.originalname} → ${storagePath}`);
