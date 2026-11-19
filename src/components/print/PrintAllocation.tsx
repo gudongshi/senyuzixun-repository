@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CloudUpload, Database, Printer, Plus, Trash2, Save, Download, Loader2, Calculator, RotateCcw, RefreshCw } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx-js-style';
 
@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v13.4'; // 版本标识：下载保留原始中文文件名
+const BUILD_VER  = 'v13.8'; // 版本标识：下载保留原始中文文件名
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v13.4');
+  console.log('🚀 当前前端版本：v13.8');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -209,6 +209,15 @@ export default function PrintAllocation() {
 
   // 防草稿误删：记录本次会话是否已有过非空 rows
   const hadDataRef = useRef(false);
+
+  // v13.6: 演示模式 — 轮询最新记录 ID
+  const [demoMode, setDemoMode] = useState(false);
+  const [refreshLabel, setRefreshLabel] = useState('');
+  const lastSeenIdRef = useRef<number | null>(null);
+
+  // v13.8: 期待感动画遮罩
+  const [syncingOverlay, setSyncingOverlay] = useState<{ visible: boolean; month: string }>({ visible: false, month: '' });
+  const syncingRef = useRef(false); // 防止动画期间重复触发
 
   // 新增行临时状态
   const [newName, setNewName]             = useState('');
@@ -457,6 +466,158 @@ export default function PrintAllocation() {
     localStorage.setItem(getDraftKey(billingMonth), JSON.stringify(draft));
     console.log('💾 [AutoSave] 草稿已保存到 ' + getDraftKey(billingMonth) + '：' + rows.length + ' 个部门, invoiceTotal=' + invoiceTotal, rows);
   }, [rows, invoiceTotal, billingMonth, loaded]);
+
+  // v13.8: 演示模式 — 每 3 秒轮询，发现新数据先播放 4 秒期待感动画
+  useEffect(() => {
+    if (!demoMode) {
+      setRefreshLabel('');
+      return;
+    }
+    setRefreshLabel('⏳ 轮询中…');
+    const timer = setInterval(async () => {
+      if (syncingRef.current) return; // v13.8: 动画进行中，跳过本轮
+      try {
+        const resp = await fetch('/api/print/records/latest');
+        const json = await resp.json();
+        if (json.success && json.latest) {
+          const latestId = json.latest.id;
+          const latestMonth = json.latest.billing_month || billingMonth;
+          if (lastSeenIdRef.current !== null && latestId !== lastSeenIdRef.current) {
+            console.log('🔄 [Demo] 检测到新记录 ID=' + latestId + ' 月份=' + latestMonth);
+
+            // ── v13.8: 期待感动画 ──
+            syncingRef.current = true;
+            lastSeenIdRef.current = latestId;
+            setRefreshLabel('');
+            const monthDisplay = latestMonth.replace(/^(\d{4})-(\d{2})$/, '$1年$2月');
+            setSyncingOverlay({ visible: true, month: monthDisplay });
+
+            // 等待 4 秒，给观众充足的视觉期待
+            await new Promise<void>(r => setTimeout(r, 4000));
+
+            // 加载新月份数据
+            try {
+              const checkResp = await fetch('/api/print/records/check?month=' + encodeURIComponent(latestMonth));
+              const checkJson = await checkResp.json();
+              if (checkJson.success && checkJson.found) {
+                const { record, items } = checkJson;
+                // v13.8: 自动切换到新月份
+                if (latestMonth !== billingMonth) {
+                  isSwitchingMonthRef.current = true;
+                }
+                setBillingMonth(latestMonth);
+                setInvoiceTotal(String(record.invoice_total));
+                if (items && items.length > 0) {
+                  const curDepts = departmentsRef.current;
+                  const tplMap = new Map(curDepts.map(d => [d.dept_name, d]));
+                  const seenDepts = new Set<string>();
+                  const loadedRows: DeptRow[] = [];
+                  for (const item of items) {
+                    const tpl = tplMap.get(item.dept_name);
+                    seenDepts.add(item.dept_name);
+                    loadedRows.push({
+                      key: tpl ? `dept-${tpl.id}` : `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
+                      dbId: tpl?.id,
+                      dept_name: item.dept_name,
+                      machine_location: item.machine_location || tpl?.machine_location || '',
+                      machine_number: item.machine_number || tpl?.machine_number || '',
+                      sort_order: item.sort_order || tpl?.sort_order || 0,
+                      bwPages: item.bw_pages || 0,
+                      colorPages: item.color_pages || 0,
+                    });
+                  }
+                  for (const tpl of curDepts) {
+                    if (!seenDepts.has(tpl.dept_name)) {
+                      loadedRows.push({
+                        key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
+                        machine_location: tpl.machine_location || '',
+                        machine_number: tpl.machine_number || '',
+                        sort_order: tpl.sort_order || 0,
+                        bwPages: 0, colorPages: 0,
+                      });
+                    }
+                  }
+                  setRows(loadedRows);
+                  if (latestMonth !== billingMonth) {
+                    setTimeout(() => { isSwitchingMonthRef.current = false; }, 200);
+                  }
+                }
+                showMessage('success', '📱 已同步手机端最新识别数据（' + monthDisplay + '）');
+              }
+            } catch {
+              showMessage('error', '刷新数据失败，请手动点击"刷新数据"按钮重试');
+            }
+
+            // 关闭遮罩，恢复轮询
+            setSyncingOverlay({ visible: false, month: '' });
+            syncingRef.current = false;
+            setRefreshLabel('⏳ 轮询中…');
+          } else {
+            lastSeenIdRef.current = latestId;
+          }
+        }
+      } catch {
+        // 轮询静默失败，不打扰用户
+      }
+    }, 3000);
+
+    return () => {
+      clearInterval(timer);
+      setRefreshLabel('');
+    };
+  }, [demoMode, billingMonth]);
+
+  // v13.6: 手动一键刷新
+  async function manualRefresh() {
+    showMessage('success', '🔄 正在检查最新数据…');
+    try {
+      const resp = await fetch('/api/print/records/check?month=' + encodeURIComponent(billingMonth));
+      const json = await resp.json();
+      if (json.success && json.found) {
+        const { record, items } = json;
+        setInvoiceTotal(String(record.invoice_total));
+        if (items && items.length > 0) {
+          const curDepts = departmentsRef.current;
+          const tplMap = new Map(curDepts.map(d => [d.dept_name, d]));
+          const seenDepts = new Set<string>();
+          const loadedRows: DeptRow[] = [];
+          for (const item of items) {
+            const tpl = tplMap.get(item.dept_name);
+            seenDepts.add(item.dept_name);
+            loadedRows.push({
+              key: tpl ? `dept-${tpl.id}` : `hist-${item.id || Math.random().toString(36).slice(2, 8)}`,
+              dbId: tpl?.id,
+              dept_name: item.dept_name,
+              machine_location: item.machine_location || tpl?.machine_location || '',
+              machine_number: item.machine_number || tpl?.machine_number || '',
+              sort_order: item.sort_order || tpl?.sort_order || 0,
+              bwPages: item.bw_pages || 0,
+              colorPages: item.color_pages || 0,
+            });
+          }
+          for (const tpl of curDepts) {
+            if (!seenDepts.has(tpl.dept_name)) {
+              loadedRows.push({
+                key: `dept-${tpl.id}`, dbId: tpl.id, dept_name: tpl.dept_name,
+                machine_location: tpl.machine_location || '',
+                machine_number: tpl.machine_number || '',
+                sort_order: tpl.sort_order || 0,
+                bwPages: 0, colorPages: 0,
+              });
+            }
+          }
+          setRows(loadedRows);
+        }
+        showMessage('success', '✅ 已刷新，共加载 ' + (items?.length || 0) + ' 个部门数据');
+        // 更新轮询锚点
+        if (record?.id) lastSeenIdRef.current = record.id;
+      } else {
+        showMessage('success', '📭 该月份暂无已保存的账单');
+      }
+    } catch (err: any) {
+      showMessage('error', '刷新失败: ' + (err.message || '网络错误'));
+    }
+  }
 
   async function loadDepartments() {
     setLoading(true);
@@ -715,12 +876,44 @@ export default function PrintAllocation() {
     return null;
   }
 
+  // ── v13.6: 前端图片压缩（Canvas 缩放至 1200px 宽，JPEG 质量 0.8）──
+  async function compressImage(file: File): Promise<File> {
+    // 只处理图片，PDF 不压缩；小于 500KB 直接放行
+    if (!file.type.startsWith('image/') || file.size < 500 * 1024) return file;
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        if (img.width <= 1200) return resolve(file); // 本身就小，不缩放
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1200;
+        canvas.height = Math.round((img.height / img.width) * 1200);
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob((blob) => {
+          if (!blob) return resolve(file);
+          const compressed = new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+          console.log(`📷 [压缩] ${(file.size / 1024).toFixed(0)}KB → ${(compressed.size / 1024).toFixed(0)}KB`);
+          resolve(compressed);
+        }, 'image/jpeg', 0.8);
+      };
+      img.onerror = () => resolve(file); // 解码失败则不压缩原样上传
+      img.src = url;
+    });
+  }
+
   // ── AI 视觉识别上传（v9.7 强校验计数 + 不可见空格清洗）──
   const handleOcrUpload = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
-    const file = acceptedFiles[0];
+    let file = acceptedFiles[0];
     setOcrLoading(true);
     try {
+      // v13.6: 手机拍照压缩至 1200px 宽，避免上传超时
+      file = await compressImage(file);
       const fd = new FormData();
       fd.append('file', file);
       const res = await fetch('/api/print/ocr', { method: 'POST', body: fd });
@@ -1293,7 +1486,40 @@ export default function PrintAllocation() {
           {deleting ? <Loader2 className="size-4 animate-spin" /> : <AlertTriangle className="size-4" />}
           作废本月账单
         </button>
+
+        <div className="flex-1" />
+
+        {/* v13.6: 演示模式开关 */}
+        <button
+          onClick={() => { setDemoMode(!demoMode); if (!demoMode) lastSeenIdRef.current = null; }}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            demoMode
+              ? 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm shadow-emerald-200'
+              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+          title={demoMode ? '演示模式已开启，每3秒自动检测新数据' : '点击开启演示模式（自动轮询）'}
+        >
+          {demoMode ? '📡' : '📵'} 演示模式 {demoMode ? 'ON' : 'OFF'}
+        </button>
+
+        {/* v13.6: 手动一键刷新 */}
+        <button
+          onClick={manualRefresh}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-medium hover:from-cyan-500 hover:to-blue-500 transition-all shadow-sm shadow-blue-200"
+          title="手动从数据库拉取最新数据"
+        >
+          <RefreshCw size={15} />
+          刷新数据
+        </button>
       </div>
+
+      {/* v13.6: 轮询状态标签 */}
+      {refreshLabel && (
+        <div className="mb-3 text-xs text-cyan-600 bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-1.5 inline-flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" />
+          {refreshLabel}
+        </div>
+      )}
 
       {/* ── v10.1: 双入口 AI 上传区 ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
@@ -1539,6 +1765,47 @@ export default function PrintAllocation() {
           </div>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* v13.8: 期待感动画遮罩（演示模式下检测到新数据时触发） */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {syncingOverlay.visible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-500">
+          <div className="flex flex-col items-center gap-6 p-10 bg-gradient-to-b from-slate-800 to-slate-900 border border-cyan-500/30 rounded-3xl shadow-2xl shadow-cyan-900/30 max-w-md w-full mx-4">
+            {/* 旋转圆环 */}
+            <div className="relative">
+              <div className="size-24 rounded-full border-4 border-cyan-500/20 border-t-cyan-400 animate-spin" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="size-14 rounded-full border-4 border-blue-500/20 border-b-blue-400 animate-spin animate-reverse" />
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-3xl">📱</span>
+              </div>
+            </div>
+
+            {/* 动画文字 */}
+            <div className="text-center space-y-3">
+              <p className="text-cyan-400 text-lg font-bold animate-pulse">
+                📱 检测到手机端上传的 {syncingOverlay.month} 数据
+              </p>
+              <p className="text-slate-400 text-sm flex items-center justify-center gap-2">
+                <span className="inline-block size-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="inline-block size-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="inline-block size-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="ml-1">AI 正在为您同步，请稍候</span>
+                <span className="inline-block size-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '450ms' }} />
+                <span className="inline-block size-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '600ms' }} />
+                <span className="inline-block size-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '750ms' }} />
+              </p>
+            </div>
+
+            {/* 进度条装饰 */}
+            <div className="w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 rounded-full animate-progress" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

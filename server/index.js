@@ -8084,6 +8084,29 @@ app.get('/api/print/records/check', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/print/records/latest — v13.6：返回最近一条入库记录（演示模式轮询用）
+app.get('/api/print/records/latest', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('print_records')
+      .select('id, billing_month, created_at')
+      .eq('status', 'saved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ [latest] 查询最新记录失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, latest: data || null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════
 // OCR 视觉识别上传（v9.0）
 // ══════════════════════════════════════════════════════════════
