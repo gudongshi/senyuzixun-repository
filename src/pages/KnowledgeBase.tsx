@@ -6,6 +6,7 @@ import {
   Eye, Trash2, Upload, FileText, Loader2, X,
   BookOpen, Search, RefreshCw, Download, File,
   CheckCircle, Ban, Send, AlertTriangle, ShieldAlert,
+  ListFilter, Clock,
 } from 'lucide-react';
 
 // ============================================================
@@ -74,6 +75,7 @@ export default function KnowledgeBase() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<'all' | 'pending'>('all'); // v12.4: Tab 切换
 
   // 上传表单
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -86,10 +88,6 @@ export default function KnowledgeBase() {
   const [expRisk, setExpRisk] = useState('');
   const [expStrategy, setExpStrategy] = useState('');
   const [expMotto, setExpMotto] = useState('');
-
-  // 预览弹窗
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewName, setPreviewName] = useState('');
 
   // 打回弹窗
   const [rejectTarget, setRejectTarget] = useState<KbDocument | null>(null);
@@ -293,17 +291,80 @@ export default function KnowledgeBase() {
   };
 
   // ════════════════════════════════════════════════════════
-  // 查看
+  // v13.3: 判断文件是否支持浏览器原生预览
   // ════════════════════════════════════════════════════════
-  const handleView = (doc: KbDocument) => {
-    setPreviewUrl(doc.file_url);
-    setPreviewName(doc.file_name);
+  const isPreviewable = (fileName: string): boolean => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext);
+  };
+
+  // ════════════════════════════════════════════════════════
+  // v13.3: 预览（仅 PDF/图片）— 100% 使用后端 signedUrl
+  // ════════════════════════════════════════════════════════
+  const handlePreview = async (doc: KbDocument) => {
+    if (!isPreviewable(doc.file_name)) {
+      toast.error('该格式不支持浏览器原生预览，请使用"下载"按钮查看');
+      return;
+    }
+
+    try {
+      const resp = await fetch(`/api/kb/documents/${doc.id}/preview`);
+      const json = await resp.json();
+      console.log('🔍 [KB PREVIEW 前端] 后端返回:', JSON.stringify(json));
+      if (json.success && json.signedUrl) {
+        console.log('🔍 [KB PREVIEW 前端] 即将 window.open:', json.signedUrl);
+        window.open(json.signedUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        toast.error('预览失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      toast.error('请求异常: ' + (err.message || '无法连接服务器'));
+    }
+  };
+
+  // ════════════════════════════════════════════════════════
+  // v13.3: 下载 — 100% 用 signedUrl + fetch Blob + <a download>
+  // ════════════════════════════════════════════════════════
+  const handleDownload = async (doc: KbDocument) => {
+    try {
+      const resp = await fetch(`/api/kb/documents/${doc.id}/preview?download=1`);
+      const json = await resp.json();
+      console.log('🔍 [KB DOWNLOAD 前端] 后端返回:', JSON.stringify(json));
+      if (json.success && json.signedUrl) {
+        console.log('🔍 [KB DOWNLOAD 前端] 原始文件名:', doc.file_name);
+        // v13.3: fetch Blob 后用 <a download> 强制指定中文名
+        try {
+          const blobResp = await fetch(json.signedUrl);
+          const blob = await blobResp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = doc.file_name;  // 强制使用数据库里的中文原名
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        } catch {
+          // 降级：直接 window.open（后端已设 download header）
+          window.open(json.signedUrl, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        toast.error('下载失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      toast.error('下载异常: ' + (err.message || '无法连接服务器'));
+    }
   };
 
   // ════════════════════════════════════════════════════════
   // 筛选
   // ════════════════════════════════════════════════════════
   const filteredDocs = docs.filter(d => {
+    // v12.4: Tab 筛选
+    if (tab === 'pending') {
+      if (d.status !== '待审核') return false;
+    }
+    // 搜索筛选
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -330,8 +391,45 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v12.2</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v13.3</span>
           </div>
+        </div>
+      </div>
+
+      {/* ── v12.4: Tab 切换 ── */}
+      <div className="px-4 md:px-6 pt-4 bg-white border-b border-slate-100">
+        <div className="max-w-[1400px] flex items-center gap-1">
+          <button
+            onClick={() => setTab('all')}
+            className={`px-4 py-2.5 rounded-t-lg text-sm font-medium transition-all flex items-center gap-2 ${
+              tab === 'all'
+                ? 'bg-slate-50 text-slate-900 border-b-2 border-blue-500'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <ListFilter size={15} />
+            全部文档
+          </button>
+          <button
+            onClick={() => setTab('pending')}
+            className={`px-4 py-2.5 rounded-t-lg text-sm font-medium transition-all flex items-center gap-2 ${
+              tab === 'pending'
+                ? 'bg-slate-50 text-slate-900 border-b-2 border-amber-500'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Clock size={15} />
+            我的待办
+            {docs.filter(d => d.status === '待审核').length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                tab === 'pending'
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-slate-200 text-slate-500'
+              }`}>
+                {docs.filter(d => d.status === '待审核').length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -645,13 +743,22 @@ export default function KnowledgeBase() {
                         {/* 操作 */}
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-1">
-                            {/* 查看 */}
+                            {/* v13.3: 预览 — 签名 URL */}
                             <button
-                              onClick={() => handleView(doc)}
+                              onClick={() => handlePreview(doc)}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="查看文档"
+                              title="在线预览"
                             >
                               <Eye size={15} />
+                            </button>
+
+                            {/* v13.3: 下载 — 签名 URL + fetch Blob */}
+                            <button
+                              onClick={() => handleDownload(doc)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                              title="下载（签名 URL）"
+                            >
+                              <Download size={15} />
                             </button>
 
                             {/* v12.1: 高管审批 — 确认入库 */}
@@ -713,52 +820,6 @@ export default function KnowledgeBase() {
           </div>
         </div>
       </div>
-
-      {/* ════════════════════════════════════════════════════════ */}
-      {/* 文件预览弹窗 */}
-      {/* ════════════════════════════════════════════════════════ */}
-      {previewUrl && (
-        <div
-          className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => { setPreviewUrl(null); setPreviewName(''); }}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-800 truncate flex items-center gap-2">
-                <File size={16} className="text-blue-500 shrink-0" />
-                {previewName}
-              </h3>
-              <button
-                onClick={() => { setPreviewUrl(null); setPreviewName(''); }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto">
-              {previewUrl.match(/\.(pdf)$/i) ? (
-                <iframe src={previewUrl} className="w-full h-[75vh] border-0" title="文档预览" />
-              ) : (
-                <div className="flex flex-col items-center justify-center py-20 gap-4 text-slate-400">
-                  <Download size={48} className="text-slate-200" />
-                  <p className="text-sm">该格式不支持在线预览</p>
-                  <a
-                    href={previewUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-500 transition-colors"
-                  >
-                    下载查看
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ════════════════════════════════════════════════════════ */}
       {/* v12.1: 打回原因弹窗 */}

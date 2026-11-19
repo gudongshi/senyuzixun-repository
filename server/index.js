@@ -7193,17 +7193,21 @@ app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (re
       console.warn('⚠️ [kb] 无法解析上传用户:', e.message);
     }
 
-    // 生成存储路径: kb_docs/YYYY/MM/timestamp_UUID.ext（v12.3：移除中文文件名，避免乱码）
+    // 生成存储路径: kb_docs/YYYY/MM/timestamp_UUID.ext（v12.6：修复中文文件名编码）
+    let kbDisplayName = req.file.originalname;
+    try {
+      kbDisplayName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    } catch (_) {}
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const timestamp = Date.now();
     const crypto = require('crypto');
-    const ext = path.extname(req.file.originalname).toLowerCase();
+    const ext = path.extname(kbDisplayName).toLowerCase() || path.extname(req.file.originalname).toLowerCase();
     const safeFileName = `${timestamp}_${crypto.randomUUID()}${ext}`;
     const storagePath = `kb_docs/${year}/${month}/${safeFileName}`;
 
-    console.log(`📤 [kb] 上传文件: ${req.file.originalname} → ${storagePath}`);
+    console.log(`📤 [kb] 上传文件: ${kbDisplayName} → ${storagePath}`);
 
     // 上传到 Supabase Storage
     const { data: uploadData, error: uploadErr } = await client.storage
@@ -7229,8 +7233,9 @@ app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (re
     const { data: doc, error: dbErr } = await client
       .from('kb_documents')
       .insert({
-        file_name: req.file.originalname,
+        file_name: kbDisplayName,
         file_url: fileUrl,
+        storage_path: storagePath,  // v12.9
         category,
         doc_type,
         security_level,
@@ -7416,7 +7421,383 @@ app.delete('/api/kb/documents/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/kb/documents/:id/preview — v13.3：企业知识库预览/下载（仿 my-files 方案）
+app.get('/api/kb/documents/:id/preview', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // 查记录
+    const { data: doc, error: findErr } = await client
+      .from('kb_documents')
+      .select('id, file_name, file_url, storage_path')
+      .eq('id', id)
+      .single();
+
+    if (findErr || !doc) {
+      return res.status(404).json({ success: false, error: '文档不存在' });
+    }
+
+    console.log('====== [kb] 开始诊断 PREVIEW 接口 ======');
+    console.log('1. 请求的文档 ID:', req.params.id);
+    console.log('2. 数据库中查到的记录:', JSON.stringify(doc, null, 2));
+
+    // v13.3: 优先使用 storage_path，回退到 URL 解析
+    let rawPath = doc.storage_path || '';
+    if (!rawPath) {
+      try {
+        const urlObj = new URL(doc.file_url);
+        const m = urlObj.pathname.match(/\/kb_files\/(.+)$/);
+        if (m) rawPath = decodeURIComponent(m[1]);
+      } catch (_) {}
+    }
+
+    // 清洗路径：去前导斜杠 + 去掉可能的 bucket 名前缀
+    const cleanPath = String(rawPath).replace(/^\/+/, '').replace(/^kb_files\//, '');
+    console.log('3. 最终传给 createSignedUrl 的桶名:', 'kb_files');
+    console.log('4. 最终传给 createSignedUrl 的路径:', cleanPath);
+    console.log('4b. download 文件名:', doc.file_name || '(空)');
+
+    if (!cleanPath || cleanPath === 'undefined' || cleanPath === 'null') {
+      console.error('❌ [kb] 路径为空，无法签名！');
+      console.error('   doc.storage_path:', doc.storage_path);
+      console.error('   doc.file_url:', doc.file_url);
+      return res.status(500).json({
+        success: false,
+        error: '文件路径为空，无法生成签名链接。storage_path=' + (doc.storage_path || '(空)') + ' file_url=' + (doc.file_url || '(空)'),
+      });
+    }
+
+    // v13.3: 下载时强制指定原始中文文件名
+    const signOpts = {};
+    if (req.query.download && doc.file_name) {
+      signOpts.download = doc.file_name;
+    }
+
+    const { data: signedData, error: signedErr } = await client.storage
+      .from('kb_files')
+      .createSignedUrl(cleanPath, 3600, signOpts);
+
+    console.log('5. Supabase 返回的 data:', signedData);
+    console.log('6. Supabase 返回的 error:', signedErr);
+    console.log('===================================');
+
+    if (signedErr) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase 签名失败: ' + (signedErr.message || JSON.stringify(signedErr)),
+        detail: { bucket: 'kb_files', path: cleanPath },
+      });
+    }
+
+    if (!signedData?.signedUrl) {
+      return res.status(500).json({ success: false, error: '签名链接为空' });
+    }
+
+    res.json({ success: true, signedUrl: signedData.signedUrl, file_name: doc.file_name || '' });
+  } catch (err) {
+    console.error('❌ [kb] 预览异常:', err.message);
+    res.status(500).json({ success: false, error: '获取预览链接失败' });
+  }
+});
+
 // ============================================================
+// v12.4 我的文件（个人知识库）API
+// ============================================================
+
+const myFilesUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
+
+// GET /api/my-files — 获取当前用户的文件列表
+app.get('/api/my-files', authMiddleware, async (req, res) => {
+  try {
+    // v12.7: 使用 authMiddleware 注入的 req.user，而非重新解析 JWT（兼容 mock token）
+    let userId = req.user?.userId || '';
+    if (!userId && process.env.NODE_ENV !== 'production') {
+      userId = 'dev';
+      console.log('🔧 [MyFiles DEV] 使用默认 mock 用户: dev');
+    }
+    console.log('🔍 [MyFiles GET] 当前用户 ID:', userId);
+
+    const client = supabaseAdmin || supabase;
+    const { data, error } = await client
+      .from('personal_files')
+      .select('*')
+      .eq('uploader_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ [my-files] 查询失败:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log(`🗂️ [my-files] 用户 ${userId} 查询: ${data?.length || 0} 个文件`);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ [my-files] 查询异常:', err.message);
+    res.status(500).json({ success: false, error: '查询文件列表失败' });
+  }
+});
+
+// POST /api/my-files — 上传文件
+app.post('/api/my-files', authMiddleware, myFilesUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '请选择要上传的文件' });
+    }
+
+    // v12.7: 调试日志 — 查看实际收到的内容
+    console.log('🔍 [MyFiles POST] req.body:', JSON.stringify(req.body));
+    console.log('🔍 [MyFiles POST] req.file.originalname:', JSON.stringify(req.file.originalname));
+    console.log('🔍 [MyFiles POST] req.body keys:', Object.keys(req.body));
+
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // v12.7: 使用 req.user 获取上传者
+    let uploaderId = req.user?.userId || '';
+    if (!uploaderId && process.env.NODE_ENV !== 'production') {
+      uploaderId = 'dev';
+      console.log('🔧 [MyFiles DEV] 使用默认 mock 上传者: dev');
+    }
+    console.log('🔍 [MyFiles POST] 上传者 ID:', uploaderId);
+
+    // v12.7: 文件名获取（三层回退）
+    let displayName = '';
+    // 第1层：前端显式传的 file_name（最可靠）
+    if (req.body.file_name && req.body.file_name.trim() !== '') {
+      displayName = req.body.file_name.trim();
+    }
+    // 第2层：修复 multer 的 latin1→utf8 编码
+    if (!displayName) {
+      try {
+        const fixed = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+        if (fixed && fixed !== req.file.originalname && !fixed.includes('�')) {
+          displayName = fixed;
+        }
+      } catch (_) {}
+    }
+    // 第3层：直接用 originalname（纯 ASCII 文件）
+    if (!displayName) {
+      displayName = req.file.originalname;
+    }
+    console.log('🔍 [MyFiles POST] 最终 displayName:', JSON.stringify(displayName));
+
+    // v12.7: 存储路径不再包含桶名前缀！
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const ext = path.extname(displayName).toLowerCase() || path.extname(req.file.originalname).toLowerCase();
+    const safeFileName = `${Date.now()}_${require('crypto').randomUUID()}${ext}`;
+    const storagePath = `${year}/${month}/${uploaderId}/${safeFileName}`;  // ← 不带 my_files/ 前缀
+
+    console.log('🔍 [MyFiles POST] storagePath:', storagePath);
+    console.log(`📤 [my-files] 上传: ${displayName} → ${storagePath}`);
+
+    // 上传到 my_files 存储桶
+    const { error: uploadErr } = await client.storage
+      .from('my_files')
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      console.error('❌ [my-files] Storage 上传失败:', uploadErr);
+      return res.status(500).json({ success: false, error: '文件存储失败: ' + uploadErr.message });
+    }
+
+    const { data: urlData } = await client.storage
+      .from('my_files')
+      .getPublicUrl(storagePath);
+
+    const fileUrl = urlData?.publicUrl || '';
+
+    const { data: file, error: dbErr } = await client
+      .from('personal_files')
+      .insert({
+        file_name: displayName,
+        file_url: fileUrl,
+        storage_path: storagePath,  // v12.9: 存原始相对路径
+        file_size: req.file.size,
+        uploader_id: uploaderId,
+      })
+      .select()
+      .single();
+
+    if (dbErr) {
+      console.error('❌ [my-files] 数据库写入失败:', dbErr);
+      try { await client.storage.from('my_files').remove([storagePath]); } catch (_) {}
+      return res.status(500).json({ success: false, error: '保存文件信息失败: ' + dbErr.message });
+    }
+
+    console.log(`✅ [my-files] 上传成功: ID=${file.id} | ${file.file_name}`);
+    res.json({ success: true, data: file });
+  } catch (err) {
+    console.error('❌ [my-files] 上传异常:', err.message);
+    res.status(500).json({ success: false, error: '上传文件失败' });
+  }
+});
+
+// DELETE /api/my-files/:id — 删除文件（仅所有者可删）
+app.delete('/api/my-files/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // v12.7: 使用 req.user
+    let userId = req.user?.userId || '';
+    if (!userId && process.env.NODE_ENV !== 'production') {
+      userId = 'dev';
+    }
+    console.log('🔍 [MyFiles DELETE] 当前用户 ID:', userId);
+
+    // 先查记录，校验所有权 — v12.9 读 storage_path
+    const { data: file, error: findErr } = await client
+      .from('personal_files')
+      .select('id, file_name, file_url, storage_path, uploader_id')
+      .eq('id', id)
+      .single();
+
+    if (findErr || !file) {
+      return res.status(404).json({ success: false, error: '文件不存在' });
+    }
+
+    if (file.uploader_id !== userId) {
+      return res.status(403).json({ success: false, error: '无权删除他人文件' });
+    }
+
+    // v12.9: 优先用 storage_path 删除，回退到 URL 解析
+    let removePath = file.storage_path || '';
+    if (!removePath) {
+      try {
+        const urlObj = new URL(file.file_url);
+        const pathMatch = urlObj.pathname.match(/\/my_files\/(.+)$/);
+        if (pathMatch) removePath = decodeURIComponent(pathMatch[1]);
+      } catch (_) {}
+    }
+    removePath = String(removePath).replace(/^\/+/, '');
+
+    if (removePath) {
+      console.log('🔍 [MyFiles DELETE] 删除存储路径:', removePath);
+      const { error: rmErr } = await client.storage.from('my_files').remove([removePath]);
+      if (rmErr) console.warn('⚠️ [my-files] 存储文件清理失败:', rmErr.message);
+    }
+
+    // 删除数据库记录
+    const { error: delErr } = await client
+      .from('personal_files')
+      .delete()
+      .eq('id', id);
+
+    if (delErr) {
+      console.error('❌ [my-files] 删除失败:', delErr);
+      return res.status(500).json({ success: false, error: '删除文件失败: ' + delErr.message });
+    }
+
+    console.log(`✅ [my-files] 已删除: ID=${id} | ${file.file_name}`);
+    res.json({ success: true, message: '文件已删除' });
+  } catch (err) {
+    console.error('❌ [my-files] 删除异常:', err.message);
+    res.status(500).json({ success: false, error: '删除文件失败' });
+  }
+});
+
+// GET /api/my-files/:id/preview — v13.0：终极诊断版
+app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // v12.7: 使用 req.user
+    let userId = req.user?.userId || '';
+    if (!userId && process.env.NODE_ENV !== 'production') {
+      userId = 'dev';
+    }
+
+    // 查记录
+    const { data: file, error: findErr } = await client
+      .from('personal_files')
+      .select('id, file_url, storage_path, uploader_id')
+      .eq('id', id)
+      .single();
+
+    if (findErr || !file) {
+      return res.status(404).json({ success: false, error: '文件不存在' });
+    }
+
+    console.log('====== 开始诊断 PREVIEW 接口 ======');
+    console.log('1. 请求的文件 ID:', req.params.id);
+    console.log('2. 数据库中查到的记录:', JSON.stringify(file, null, 2));
+
+    // v12.9: 先用 storage_path，回退 URL 解析
+    let rawPath = file.storage_path || '';
+    if (!rawPath) {
+      try {
+        const urlObj = new URL(file.file_url);
+        const m = urlObj.pathname.match(/\/my_files\/(.+)$/);
+        if (m) rawPath = decodeURIComponent(m[1]);
+      } catch (_) {}
+    }
+
+    const cleanPath = String(rawPath).replace(/^\/+/, '').replace(/^my_files\//, '');
+    console.log('3. 最终传给 createSignedUrl 的桶名:', 'my_files');
+    console.log('4. 最终传给 createSignedUrl 的路径:', cleanPath);
+    console.log('4b. download 文件名:', file.file_name || '(空)');
+
+    if (!cleanPath || cleanPath === 'undefined' || cleanPath === 'null') {
+      console.error('❌ 路径为空，无法签名！');
+      console.error('   file.storage_path:', file.storage_path);
+      console.error('   file.file_url:', file.file_url);
+      return res.status(500).json({ success: false, error: '文件路径为空，无法生成签名链接。storage_path=' + (file.storage_path || '(空)') + ' file_url=' + (file.file_url || '(空)') });
+    }
+
+    // v13.2: 下载时强制指定原始中文文件名
+    const signOpts = {};
+    if (req.query.download && file.file_name) {
+      signOpts.download = file.file_name;
+    }
+
+    const { data: signedData, error: signedErr } = await client.storage
+      .from('my_files')
+      .createSignedUrl(cleanPath, 3600, signOpts);
+
+    console.log('5. Supabase 返回的 data:', signedData);
+    console.log('6. Supabase 返回的 error:', signedErr);
+    console.log('===================================');
+
+    if (signedErr) {
+      // 绝对不能返回任何会被浏览器当作有效 URL 的内容
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase 签名失败: ' + (signedErr.message || JSON.stringify(signedErr)),
+        detail: { bucket: 'my_files', path: cleanPath },
+      });
+    }
+
+    if (!signedData?.signedUrl) {
+      return res.status(500).json({ success: false, error: '签名链接为空' });
+    }
+
+    res.json({ success: true, signedUrl: signedData.signedUrl, file_name: file.file_name || '' });
+  } catch (err) {
+    console.error('❌ [my-files] 预览异常:', err.message);
+    res.status(500).json({ success: false, error: '获取预览链接失败' });
+  }
+});
 
 // ============================================================
 // 打印费分摊 API

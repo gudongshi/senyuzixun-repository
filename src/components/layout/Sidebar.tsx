@@ -1,13 +1,13 @@
 ﻿import { useState, type ReactNode } from 'react';
 import {
   LayoutDashboard, ClipboardList, ShieldCheck, Globe, Settings,
-  Menu, X, LogOut, ChevronLeft, Printer, BookOpen,
+  Menu, X, LogOut, ChevronLeft, Printer, BookOpen, FolderOpen,
 } from 'lucide-react';
 
 // ============================================================
 // 类型
 // ============================================================
-export type PageKey = 'home' | 'qualifications' | 'siteHub' | 'print' | 'knowledgeBase' | 'settings';
+export type PageKey = 'home' | 'qualifications' | 'siteHub' | 'print' | 'knowledgeBase' | 'myFiles' | 'settings';
 
 export interface NavItem {
   key: PageKey;
@@ -22,6 +22,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'siteHub',     label: '官网管理',     icon: Globe },
   { key: 'print',       label: '🖨️ 打印分摊', icon: Printer },
   { key: 'knowledgeBase', label: '📚 企业知识库', icon: BookOpen },
+  { key: 'myFiles',     label: '🗂️ 我的文件', icon: FolderOpen },
   { key: 'settings',    label: '系统设置',     icon: Settings },
 ];
 
