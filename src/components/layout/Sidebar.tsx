@@ -68,17 +68,11 @@ export default function Sidebar({
           ${collapsed ? 'justify-center' : 'gap-3'}
         `}>
           {!collapsed && (
-            <>
-              <img
-                src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg"
-                alt="森宇集团"
-                className="h-8 w-auto rounded-lg"
-                onError={(e) => (e.currentTarget.style.display = 'none')}
-              />
-              <span className="text-sm font-bold text-slate-800 truncate">
-                森宇集团
-              </span>
-            </>
+            <img
+              src="/logo.png"
+              alt="森宇集团"
+              className="h-8 object-contain"
+            />
           )}
           {collapsed && (
             <div className="size-9 rounded-lg bg-slate-900 flex items-center justify-center text-white text-xs font-bold">
@@ -124,6 +118,9 @@ export default function Sidebar({
 
         {/* 底部：折叠按钮 + 用户 + 登出 */}
         <div className="border-t border-slate-100 p-3 space-y-2 shrink-0">
+          {/* 底部：版本号 */}
+          <div className="text-[10px] text-slate-400 text-center pb-1">System v13.4</div>
+
           {/* 折叠切换 */}
           <button
             onClick={onToggleCollapse}
@@ -212,12 +209,10 @@ function MobileSidebar({
         <div className="flex items-center justify-between h-16 px-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <img
-              src="https://dt-beebot-prod.oss-cn-zhangjiakou.aliyuncs.com/dingtalk_prod_media/20260511/14/22/34/468053ed-51e7-4f77-ab5b-f0c6e1cdd6ee/%E6%A3%AE%E5%AE%87logo-1.jpg"
+              src="/logo.png"
               alt="森宇集团"
-              className="h-8 w-auto rounded-lg"
-              onError={(e) => (e.currentTarget.style.display = 'none')}
+              className="h-8 object-contain"
             />
-            <span className="text-sm font-bold text-slate-800">森宇集团</span>
           </div>
           <button
             onClick={() => setOpen(false)}

@@ -80,6 +80,11 @@ export default function MyFiles() {
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请选择文件'); return; }
+    // v13.4: 前端拦截超过 50MB 的文件
+    if (selectedFile.size > 50 * 1024 * 1024) {
+      toast.error('文件大小超过 50MB，请压缩后再试');
+      return;
+    }
 
     setUploading(true);
     try {
@@ -214,7 +219,7 @@ export default function MyFiles() {
             <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 私人空间 · 随时取用</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v13.2</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v13.4</span>
           </div>
         </div>
       </div>

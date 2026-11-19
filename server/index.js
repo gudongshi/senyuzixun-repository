@@ -7103,12 +7103,12 @@ async function extractTextForScan(file) {
 
 const kbUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // v13.4: 放宽至 50MB，支持大文件
   fileFilter: (req, file, cb) => {
-    const allowed = ['.pdf', '.doc', '.docx', '.txt', '.xls', '.xlsx'];
+    const allowed = ['.pdf', '.doc', '.docx', '.txt', '.xls', '.xlsx', '.ppt', '.pptx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) return cb(null, true);
-    cb(new Error('仅支持 PDF / Word / Excel / TXT 格式'));
+    cb(new Error('仅支持 PDF / Word / Excel / PPT / TXT 格式'));
   },
 });
 

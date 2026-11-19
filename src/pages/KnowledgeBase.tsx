@@ -137,6 +137,8 @@ export default function KnowledgeBase() {
       'text/plain': ['.txt'],
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.ms-powerpoint': ['.ppt'],
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
     },
   });
 
@@ -146,6 +148,11 @@ export default function KnowledgeBase() {
   const handleUpload = async () => {
     // 校验必填项
     if (!selectedFile) { toast.error('请先选择文件'); return; }
+    // v13.4: 前端拦截超过 50MB 的文件
+    if (selectedFile.size > 50 * 1024 * 1024) {
+      toast.error('文件大小超过 50MB，请压缩后再试。（提示：如为 PPT 等大文件，请检查是否有高清图片）');
+      return;
+    }
     if (!category) { toast.error('请选择业务大类'); return; }
     if (!docType) { toast.error('请选择文档类型'); return; }
     if (!securityLevel) { toast.error('请选择密级'); return; }
@@ -391,7 +398,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v13.3</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v13.4</span>
           </div>
         </div>
       </div>
@@ -492,7 +499,7 @@ export default function KnowledgeBase() {
                   {' '}或拖拽文件到此处
                 </p>
                 <p className="text-xs text-slate-400">
-                  支持 PDF / Word / Excel / TXT，单文件最大 50MB
+                  支持 PDF / Word / Excel / PPT / TXT，单文件最大 50MB
                 </p>
               </div>
             )}

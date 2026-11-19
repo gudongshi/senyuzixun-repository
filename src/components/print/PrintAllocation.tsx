@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v13.2'; // 版本标识：下载保留原始中文文件名
+const BUILD_VER  = 'v13.4'; // 版本标识：下载保留原始中文文件名
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v13.2');
+  console.log('🚀 当前前端版本：v13.4');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -1204,7 +1204,6 @@ export default function PrintAllocation() {
         <div>
           <h2 className="text-lg font-bold text-slate-800">🖨️ 打印费分摊</h2>
           <p className="text-xs text-slate-500">部门印量管理 · 阶梯计价 · 抹零分摊
-            <span className="ml-2 text-[11px] text-amber-600 font-mono font-semibold select-all bg-amber-50 px-1.5 py-0.5 rounded">{BUILD_VER}</span>
           </p>
         </div>
       </div>
