@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v14.0'; // 版本标识：下载保留原始中文文件名
+const BUILD_VER  = 'v14.1'; // 版本标识：下载保留原始中文文件名
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v14.0');
+  console.log('🚀 当前前端版本：v14.1');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -488,27 +488,31 @@ export default function PrintAllocation() {
 
           if (lastSeenIdRef.current !== null && latestId !== lastSeenIdRef.current) {
             console.log('🔄 [Demo] 检测到新记录 ID=' + latestId + ' 月份=' + latestMonth + ' 状态=' + latestStatus);
+            console.log('📡 [Sync] 发现新数据，手机端月份:', latestMonth, '电脑端当前月份:', billingMonth);
 
-            // ── v13.9: 期待感动画（根据 status 显示不同文字）──
+            // ── v14.1: 先立即切换月份，再等待动画 ──
             syncingRef.current = true;
             lastSeenIdRef.current = latestId;
             setRefreshLabel('');
             const monthDisplay = latestMonth.replace(/^(\d{4})-(\d{2})$/, '$1年$2月');
             setSyncingOverlay({ visible: true, month: monthDisplay, status: latestStatus });
 
-            // 等待 4 秒
+            // v14.1: 立刻切换月份（防止动画结束后错把数据灌进旧月份）
+            if (latestMonth !== billingMonth) {
+              console.log('📡 [Sync] 切换月份: ' + billingMonth + ' → ' + latestMonth);
+              isSwitchingMonthRef.current = true;
+              setBillingMonth(latestMonth);
+            }
+
+            // 等待 4 秒动画
             await new Promise<void>(r => setTimeout(r, 4000));
 
-            // 加载新月份数据
+            // v14.1: 加载新月份数据（此时 billingMonth 已是正确月份）
             try {
               const checkResp = await fetch('/api/print/records/check?month=' + encodeURIComponent(latestMonth));
               const checkJson = await checkResp.json();
               if (checkJson.success && checkJson.found) {
                 const { record, items } = checkJson;
-                if (latestMonth !== billingMonth) {
-                  isSwitchingMonthRef.current = true;
-                }
-                setBillingMonth(latestMonth);
                 setInvoiceTotal(String(record.invoice_total));
                 if (items && items.length > 0) {
                   const curDepts = departmentsRef.current;
@@ -1102,7 +1106,7 @@ export default function PrintAllocation() {
     } finally {
       setOcrLoading(false);
     }
-  }, [rows]);
+  }, [rows, billingMonth]); // v14.1: 确保 billingMonth 随月份切换同步更新
 
   // ── v11.0: 发票金额 OCR — 直接上传文件到后端解析 ──
   const handleInvoiceOcr = useCallback(async (acceptedFiles: File[]) => {
@@ -1183,7 +1187,7 @@ export default function PrintAllocation() {
     } finally {
       setOcrInvoiceLoading(false);
     }
-  }, []);
+  }, [billingMonth]); // v14.1 FIX: 之前为 [] 导致 billingMonth 永远为初始值，发票月份错乱
 
   // react-dropzone 配置（v10.1: 双入口）
   // 左：打印账单 OCR（识别表格 → 填入印量）
