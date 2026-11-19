@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v13.8'; // 版本标识：下载保留原始中文文件名
+const BUILD_VER  = 'v13.9'; // 版本标识：下载保留原始中文文件名
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v13.8');
+  console.log('🚀 当前前端版本：v13.9');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -215,8 +215,8 @@ export default function PrintAllocation() {
   const [refreshLabel, setRefreshLabel] = useState('');
   const lastSeenIdRef = useRef<number | null>(null);
 
-  // v13.8: 期待感动画遮罩
-  const [syncingOverlay, setSyncingOverlay] = useState<{ visible: boolean; month: string }>({ visible: false, month: '' });
+  // v13.9: 期待感动画遮罩（含状态字段，区分 draft/saved 文字）
+  const [syncingOverlay, setSyncingOverlay] = useState<{ visible: boolean; month: string; status: string }>({ visible: false, month: '', status: '' });
   const syncingRef = useRef(false); // 防止动画期间重复触发
 
   // 新增行临时状态
@@ -467,7 +467,7 @@ export default function PrintAllocation() {
     console.log('💾 [AutoSave] 草稿已保存到 ' + getDraftKey(billingMonth) + '：' + rows.length + ' 个部门, invoiceTotal=' + invoiceTotal, rows);
   }, [rows, invoiceTotal, billingMonth, loaded]);
 
-  // v13.8: 演示模式 — 每 3 秒轮询，发现新数据先播放 4 秒期待感动画
+  // v13.9: 演示模式 — 每 3 秒轮询，发现新数据先播放 4 秒期待感动画（区分 draft/saved）
   useEffect(() => {
     if (!demoMode) {
       setRefreshLabel('');
@@ -475,24 +475,28 @@ export default function PrintAllocation() {
     }
     setRefreshLabel('⏳ 轮询中…');
     const timer = setInterval(async () => {
-      if (syncingRef.current) return; // v13.8: 动画进行中，跳过本轮
+      if (syncingRef.current) return;
       try {
+        console.log('📡 [Polling] 正在获取最新记录…');
         const resp = await fetch('/api/print/records/latest');
         const json = await resp.json();
         if (json.success && json.latest) {
           const latestId = json.latest.id;
           const latestMonth = json.latest.billing_month || billingMonth;
-          if (lastSeenIdRef.current !== null && latestId !== lastSeenIdRef.current) {
-            console.log('🔄 [Demo] 检测到新记录 ID=' + latestId + ' 月份=' + latestMonth);
+          const latestStatus = json.latest.status || 'saved';
+          console.log('📡 [Polling] 最新记录: ID=' + latestId + ' 月份=' + latestMonth + ' 状态=' + latestStatus + ' (上次ID=' + lastSeenIdRef.current + ')');
 
-            // ── v13.8: 期待感动画 ──
+          if (lastSeenIdRef.current !== null && latestId !== lastSeenIdRef.current) {
+            console.log('🔄 [Demo] 检测到新记录 ID=' + latestId + ' 月份=' + latestMonth + ' 状态=' + latestStatus);
+
+            // ── v13.9: 期待感动画（根据 status 显示不同文字）──
             syncingRef.current = true;
             lastSeenIdRef.current = latestId;
             setRefreshLabel('');
             const monthDisplay = latestMonth.replace(/^(\d{4})-(\d{2})$/, '$1年$2月');
-            setSyncingOverlay({ visible: true, month: monthDisplay });
+            setSyncingOverlay({ visible: true, month: monthDisplay, status: latestStatus });
 
-            // 等待 4 秒，给观众充足的视觉期待
+            // 等待 4 秒
             await new Promise<void>(r => setTimeout(r, 4000));
 
             // 加载新月份数据
@@ -501,7 +505,6 @@ export default function PrintAllocation() {
               const checkJson = await checkResp.json();
               if (checkJson.success && checkJson.found) {
                 const { record, items } = checkJson;
-                // v13.8: 自动切换到新月份
                 if (latestMonth !== billingMonth) {
                   isSwitchingMonthRef.current = true;
                 }
@@ -542,22 +545,26 @@ export default function PrintAllocation() {
                     setTimeout(() => { isSwitchingMonthRef.current = false; }, 200);
                   }
                 }
-                showMessage('success', '📱 已同步手机端最新识别数据（' + monthDisplay + '）');
+                const toastMsg = latestStatus === 'draft'
+                  ? '📱 AI 识别数据已同步至大屏（' + monthDisplay + '）'
+                  : '✅ 账单已确认，同步最终结果（' + monthDisplay + '）';
+                showMessage('success', toastMsg);
               }
             } catch {
               showMessage('error', '刷新数据失败，请手动点击"刷新数据"按钮重试');
             }
 
-            // 关闭遮罩，恢复轮询
-            setSyncingOverlay({ visible: false, month: '' });
+            setSyncingOverlay({ visible: false, month: '', status: '' });
             syncingRef.current = false;
             setRefreshLabel('⏳ 轮询中…');
           } else {
             lastSeenIdRef.current = latestId;
           }
+        } else {
+          console.log('📡 [Polling] 无记录');
         }
-      } catch {
-        // 轮询静默失败，不打扰用户
+      } catch (err: any) {
+        console.warn('📡 [Polling] 轮询异常:', err.message);
       }
     }, 3000);
 
@@ -1041,6 +1048,50 @@ export default function PrintAllocation() {
           (unmatchedCount > 0 ? '，' + unmatchedCount + ' 个未匹配' : ''),
           5000
         );
+
+        // ── v13.9: AI 识别完成后自动保存为 draft，触发大屏轮询 ──
+        try {
+          const calcResult = calculateAllocation(sanitized, invoiceVal);
+          const payload = {
+            status: 'draft',
+            billing_month: billingMonth,
+            invoice_total: invoiceVal || 0,
+            total_bw_pages: calcResult.summary.totalBw,
+            total_color_pages: calcResult.summary.totalColor,
+            total_pages: calcResult.summary.totalPages,
+            bw_total_fee: calcResult.summary.bwTotalFee,
+            color_fee: calcResult.summary.colorTotalFee,
+            secret_fee: calcResult.summary.secretFee,
+            theoretical_total: calcResult.summary.theoreticalTotal,
+            difference: calcResult.summary.difference,
+            items: calcResult.results.map(r => ({
+              dept_name: r.dept_name,
+              bw_pages: r.bwPages,
+              color_pages: r.colorPages,
+              total_pages: r.totalPages,
+              bw_fee_share: r.bwFeeShare,
+              color_fee: r.colorFee,
+              secret_fee_share: r.secretFeeShare,
+              difference_share: r.differenceShare,
+              actual_fee: r.actualFee,
+              machine_location: r.machine_location,
+              machine_number: r.machine_number,
+              sort_order: 0,
+            })),
+          };
+          const autoSaveResp = await fetch('/api/print/records', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const autoSaveJson = await autoSaveResp.json();
+          console.log('📤 [OCR AutoDraft] 自动保存 draft 结果:', autoSaveJson.success ? '✅ 成功' : '❌ ' + (autoSaveJson.error || '失败'));
+          if (autoSaveJson.success) {
+            console.log('📤 [OCR AutoDraft] 草稿已入库，电脑端轮询将检测到并触发同步动画');
+          }
+        } catch (e: any) {
+          console.warn('⚠️ [OCR AutoDraft] 自动保存草稿失败（非致命）:', e.message);
+        }
       } else {
         showMessage('success', '🤖 识别了 ' + cleanedItems.length + ' 个部门，但均未匹配到系统', 5000);
       }
@@ -1785,9 +1836,15 @@ export default function PrintAllocation() {
 
             {/* 动画文字 */}
             <div className="text-center space-y-3">
-              <p className="text-cyan-400 text-lg font-bold animate-pulse">
-                📱 检测到手机端上传的 {syncingOverlay.month} 数据
+              {/* v13.9: 根据 status 显示不同文案 */}
+              <p className={`text-lg font-bold animate-pulse ${
+                syncingOverlay.status === 'draft' ? 'text-cyan-400' : 'text-emerald-400'
+              }`}>
+                {syncingOverlay.status === 'draft'
+                  ? `📱 AI 识别完成，正在同步至大屏…`
+                  : `✅ 账单已确认，同步最终结果…`}
               </p>
+              <p className="text-slate-400 text-sm">{syncingOverlay.month} 数据</p>
               <p className="text-slate-400 text-sm flex items-center justify-center gap-2">
                 <span className="inline-block size-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
                 <span className="inline-block size-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />

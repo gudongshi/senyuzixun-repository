@@ -8039,29 +8039,33 @@ app.delete('/api/print/records/month/:month', authMiddleware, async (req, res) =
   }
 });
 
-// GET /api/print/records/check?month=YYYY-MM — 查询某月是否有历史账单
+// GET /api/print/records/check?month=YYYY-MM — v13.9：查询某月账单（saved 优先，draft 兜底）
 app.get('/api/print/records/check', authMiddleware, async (req, res) => {
   try {
     const month = req.query.month;
     if (!month) return res.status(400).json({ success: false, error: 'month 参数必填' });
     const client = supabaseAdmin || supabase;
 
-    // 查母表（优先查正式账单，其次草稿）
-    const { data: record, error: recErr } = await client
-      .from('print_records')
-      .select('*')
-      .eq('billing_month', month)
-      .eq('status', 'saved')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (recErr) {
-      console.error('❌ [check] 查询母表失败:', recErr);
-      return res.status(500).json({ success: false, error: recErr.message });
+    // v13.9: 优先查 saved，其次 draft
+    let record = null;
+    for (const st of ['saved', 'draft']) {
+      const { data, error: recErr } = await client
+        .from('print_records')
+        .select('*')
+        .eq('billing_month', month)
+        .eq('status', st)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (recErr) {
+        console.error('❌ [check] 查询母表(' + st + ')失败:', recErr);
+        continue;
+      }
+      if (data) { record = data; break; }
     }
+
     if (!record) {
-      console.log('📅 [check] ' + month + ' 无正式账单');
+      console.log('📅 [check] ' + month + ' 无账单（saved 或 draft）');
       return res.json({ success: true, found: false });
     }
 
@@ -8077,21 +8081,21 @@ app.get('/api/print/records/check', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: itemErr.message });
     }
 
-    console.log('📅 [check] ' + month + ' 找到账单: ¥' + record.invoice_total + ', ' + (items?.length || 0) + ' 个部门');
+    console.log('📅 [check] ' + month + ' 找到账单: ¥' + record.invoice_total + ', ' + (items?.length || 0) + ' 个部门, 状态=' + record.status);
     res.json({ success: true, found: true, record, items });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// GET /api/print/records/latest — v13.6：返回最近一条入库记录（演示模式轮询用）
+// GET /api/print/records/latest — v13.9：返回最近一条记录（draft 或 saved，演示模式轮询用）
 app.get('/api/print/records/latest', authMiddleware, async (req, res) => {
   try {
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from('print_records')
-      .select('id, billing_month, created_at')
-      .eq('status', 'saved')
+      .select('id, billing_month, status, created_at')
+      .in('status', ['saved', 'draft'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -8101,6 +8105,7 @@ app.get('/api/print/records/latest', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    console.log('📡 [Latest] 最新记录:', data ? `ID=${data.id} 月份=${data.billing_month} 状态=${data.status}` : '(空)');
     res.json({ success: true, latest: data || null });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
