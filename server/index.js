@@ -8046,9 +8046,9 @@ app.get('/api/print/records/check', authMiddleware, async (req, res) => {
     if (!month) return res.status(400).json({ success: false, error: 'month 参数必填' });
     const client = supabaseAdmin || supabase;
 
-    // v13.9: 优先查 saved，其次 draft
+    // v14.0: 优先查 saved，其次 draft，最后 draft_invoice
     let record = null;
-    for (const st of ['saved', 'draft']) {
+    for (const st of ['saved', 'draft', 'draft_invoice']) {
       const { data, error: recErr } = await client
         .from('print_records')
         .select('*')
@@ -8088,14 +8088,14 @@ app.get('/api/print/records/check', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/print/records/latest — v13.9：返回最近一条记录（draft 或 saved，演示模式轮询用）
+// GET /api/print/records/latest — v14.0：返回最近一条记录（saved / draft / draft_invoice）
 app.get('/api/print/records/latest', authMiddleware, async (req, res) => {
   try {
     const client = supabaseAdmin || supabase;
     const { data, error } = await client
       .from('print_records')
       .select('id, billing_month, status, created_at')
-      .in('status', ['saved', 'draft'])
+      .in('status', ['saved', 'draft', 'draft_invoice'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();

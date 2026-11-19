@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx-js-style';
 function getDraftKey(month: string): string {
   return 'print_draft_' + month;
 }
-const BUILD_VER  = 'v13.9'; // 版本标识：下载保留原始中文文件名
+const BUILD_VER  = 'v14.0'; // 版本标识：下载保留原始中文文件名
 
 // ══════════════════════════════════════════════════════════════
 // v9.2: AI 识别部门别名映射表
@@ -186,7 +186,7 @@ function round2(n: number): number {
 
 export default function PrintAllocation() {
   // ── 强制版本日志（F12 第一条就能看到）──
-  console.log('🚀 当前前端版本：v13.9');
+  console.log('🚀 当前前端版本：v14.0');
 
   // ── 状态 ──
   const [departments, setDepartments]     = useState<Department[]>([]);
@@ -545,9 +545,11 @@ export default function PrintAllocation() {
                     setTimeout(() => { isSwitchingMonthRef.current = false; }, 200);
                   }
                 }
-                const toastMsg = latestStatus === 'draft'
-                  ? '📱 AI 识别数据已同步至大屏（' + monthDisplay + '）'
-                  : '✅ 账单已确认，同步最终结果（' + monthDisplay + '）';
+                const toastMsg = latestStatus === 'draft_invoice'
+                  ? '🧾 发票金额已同步至大屏（' + monthDisplay + '）'
+                  : latestStatus === 'draft'
+                    ? '📱 AI 识别数据已同步至大屏（' + monthDisplay + '）'
+                    : '✅ 账单已确认，同步最终结果（' + monthDisplay + '）';
                 showMessage('success', toastMsg);
               }
             } catch {
@@ -1120,8 +1122,59 @@ export default function PrintAllocation() {
 
       const json = await res.json();
       if (json.success && typeof json.totalAmount === 'number') {
-        setInvoiceTotal(String(json.totalAmount));
-        showMessage('success', '🧾 已识别发票金额 ¥' + json.totalAmount, 5000);
+        const amount = json.totalAmount;
+        setInvoiceTotal(String(amount));
+        showMessage('success', '🧾 已识别发票金额 ¥' + amount, 5000);
+
+        // ── v14.0: 发票识别后自动保存为 draft_invoice，触发大屏轮询 ──
+        try {
+          const curRows = rowsRef.current;
+          const sanitizedRows = curRows.map((r: DeptRow) => ({
+            ...r,
+            bwPages: Number(r.bwPages) || 0,
+            colorPages: Number(r.colorPages) || 0
+          }));
+          const calcResult = calculateAllocation(sanitizedRows, amount);
+          const payload = {
+            status: 'draft_invoice',
+            billing_month: billingMonth,
+            invoice_total: amount,
+            total_bw_pages: calcResult.summary.totalBw,
+            total_color_pages: calcResult.summary.totalColor,
+            total_pages: calcResult.summary.totalPages,
+            bw_total_fee: calcResult.summary.bwTotalFee,
+            color_fee: calcResult.summary.colorTotalFee,
+            secret_fee: calcResult.summary.secretFee,
+            theoretical_total: calcResult.summary.theoreticalTotal,
+            difference: calcResult.summary.difference,
+            items: calcResult.results.map((r: DeptResult) => ({
+              dept_name: r.dept_name,
+              bw_pages: r.bwPages,
+              color_pages: r.colorPages,
+              total_pages: r.totalPages,
+              bw_fee_share: r.bwFeeShare,
+              color_fee: r.colorFee,
+              secret_fee_share: r.secretFeeShare,
+              difference_share: r.differenceShare,
+              actual_fee: r.actualFee,
+              machine_location: r.machine_location,
+              machine_number: r.machine_number,
+              sort_order: 0,
+            })),
+          };
+          const autoSaveResp = await fetch('/api/print/records', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const autoSaveJson = await autoSaveResp.json();
+          console.log('🧾 [Invoice AutoDraft] 自动保存 draft_invoice 结果:', autoSaveJson.success ? '✅ 成功' : '❌ ' + (autoSaveJson.error || '失败'));
+          if (autoSaveJson.success) {
+            console.log('🧾 [Invoice AutoDraft] 发票草稿已入库，大屏轮询将检测到并触发同步动画');
+          }
+        } catch (e: any) {
+          console.warn('⚠️ [Invoice AutoDraft] 自动保存发票草稿失败（非致命）:', e.message);
+        }
       } else {
         showMessage('error', json.error || json.message || '发票识别失败，请手动输入', 5000);
       }
@@ -1836,13 +1889,16 @@ export default function PrintAllocation() {
 
             {/* 动画文字 */}
             <div className="text-center space-y-3">
-              {/* v13.9: 根据 status 显示不同文案 */}
+              {/* v14.0: 根据 status 显示不同文案（draft / draft_invoice / saved） */}
               <p className={`text-lg font-bold animate-pulse ${
+                syncingOverlay.status === 'draft_invoice' ? 'text-amber-400' :
                 syncingOverlay.status === 'draft' ? 'text-cyan-400' : 'text-emerald-400'
               }`}>
-                {syncingOverlay.status === 'draft'
-                  ? `📱 AI 识别完成，正在同步至大屏…`
-                  : `✅ 账单已确认，同步最终结果…`}
+                {syncingOverlay.status === 'draft_invoice'
+                  ? `🧾 检测到手机端发票金额，正在同步至大屏…`
+                  : syncingOverlay.status === 'draft'
+                    ? `📱 AI 识别完成，正在同步至大屏…`
+                    : `✅ 账单已确认，同步最终结果…`}
               </p>
               <p className="text-slate-400 text-sm">{syncingOverlay.month} 数据</p>
               <p className="text-slate-400 text-sm flex items-center justify-center gap-2">
