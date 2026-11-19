@@ -3501,7 +3501,7 @@ export default function Dashboard() {
           </div>
         </>
       )}
-    <div className="text-[10px] text-slate-600 text-center py-2">森宇集团 · 项目指挥大屏 · System v13.4</div>
+    <div className="text-[10px] text-slate-600 text-center py-2">森宇集团 · 项目指挥大屏 · System v13.5</div>
     </div>
   );
 }

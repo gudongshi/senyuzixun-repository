@@ -3375,7 +3375,7 @@ export default function ProjectManager() {
           </div>
         )}
 
-        {/* ── 我的文件页面 v12.4 ── */}
+        {/* ── 个人知识库页面 v12.4 ── */}
         {activePage === 'myFiles' && (
           <div className="flex-1 flex flex-col min-h-screen">
             <MyFiles />

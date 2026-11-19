@@ -7505,7 +7505,7 @@ app.get('/api/kb/documents/:id/preview', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v12.4 我的文件（个人知识库）API
+// v12.4 个人知识库 API
 // ============================================================
 
 const myFilesUpload = multer({

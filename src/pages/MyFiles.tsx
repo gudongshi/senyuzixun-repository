@@ -215,11 +215,11 @@ export default function MyFiles() {
             <FolderOpen size={20} className="text-violet-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">🗂️ 我的文件</h1>
-            <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 私人空间 · 随时取用</p>
+            <h1 className="text-lg font-bold text-slate-900">🗂️ 个人知识库</h1>
+            <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 随时演示调取</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v13.4</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v13.5</span>
           </div>
         </div>
       </div>

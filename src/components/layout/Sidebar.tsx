@@ -22,7 +22,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'siteHub',     label: '官网管理',     icon: Globe },
   { key: 'print',       label: '🖨️ 打印分摊', icon: Printer },
   { key: 'knowledgeBase', label: '📚 企业知识库', icon: BookOpen },
-  { key: 'myFiles',     label: '🗂️ 我的文件', icon: FolderOpen },
+  { key: 'myFiles',     label: '🗂️ 个人知识库', icon: FolderOpen },
   { key: 'settings',    label: '系统设置',     icon: Settings },
 ];
 
@@ -119,7 +119,7 @@ export default function Sidebar({
         {/* 底部：折叠按钮 + 用户 + 登出 */}
         <div className="border-t border-slate-100 p-3 space-y-2 shrink-0">
           {/* 底部：版本号 */}
-          <div className="text-[10px] text-slate-400 text-center pb-1">System v13.4</div>
+          <div className="text-[10px] text-slate-400 text-center pb-1">System v13.5</div>
 
           {/* 折叠切换 */}
           <button
