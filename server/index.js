@@ -7923,7 +7923,7 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v15.8 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
+// v15.9 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
 // ============================================================
 
 // v15.7: STS 临时凭证 — 防御性解析 + 完整错误日志
@@ -7957,12 +7957,12 @@ app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
       }],
     });
 
-    // v15.8: 对象传参 — 杜绝位置错位导致的签名错误
+    // v15.9: SDK 要求 camelCase 属性名
     const result = await stsClient.assumeRole({
-      RoleArn:         process.env.OSS_ROLE_ARN,
-      RoleSessionName: `oa-upload-${req.user?.userId || 'anon'}-${Date.now()}`,
-      DurationSeconds: 3600,
-      Policy:          policy,
+      roleArn:         process.env.OSS_ROLE_ARN,
+      roleSessionName: `oa-upload-${req.user?.userId || 'anon'}-${Date.now()}`,
+      durationSeconds: 3600,
+      policy:          typeof policy === 'string' ? policy : JSON.stringify(policy),
     });
 
     // v15.7: 防御性解析 — 兼容 @alicloud/sts-sdk 的多种返回结构
