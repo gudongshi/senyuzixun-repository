@@ -412,7 +412,7 @@ if (supabaseAdmin) {
 }
 
 // ============================================================
-// v15.6 阿里云 OSS 客户端（OA 附件存储）— 纯非空校验，不做格式误判
+// v15.7 阿里云 OSS 客户端（OA 附件存储）— 纯非空校验，不做格式误判
 // ============================================================
 let ossClient = null;
 
@@ -7923,13 +7923,12 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v15.6 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
+// v15.7 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
 // ============================================================
 
-// v15.6: STS 临时凭证 — 端点内延迟初始化，不再依赖静态 stsClient
+// v15.7: STS 临时凭证 — 防御性解析 + 完整错误日志
 app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
   try {
-    // 仅检查核心配置是否存在，不做任何正则/格式校验
     if (!process.env.OSS_ROLE_ARN) {
       return res.status(500).json({ success: false, error: '未配置OSS' });
     }
@@ -7965,22 +7964,51 @@ app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
       `oa-upload-${req.user?.userId || 'anon'}-${Date.now()}`
     );
 
-    console.log('✅ [STS] 凭证下发成功, Expiration:', result.Credentials?.Expiration);
+    // v15.7: 防御性解析 — 兼容 @alicloud/sts-sdk 的多种返回结构
+    const body = result.body || result;
+    console.log('📦 [STS] 阿里云原始返回 body 前200字符:', JSON.stringify(body).slice(0, 200));
+    console.log('📦 [STS] 返回 statusCode:', result.statusCode);
+
+    // 检查是否有 STS 层级的业务错误（如角色不存在、权限不足）
+    if (body.Code && body.Message) {
+      console.error('❌ [STS] 阿里云业务错误 Code:', body.Code, 'Message:', body.Message);
+      return res.status(500).json({
+        success: false,
+        error: '无法获取直传凭证，请联系管理员检查 RAM 角色信任策略',
+      });
+    }
+
+    const credentials = body.Credentials;
+    if (!credentials || !credentials.AccessKeyId) {
+      console.error('❌ [STS] 返回体中缺少 Credentials，完整 body:', JSON.stringify(body));
+      return res.status(500).json({
+        success: false,
+        error: '无法获取直传凭证，请联系管理员检查 RAM 角色信任策略',
+      });
+    }
+
+    console.log('✅ [STS] 凭证下发成功, Expiration:', credentials.Expiration);
 
     res.json({
       success: true,
       credentials: {
-        accessKeyId: result.Credentials.AccessKeyId,
-        accessKeySecret: result.Credentials.AccessKeySecret,
-        securityToken: result.Credentials.SecurityToken,
-        expiration: result.Credentials.Expiration,
+        accessKeyId: credentials.AccessKeyId,
+        accessKeySecret: credentials.AccessKeySecret,
+        securityToken: credentials.SecurityToken,
+        expiration: credentials.Expiration,
       },
       region: process.env.OSS_REGION,
       bucket: process.env.OSS_BUCKET,
     });
   } catch (err) {
-    console.error('❌ [STS] 获取凭证失败:', err.code, err.message);
-    res.status(500).json({ success: false, error: '获取上传凭证失败' });
+    console.error('❌ [STS] 获取凭证失败 — code:', err.code, 'message:', err.message);
+    if (err.data) {
+      console.error('❌ [STS] 阿里云返回详情:', JSON.stringify(err.data).slice(0, 500));
+    }
+    res.status(500).json({
+      success: false,
+      error: '无法获取直传凭证，请联系管理员检查 RAM 角色信任策略',
+    });
   }
 });
 
