@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
+import OfficePreviewModal from '../components/OfficePreviewModal';
 import {
   Eye, Trash2, Upload, FileText, Loader2, X,
   FolderOpen, Search, RefreshCw, Download, File,
@@ -39,6 +40,8 @@ export default function MyFiles() {
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // v14.2: Office 文档预览弹窗
+  const [officePreview, setOfficePreview] = useState<{ docId: number; fileName: string } | null>(null);
 
   // ════════════════════════════════════════════════════════
   // 加载
@@ -132,20 +135,28 @@ export default function MyFiles() {
   };
 
   // ════════════════════════════════════════════════════════
-  // v12.6: 判断文件是否支持浏览器原生预览
+  // v14.2: 判断文件是否支持浏览器预览（PDF/图片/文本/Office 文档）
   const isPreviewable = (fileName: string): boolean => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
-    return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'txt'].includes(ext);
+    return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'txt', 'docx', 'xlsx', 'xls'].includes(ext);
   };
 
-  // v13.1: 预览（仅 PDF/图片）— 100% 使用后端 signedUrl
+  // v14.2: 预览 — PDF/图片/文本用新窗口，Office 文档用弹窗
   // ════════════════════════════════════════════════════════
   const handlePreview = async (file: PersonalFile) => {
     if (!isPreviewable(file.file_name)) {
-      toast.error('该格式不支持浏览器原生预览，请使用"下载"按钮查看');
+      toast.error('该格式不支持浏览器预览，请使用"下载"按钮查看');
       return;
     }
 
+    const ext = file.file_name.split('.').pop()?.toLowerCase() || '';
+    // Office 文档 → 弹窗预览
+    if (['docx', 'xlsx', 'xls'].includes(ext)) {
+      setOfficePreview({ docId: file.id, fileName: file.file_name });
+      return;
+    }
+
+    // PDF/图片/文本 → 新窗口
     try {
       const resp = await fetch(`/api/my-files/${file.id}/preview`);
       const json = await resp.json();
@@ -219,7 +230,7 @@ export default function MyFiles() {
             <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 随时演示调取</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v13.5</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v14.2</span>
           </div>
         </div>
       </div>
@@ -380,6 +391,18 @@ export default function MyFiles() {
           )}
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* v14.2: Office 文档在线预览弹窗 */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {officePreview && (
+        <OfficePreviewModal
+          source="my-files"
+          docId={officePreview.docId}
+          fileName={officePreview.fileName}
+          onClose={() => setOfficePreview(null)}
+        />
+      )}
     </div>
   );
 }

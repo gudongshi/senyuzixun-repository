@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useAuthUser } from '../components/AuthGate';
+import OfficePreviewModal from '../components/OfficePreviewModal';
 import {
   Eye, Trash2, Upload, FileText, Loader2, X,
   BookOpen, Search, RefreshCw, Download, File,
@@ -93,6 +94,9 @@ export default function KnowledgeBase() {
   const [rejectTarget, setRejectTarget] = useState<KbDocument | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
+
+  // v14.2: Office 文档预览弹窗
+  const [officePreview, setOfficePreview] = useState<{ docId: number; fileName: string } | null>(null);
 
   // ════════════════════════════════════════════════════════
   // 数据加载
@@ -298,22 +302,30 @@ export default function KnowledgeBase() {
   };
 
   // ════════════════════════════════════════════════════════
-  // v13.3: 判断文件是否支持浏览器原生预览
+  // v14.2: 判断文件是否支持浏览器预览（PDF/图片/Office 文档）
   // ════════════════════════════════════════════════════════
   const isPreviewable = (fileName: string): boolean => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
-    return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext);
+    return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'docx', 'xlsx', 'xls'].includes(ext);
   };
 
   // ════════════════════════════════════════════════════════
-  // v13.3: 预览（仅 PDF/图片）— 100% 使用后端 signedUrl
+  // v14.2: 预览 — PDF/图片用新窗口，Office 文档用弹窗
   // ════════════════════════════════════════════════════════
   const handlePreview = async (doc: KbDocument) => {
     if (!isPreviewable(doc.file_name)) {
-      toast.error('该格式不支持浏览器原生预览，请使用"下载"按钮查看');
+      toast.error('该格式不支持浏览器预览，请使用"下载"按钮查看');
       return;
     }
 
+    const ext = doc.file_name.split('.').pop()?.toLowerCase() || '';
+    // Office 文档 → 弹窗预览
+    if (['docx', 'xlsx', 'xls'].includes(ext)) {
+      setOfficePreview({ docId: doc.id, fileName: doc.file_name });
+      return;
+    }
+
+    // PDF/图片 → 新窗口
     try {
       const resp = await fetch(`/api/kb/documents/${doc.id}/preview`);
       const json = await resp.json();
@@ -398,7 +410,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v13.4</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v14.2</span>
           </div>
         </div>
       </div>
@@ -890,6 +902,18 @@ export default function KnowledgeBase() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* v14.2: Office 文档在线预览弹窗 */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {officePreview && (
+        <OfficePreviewModal
+          source="kb"
+          docId={officePreview.docId}
+          fileName={officePreview.fileName}
+          onClose={() => setOfficePreview(null)}
+        />
       )}
     </div>
   );

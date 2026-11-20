@@ -7800,6 +7800,106 @@ app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
+// v14.2 Office 文档在线预览 API（docx → HTML via mammoth, xlsx/xls → HTML table via xlsx）
+// ============================================================
+app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
+  try {
+    const { source, id } = req.params;
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    // 根据 source 确定表、桶、字段
+    const isKB = source === 'kb';
+    if (!isKB && source !== 'my-files') {
+      return res.status(400).json({ success: false, error: '无效的来源类型，仅支持 kb 或 my-files' });
+    }
+
+    const table = isKB ? 'kb_documents' : 'personal_files';
+    const bucket = isKB ? 'kb_files' : 'my_files';
+
+    // 查记录
+    const { data: doc, error: findErr } = await client
+      .from(table)
+      .select(isKB ? 'id, file_name, file_url, storage_path' : 'id, file_name, file_url, storage_path, uploader_id')
+      .eq('id', id)
+      .single();
+
+    if (findErr || !doc) {
+      return res.status(404).json({ success: false, error: '文档不存在' });
+    }
+
+    // 校验文件扩展名
+    const fileName = doc.file_name || '';
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    if (!['docx', 'xlsx', 'xls'].includes(ext)) {
+      return res.status(400).json({ success: false, error: `该文件格式(${ext || '未知'})不支持在线预览，仅支持 docx/xlsx/xls` });
+    }
+
+    // 解析 storage_path
+    let rawPath = doc.storage_path || '';
+    if (!rawPath) {
+      try {
+        const urlObj = new URL(doc.file_url);
+        const m = urlObj.pathname.match(new RegExp(`/${bucket}/(.+)$`));
+        if (m) rawPath = decodeURIComponent(m[1]);
+      } catch (_) {}
+    }
+    const cleanPath = String(rawPath).replace(/^\/+/, '').replace(new RegExp(`^${bucket}/`), '');
+    if (!cleanPath || cleanPath === 'undefined' || cleanPath === 'null') {
+      return res.status(500).json({ success: false, error: '文件路径为空，无法访问' });
+    }
+
+    // 生成签名 URL
+    const { data: signedData, error: signedErr } = await client.storage
+      .from(bucket)
+      .createSignedUrl(cleanPath, 3600);
+
+    if (signedErr || !signedData?.signedUrl) {
+      return res.status(500).json({ success: false, error: '生成签名链接失败' });
+    }
+
+    // 下载文件到内存
+    console.log(`📥 [office-preview] 下载文件: ${fileName} (${ext})`);
+    const fileResp = await axios.get(signedData.signedUrl, { responseType: 'arraybuffer' });
+    const fileBuffer = Buffer.from(fileResp.data);
+
+    // 根据扩展名转换为 HTML
+    let html = '';
+    if (ext === 'docx') {
+      const mammoth = require('mammoth');
+      const result = await mammoth.convertToHtml({ buffer: fileBuffer });
+      html = result.value || '';
+      if (result.messages && result.messages.length > 0) {
+        console.warn('⚠️ [office-preview] mammoth 转换提示:', JSON.stringify(result.messages));
+      }
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const XLSX = require('xlsx');
+      const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+      const sheetNames = workbook.SheetNames || [];
+      if (sheetNames.length === 0) {
+        return res.status(500).json({ success: false, error: 'Excel 文件中没有任何工作表' });
+      }
+      // 多 sheet：依次渲染为 HTML table
+      const parts = [];
+      for (const sheetName of sheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const tableHtml = XLSX.utils.sheet_to_html(sheet, { id: `xlsx-sheet-${sheetName.replace(/\s+/g, '-')}` });
+        parts.push(`<h3 class="xlsx-sheet-title">${sheetName}</h3>`, tableHtml);
+      }
+      html = parts.join('\n');
+    }
+
+    console.log(`✅ [office-preview] 转换完成: ${fileName}, HTML 长度: ${html.length}`);
+    res.json({ success: true, html, file_name: fileName });
+  } catch (err) {
+    console.error('❌ [office-preview] 异常:', err.message);
+    res.status(500).json({ success: false, error: '解析 Office 文档失败: ' + err.message });
+  }
+});
+
+// ============================================================
 // 打印费分摊 API
 // ============================================================
 
