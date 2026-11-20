@@ -412,7 +412,7 @@ if (supabaseAdmin) {
 }
 
 // ============================================================
-// v15.7 阿里云 OSS 客户端（OA 附件存储）— 纯非空校验，不做格式误判
+// v16.0 阿里云 OSS 客户端（OA 附件存储）— 纯非空校验，不做格式误判
 // ============================================================
 let ossClient = null;
 
@@ -7923,10 +7923,12 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v15.9 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
+// v16.0 OA 审批 API — 前端直传 OSS 方案（@alicloud/pop-core）
 // ============================================================
 
-// v15.7: STS 临时凭证 — 防御性解析 + 完整错误日志
+const RPCClient = require('@alicloud/pop-core').default;
+
+// GET /api/oa/oss-token — 下发 STS 临时凭证（v16.0：@alicloud/pop-core）
 app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
   try {
     if (!process.env.OSS_ROLE_ARN) {
@@ -7939,72 +7941,56 @@ app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '未配置OSS' });
     }
 
-    console.log('🔍 [STS] 请求参数 RoleArn:', process.env.OSS_ROLE_ARN, 'Bucket:', process.env.OSS_BUCKET);
+    console.log('🔍 [STS] RoleArn:', process.env.OSS_ROLE_ARN, 'Bucket:', process.env.OSS_BUCKET);
 
-    const StsClient = require('@alicloud/sts-sdk');
-    const stsClient = new StsClient({
+    const stsClient = new RPCClient({
       accessKeyId: process.env.OSS_ACCESS_KEY_ID,
       accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
-      endpoint: 'sts.cn-hangzhou.aliyuncs.com',
+      endpoint: 'https://sts.aliyuncs.com',
+      apiVersion: '2015-04-01',
     });
 
-    const policy = JSON.stringify({
-      Version: '1',
-      Statement: [{
-        Effect: 'Allow',
-        Action: ['oss:PutObject', 'oss:GetObject', 'oss:AbortMultipartUpload'],
-        Resource: [`acs:oss:*:*:${process.env.OSS_BUCKET}/*`],
-      }],
-    });
+    const params = {
+      RoleArn:         process.env.OSS_ROLE_ARN,
+      RoleSessionName: `oa-upload-${Date.now()}`,
+      DurationSeconds: 3600,
+      Policy: JSON.stringify({
+        Version: '1',
+        Statement: [{
+          Effect: 'Allow',
+          Action: ['oss:PutObject', 'oss:GetObject', 'oss:AbortMultipartUpload'],
+          Resource: [`acs:oss:*:*:${process.env.OSS_BUCKET}/*`],
+        }],
+      }),
+    };
 
-    // v15.9: SDK 要求 camelCase 属性名
-    const result = await stsClient.assumeRole({
-      roleArn:         process.env.OSS_ROLE_ARN,
-      roleSessionName: `oa-upload-${req.user?.userId || 'anon'}-${Date.now()}`,
-      durationSeconds: 3600,
-      policy:          typeof policy === 'string' ? policy : JSON.stringify(policy),
-    });
+    const result = await stsClient.request('AssumeRole', params);
+    console.log('✅ [STS] AssumeRole 成功, RequestId:', result.RequestId);
 
-    // v15.7: 防御性解析 — 兼容 @alicloud/sts-sdk 的多种返回结构
-    const body = result.body || result;
-    console.log('📦 [STS] 阿里云原始返回 body 前200字符:', JSON.stringify(body).slice(0, 200));
-    console.log('📦 [STS] 返回 statusCode:', result.statusCode);
-
-    // 检查是否有 STS 层级的业务错误（如角色不存在、权限不足）
-    if (body.Code && body.Message) {
-      console.error('❌ [STS] 阿里云业务错误 Code:', body.Code, 'Message:', body.Message);
+    const creds = result.Credentials;
+    if (!creds || !creds.AccessKeyId) {
+      console.error('❌ [STS] Credentials 缺失, result:', JSON.stringify(result).slice(0, 300));
       return res.status(500).json({
         success: false,
         error: '无法获取直传凭证，请联系管理员检查 RAM 角色信任策略',
       });
     }
-
-    const credentials = body.Credentials;
-    if (!credentials || !credentials.AccessKeyId) {
-      console.error('❌ [STS] 返回体中缺少 Credentials，完整 body:', JSON.stringify(body));
-      return res.status(500).json({
-        success: false,
-        error: '无法获取直传凭证，请联系管理员检查 RAM 角色信任策略',
-      });
-    }
-
-    console.log('✅ [STS] 凭证下发成功, Expiration:', credentials.Expiration);
 
     res.json({
       success: true,
       credentials: {
-        accessKeyId: credentials.AccessKeyId,
-        accessKeySecret: credentials.AccessKeySecret,
-        securityToken: credentials.SecurityToken,
-        expiration: credentials.Expiration,
+        accessKeyId:     creds.AccessKeyId,
+        accessKeySecret: creds.AccessKeySecret,
+        securityToken:   creds.SecurityToken,
+        expiration:      creds.Expiration,
       },
       region: process.env.OSS_REGION,
       bucket: process.env.OSS_BUCKET,
     });
   } catch (err) {
-    console.error('❌ [STS] 获取凭证失败 — code:', err.code, 'message:', err.message);
+    console.error('❌ [STS] 失败 — code:', err.code, 'message:', err.message);
     if (err.data) {
-      console.error('❌ [STS] 阿里云返回详情:', JSON.stringify(err.data).slice(0, 500));
+      console.error('❌ [STS] 详情:', JSON.stringify(err.data).slice(0, 500));
     }
     res.status(500).json({
       success: false,
