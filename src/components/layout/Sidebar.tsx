@@ -120,7 +120,7 @@ export default function Sidebar({
         {/* 底部：折叠按钮 + 用户 + 登出 */}
         <div className="border-t border-slate-100 p-3 space-y-2 shrink-0">
           {/* 底部：版本号 */}
-          <div className="text-[10px] text-slate-400 text-center pb-1">System v15.1</div>
+          <div className="text-[10px] text-slate-400 text-center pb-1">System v15.5</div>
 
           {/* 折叠切换 */}
           <button

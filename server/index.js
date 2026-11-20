@@ -412,7 +412,7 @@ if (supabaseAdmin) {
 }
 
 // ============================================================
-// v15.1 阿里云 OSS 客户端（OA 附件存储）— 加固初始化，防止占位符导致崩溃
+// v15.5 阿里云 OSS 客户端（OA 附件存储）— 加固初始化，防止占位符导致崩溃
 // ============================================================
 let ossClient = null;
 
@@ -7931,62 +7931,111 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v15.1 OA 审批 API（审批流 + 阿里云 OSS 附件）— 加固 OSS 初始化 + 附件关联 + 权限校验
+// v15.5 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
 // ============================================================
 
-const oaUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
-});
+// STS 临时凭证客户端（为前端直传提供临时 AK）
+let stsClient = null;
+try {
+  const StsClient = require('@alicloud/sts-sdk');
+  if (isOssCredentialValid(process.env.OSS_ACCESS_KEY_ID) && process.env.OSS_ROLE_ARN) {
+    stsClient = new StsClient({
+      accessKeyId: process.env.OSS_ACCESS_KEY_ID,
+      accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
+      endpoint: 'sts.cn-hangzhou.aliyuncs.com',
+    });
+    console.log('✅ [STS] 临时凭证服务已初始化, RoleArn:', process.env.OSS_ROLE_ARN);
+  } else {
+    console.warn('⚠️ [STS] OSS_ROLE_ARN 未配置或 AK 无效，前端直传功能不可用');
+  }
+} catch (err) {
+  console.warn('⚠️ [STS] @alicloud/sts-sdk 加载失败:', err.message);
+}
 
-// POST /api/oa/upload-attachment — 上传附件到阿里云 OSS
-app.post('/api/oa/upload-attachment', authMiddleware, oaUpload.single('file'), async (req, res) => {
+// GET /api/oa/oss-token — 下发 STS 临时凭证给前端
+app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: '请选择要上传的文件' });
-    }
-    if (!ossClient) {
+    if (!stsClient) {
       return res.status(500).json({ success: false, error: '未配置OSS' });
     }
+    if (!process.env.OSS_ROLE_ARN) {
+      return res.status(500).json({ success: false, error: '未配置OSS角色' });
+    }
 
+    const policy = JSON.stringify({
+      Version: '1',
+      Statement: [{
+        Effect: 'Allow',
+        Action: ['oss:PutObject', 'oss:GetObject', 'oss:AbortMultipartUpload'],
+        Resource: [`acs:oss:*:*:${process.env.OSS_BUCKET}/*`],
+      }],
+    });
+
+    const result = await stsClient.assumeRole(
+      process.env.OSS_ROLE_ARN,
+      policy,
+      3600,           // 1 小时有效期
+      `oa-upload-${req.user?.userId || 'anon'}-${Date.now()}`
+    );
+
+    res.json({
+      success: true,
+      credentials: {
+        accessKeyId: result.Credentials.AccessKeyId,
+        accessKeySecret: result.Credentials.AccessKeySecret,
+        securityToken: result.Credentials.SecurityToken,
+        expiration: result.Credentials.Expiration,
+      },
+      region: process.env.OSS_REGION,
+      bucket: process.env.OSS_BUCKET,
+    });
+  } catch (err) {
+    console.error('❌ [STS] 获取临时凭证失败:', err.message);
+    res.status(500).json({ success: false, error: '获取上传凭证失败' });
+  }
+});
+
+// POST /api/oa/attachments — 前端直传成功后存入 Supabase（v15.5：纯元数据，不走文件流）
+app.post('/api/oa/attachments', authMiddleware, async (req, res) => {
+  try {
     const client = supabaseAdmin || supabase;
-    // 修复 multer latin1→utf8 编码
-    let fileName = req.file.originalname;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    const { file_name, oss_key, file_size } = req.body;
+    if (!file_name || !oss_key) {
+      return res.status(400).json({ success: false, error: '缺少 file_name 或 oss_key' });
+    }
+
+    // v15.5: 中文文件名兜底
+    let safeName = file_name;
     try {
-      const fixed = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-      if (fixed && !fixed.includes('')) fileName = fixed;
+      const fixed = Buffer.from(file_name, 'latin1').toString('utf8');
+      if (fixed && !fixed.includes('')) safeName = fixed;
     } catch (_) {}
 
-    // OSS 路径：oa_attachments/YYYY/MM/timestamp_随机_原始文件名
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const ossKey = `oa_attachments/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName}`;
-
-    const result = await ossClient.put(ossKey, req.file.buffer);
-    console.log(`📤 [OA-OSS] 上传成功: ${ossKey}, status: ${result.res?.status}`);
-
-    // 暂存附件记录（不关联审批，先独立保存，创建审批时再关联）
     const { data: attachment, error: insertErr } = await client
       .from('oa_attachments')
       .insert({
-        file_name: fileName,
-        oss_key: ossKey,
-        file_size: req.file.size,
+        file_name: safeName,
+        oss_key: oss_key,
+        file_size: file_size || 0,
         uploader_id: req.user?.userId || 'unknown',
       })
       .select('id, file_name, oss_key, file_size, created_at')
       .single();
 
     if (insertErr) {
-      console.error('❌ [OA-OSS] 附件记录写入失败:', insertErr.message);
+      console.error('❌ [OA] 附件元数据写入失败:', insertErr.message);
       return res.status(500).json({ success: false, error: '附件记录保存失败: ' + insertErr.message });
     }
 
+    console.log(`📎 [OA] 附件元数据已入库: id=${attachment.id}, file=${safeName}`);
     res.json({ success: true, data: attachment });
   } catch (err) {
-    console.error('❌ [OA-OSS] 上传异常:', err.message);
-    res.status(500).json({ success: false, error: '附件上传失败: ' + err.message });
+    console.error('❌ [OA] 附件保存异常:', err.message);
+    res.status(500).json({ success: false, error: '附件保存失败' });
   }
 });
 
@@ -8016,7 +8065,7 @@ app.get('/api/oa/attachments/:id/download', authMiddleware, async (req, res) => 
   }
 });
 
-// POST /api/oa/approvals — 发起审批（v15.1：附件关联加固）
+// POST /api/oa/approvals — 发起审批（v15.5：附件关联加固）
 app.post('/api/oa/approvals', authMiddleware, async (req, res) => {
   try {
     const client = supabaseAdmin || supabase;
@@ -8033,7 +8082,6 @@ app.post('/api/oa/approvals', authMiddleware, async (req, res) => {
     const applicantId = req.user?.userId || '';
     const applicantName = req.user?.name || '';
 
-    // 先创建审批单
     const { data: approval, error: insertErr } = await client
       .from('oa_approvals')
       .insert({
@@ -8051,19 +8099,19 @@ app.post('/api/oa/approvals', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '创建审批失败: ' + insertErr.message });
     }
 
-    // v15.1: 关联附件 — 审批创建成功后才绑定，且验证附件归属（只能关联自己上传的）
+    // 关联附件 — 只能绑定自己上传的、尚未绑定的附件
     if (attachmentIds && Array.isArray(attachmentIds) && attachmentIds.length > 0) {
       const { error: linkErr } = await client
         .from('oa_attachments')
         .update({ approval_id: approval.id })
         .in('id', attachmentIds)
-        .eq('uploader_id', applicantId)   // 只能绑定自己上传的附件
-        .is('approval_id', null);          // 只关联尚未绑定的附件
+        .eq('uploader_id', applicantId)
+        .is('approval_id', null);
 
       if (linkErr) {
         console.warn('⚠️ [OA] 附件关联失败:', linkErr.message);
       } else {
-        console.log(`📎 [OA] 附件关联: ${attachmentIds.length} 个附件绑定到审批 #${approval.id}`);
+        console.log(`📎 [OA] ${attachmentIds.length} 个附件绑定到审批 #${approval.id}`);
       }
     }
 
@@ -8076,9 +8124,6 @@ app.post('/api/oa/approvals', authMiddleware, async (req, res) => {
 });
 
 // GET /api/oa/approvals — 获取审批列表
-// ?tab=mine    我发起的
-// ?tab=pending  待我审批
-// ?tab=all     全部（管理员视图）
 app.get('/api/oa/approvals', authMiddleware, async (req, res) => {
   try {
     const client = supabaseAdmin || supabase;
@@ -8093,7 +8138,6 @@ app.get('/api/oa/approvals', authMiddleware, async (req, res) => {
     if (tab === 'mine') {
       query = query.eq('applicant_id', userId);
     } else if (tab === 'pending') {
-      // 待审批：status=pending 且审批人匹配（暂时不过滤审批人，显示所有 pending）
       query = query.eq('status', 'pending');
     }
 
@@ -8109,14 +8153,13 @@ app.get('/api/oa/approvals', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/oa/approvals/:id/approve — 通过审批（v15.1：权限校验）
+// PUT /api/oa/approvals/:id/approve — 通过审批
 app.put('/api/oa/approvals/:id/approve', authMiddleware, async (req, res) => {
   try {
     const client = supabaseAdmin || supabase;
     if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Service Role 未配置' });
 
     const userId = req.user?.userId || '';
-
     const { data: existing } = await client
       .from('oa_approvals')
       .select('id, status, current_approver_id')
@@ -8125,8 +8168,6 @@ app.put('/api/oa/approvals/:id/approve', authMiddleware, async (req, res) => {
 
     if (!existing) return res.status(404).json({ success: false, error: '审批不存在' });
     if (existing.status !== 'pending') return res.status(400).json({ success: false, error: '该审批已处理' });
-
-    // v15.1: 权限校验 — 如果指定了审批人，必须是本人才能审批
     if (existing.current_approver_id && existing.current_approver_id !== userId) {
       return res.status(403).json({ success: false, error: '无权审批该单据' });
     }
@@ -8135,7 +8176,6 @@ app.put('/api/oa/approvals/:id/approve', authMiddleware, async (req, res) => {
       .from('oa_approvals')
       .update({ status: 'approved', current_approver_id: userId })
       .eq('id', req.params.id);
-
     if (updateErr) return res.status(500).json({ success: false, error: updateErr.message });
 
     console.log(`✅ [OA] 审批通过: id=${req.params.id}, approver=${userId}`);
@@ -8146,14 +8186,13 @@ app.put('/api/oa/approvals/:id/approve', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/oa/approvals/:id/reject — 驳回审批（v15.1：权限校验）
+// PUT /api/oa/approvals/:id/reject — 驳回审批
 app.put('/api/oa/approvals/:id/reject', authMiddleware, async (req, res) => {
   try {
     const client = supabaseAdmin || supabase;
     if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Service Role 未配置' });
 
     const userId = req.user?.userId || '';
-
     const { data: existing } = await client
       .from('oa_approvals')
       .select('id, status, current_approver_id')
@@ -8162,8 +8201,6 @@ app.put('/api/oa/approvals/:id/reject', authMiddleware, async (req, res) => {
 
     if (!existing) return res.status(404).json({ success: false, error: '审批不存在' });
     if (existing.status !== 'pending') return res.status(400).json({ success: false, error: '该审批已处理' });
-
-    // v15.1: 权限校验 — 如果指定了审批人，必须是本人才能审批
     if (existing.current_approver_id && existing.current_approver_id !== userId) {
       return res.status(403).json({ success: false, error: '无权审批该单据' });
     }
@@ -8172,7 +8209,6 @@ app.put('/api/oa/approvals/:id/reject', authMiddleware, async (req, res) => {
       .from('oa_approvals')
       .update({ status: 'rejected', current_approver_id: userId })
       .eq('id', req.params.id);
-
     if (updateErr) return res.status(500).json({ success: false, error: updateErr.message });
 
     console.log(`❌ [OA] 审批驳回: id=${req.params.id}, approver=${userId}`);

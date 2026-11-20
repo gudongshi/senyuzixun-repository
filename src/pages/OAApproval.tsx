@@ -60,9 +60,11 @@ export default function OAApproval() {
   const [createContent, setCreateContent] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // 附件上传
+  // 附件上传（v15.5：前端直传 OSS）
   const [attachments, setAttachments] = useState<OAAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadFileName, setUploadFileName] = useState('');
 
   // 处理中
   const [processing, setProcessing] = useState(false);
@@ -90,39 +92,79 @@ export default function OAApproval() {
   useEffect(() => { loadApprovals(); }, [loadApprovals]);
 
   // ════════════════════════════════════════════════════════
-  // 附件上传
+  // v15.5: 前端直传 OSS — STS 凭证 + 分片上传 + 实时进度条
   // ════════════════════════════════════════════════════════
   const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error('文件大小超过 50MB');
-      return;
-    }
-
     setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+    setUploadProgress(0);
+    setUploadFileName(file.name);
+    const inputEl = e.target;
 
-      const resp = await fetch('/api/oa/upload-attachment', {
-        method: 'POST',
-        body: formData,
+    try {
+      // 1. 获取 STS 临时凭证
+      const tokenResp = await fetch('/api/oa/oss-token');
+      const tokenJson = await tokenResp.json();
+      if (!tokenJson.success) {
+        toast.error('获取上传凭证失败: ' + (tokenJson.error || '未知错误'));
+        return;
+      }
+      const { credentials, region, bucket } = tokenJson;
+
+      // 2. 创建 OSS 客户端（使用 STS 临时凭证）
+      const OSS = (await import('ali-oss')).default;
+      const client = new OSS({
+        region,
+        accessKeyId: credentials.accessKeyId,
+        accessKeySecret: credentials.accessKeySecret,
+        stsToken: credentials.securityToken,
+        bucket,
+        secure: true,
       });
-      const json = await resp.json();
-      if (json.success) {
-        setAttachments(prev => [...prev, json.data]);
+
+      // 3. 生成 OSS 存储路径
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const ossKey = `oa_attachments/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${file.name}`;
+
+      // 4. 分片上传 + 进度回调
+      await client.multipartUpload(ossKey, file, {
+        progress: (p: number) => {
+          setUploadProgress(Math.floor(p * 100));
+        },
+      });
+
+      console.log(`📤 [OA 直传] 完成: ${ossKey}, size: ${file.size}`);
+
+      // 5. 上传成功后，调用后端存库（仅传元数据）
+      const saveResp = await fetch('/api/oa/attachments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_name: file.name,
+          oss_key: ossKey,
+          file_size: file.size,
+        }),
+      });
+      const saveJson = await saveResp.json();
+      if (saveJson.success) {
+        setAttachments(prev => [...prev, saveJson.data]);
         toast.success('附件上传成功');
       } else {
-        toast.error('上传失败: ' + (json.error || '未知错误'));
+        toast.error('文件已上传但记录失败: ' + (saveJson.error || '未知错误'));
       }
     } catch (err: any) {
-      toast.error('上传异常: ' + (err.message || '无法连接服务器'));
+      console.error('❌ [OA 直传] 异常:', err);
+      toast.error('上传失败: ' + (err.message || '网络错误'));
     } finally {
       setUploading(false);
+      setUploadProgress(0);
+      setUploadFileName('');
       // 重置 input
-      e.target.value = '';
+      if (inputEl) inputEl.value = '';
     }
   };
 
@@ -265,7 +307,7 @@ export default function OAApproval() {
             <p className="text-xs text-slate-500 mt-0.5">审批流管理 · 附件存阿里云 OSS</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v15.1</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v15.5</span>
           </div>
         </div>
       </div>
@@ -509,28 +551,37 @@ export default function OAApproval() {
                 </div>
               )}
 
-              {/* 上传按钮 */}
-              <label className={`
-                inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed
-                text-xs font-medium cursor-pointer transition-all
-                ${uploading
-                  ? 'border-slate-200 bg-slate-50 text-slate-400'
-                  : 'border-slate-300 text-slate-500 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50/30'
-                }
-              `}>
-                {uploading ? (
-                  <><Loader2 size={14} className="animate-spin" /> 上传中…</>
-                ) : (
-                  <><Upload size={14} /> 选择文件</>
-                )}
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={handleAttachmentUpload}
-                  disabled={uploading}
-                />
-              </label>
-              <span className="ml-2 text-[11px] text-slate-400">单文件最大 50MB</span>
+              {/* 上传按钮 + 进度条 */}
+              {uploading && uploadFileName ? (
+                <div className="w-full">
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
+                    <span className="truncate max-w-[70%]">{uploadFileName}</span>
+                    <span className="font-mono text-emerald-600 font-medium">{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <label className={`
+                  inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed
+                  text-xs font-medium cursor-pointer transition-all
+                  border-slate-300 text-slate-500 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50/30
+                `}>
+                  <Upload size={14} /> 选择文件
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={handleAttachmentUpload}
+                  />
+                </label>
+              )}
+              {!uploading && (
+                <span className="ml-2 text-[11px] text-slate-400">不限大小 · 分片直传 OSS</span>
+              )}
             </div>
 
             {/* 操作按钮 */}
