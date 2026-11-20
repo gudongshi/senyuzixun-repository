@@ -60,7 +60,7 @@ export default function OAApproval() {
   const [createContent, setCreateContent] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // 附件上传（v15.7：前端直传 OSS）
+  // 附件上传（v15.8：前端直传 OSS）
   const [attachments, setAttachments] = useState<OAAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -92,7 +92,7 @@ export default function OAApproval() {
   useEffect(() => { loadApprovals(); }, [loadApprovals]);
 
   // ════════════════════════════════════════════════════════
-  // v15.7: 前端直传 OSS — STS 凭证 + 分片上传 + 实时进度条
+  // v15.8: 前端直传 OSS — STS 凭证 + 分片上传 + 实时进度条
   // ════════════════════════════════════════════════════════
   const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -307,7 +307,7 @@ export default function OAApproval() {
             <p className="text-xs text-slate-500 mt-0.5">审批流管理 · 附件存阿里云 OSS</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v15.7</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v15.8</span>
           </div>
         </div>
       </div>
