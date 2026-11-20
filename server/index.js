@@ -412,18 +412,9 @@ if (supabaseAdmin) {
 }
 
 // ============================================================
-// v15.5 阿里云 OSS 客户端（OA 附件存储）— 加固初始化，防止占位符导致崩溃
+// v15.6 阿里云 OSS 客户端（OA 附件存储）— 纯非空校验，不做格式误判
 // ============================================================
 let ossClient = null;
-
-function isOssCredentialValid(value) {
-  if (!value || typeof value !== 'string') return false;
-  const trimmed = value.trim();
-  if (trimmed === '') return false;
-  // 拒绝占位符：your_* 或包含中文提示字符
-  if (/^(your_|YOUR_|请|please)/i.test(trimmed)) return false;
-  return true;
-}
 
 try {
   const OSS = require('ali-oss');
@@ -432,11 +423,12 @@ try {
   const keySecret = process.env.OSS_ACCESS_KEY_SECRET;
   const bucket    = process.env.OSS_BUCKET;
 
-  if (isOssCredentialValid(region) && isOssCredentialValid(keyId) && isOssCredentialValid(keySecret) && isOssCredentialValid(bucket)) {
+  if (region && keyId && keySecret && bucket) {
     ossClient = new OSS({ region, accessKeyId: keyId, accessKeySecret: keySecret, bucket });
     console.log('✅ [OSS] 客户端已初始化, Bucket:', bucket, 'Region:', region);
   } else {
     console.warn('⚠️ [OSS] 未配置 OSS 凭证，附件上传功能不可用');
+    console.warn('   已配置: region=' + !!region + ' keyId=' + !!keyId + ' keySecret=' + !!keySecret + ' bucket=' + !!bucket);
   }
 } catch (err) {
   console.warn('⚠️ [OSS] ali-oss 加载失败，附件上传功能不可用:', err.message);
@@ -7931,36 +7923,31 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v15.5 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
+// v15.6 OA 审批 API — 前端直传 OSS 方案（服务器零带宽、零内存压力）
 // ============================================================
 
-// STS 临时凭证客户端（为前端直传提供临时 AK）
-let stsClient = null;
-try {
-  const StsClient = require('@alicloud/sts-sdk');
-  if (isOssCredentialValid(process.env.OSS_ACCESS_KEY_ID) && process.env.OSS_ROLE_ARN) {
-    stsClient = new StsClient({
+// v15.6: STS 临时凭证 — 端点内延迟初始化，不再依赖静态 stsClient
+app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
+  try {
+    // 仅检查核心配置是否存在，不做任何正则/格式校验
+    if (!process.env.OSS_ROLE_ARN) {
+      return res.status(500).json({ success: false, error: '未配置OSS' });
+    }
+    if (!process.env.OSS_ACCESS_KEY_ID || !process.env.OSS_ACCESS_KEY_SECRET) {
+      return res.status(500).json({ success: false, error: '未配置OSS' });
+    }
+    if (!process.env.OSS_REGION || !process.env.OSS_BUCKET) {
+      return res.status(500).json({ success: false, error: '未配置OSS' });
+    }
+
+    console.log('🔍 [STS] 请求参数 RoleArn:', process.env.OSS_ROLE_ARN, 'Bucket:', process.env.OSS_BUCKET);
+
+    const StsClient = require('@alicloud/sts-sdk');
+    const stsClient = new StsClient({
       accessKeyId: process.env.OSS_ACCESS_KEY_ID,
       accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
       endpoint: 'sts.cn-hangzhou.aliyuncs.com',
     });
-    console.log('✅ [STS] 临时凭证服务已初始化, RoleArn:', process.env.OSS_ROLE_ARN);
-  } else {
-    console.warn('⚠️ [STS] OSS_ROLE_ARN 未配置或 AK 无效，前端直传功能不可用');
-  }
-} catch (err) {
-  console.warn('⚠️ [STS] @alicloud/sts-sdk 加载失败:', err.message);
-}
-
-// GET /api/oa/oss-token — 下发 STS 临时凭证给前端
-app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
-  try {
-    if (!stsClient) {
-      return res.status(500).json({ success: false, error: '未配置OSS' });
-    }
-    if (!process.env.OSS_ROLE_ARN) {
-      return res.status(500).json({ success: false, error: '未配置OSS角色' });
-    }
 
     const policy = JSON.stringify({
       Version: '1',
@@ -7974,9 +7961,11 @@ app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
     const result = await stsClient.assumeRole(
       process.env.OSS_ROLE_ARN,
       policy,
-      3600,           // 1 小时有效期
+      3600,
       `oa-upload-${req.user?.userId || 'anon'}-${Date.now()}`
     );
+
+    console.log('✅ [STS] 凭证下发成功, Expiration:', result.Credentials?.Expiration);
 
     res.json({
       success: true,
@@ -7990,7 +7979,7 @@ app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
       bucket: process.env.OSS_BUCKET,
     });
   } catch (err) {
-    console.error('❌ [STS] 获取临时凭证失败:', err.message);
+    console.error('❌ [STS] 获取凭证失败:', err.code, err.message);
     res.status(500).json({ success: false, error: '获取上传凭证失败' });
   }
 });
