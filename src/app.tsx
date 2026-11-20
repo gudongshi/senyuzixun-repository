@@ -6,6 +6,7 @@ import ClientManager from './pages/ClientManager';
 import FinancialDataManager from './pages/FinancialDataManager';
 import KnowledgeBase from './pages/KnowledgeBase';
 import MyFiles from './pages/MyFiles';
+import OAApproval from './pages/OAApproval';
 import { AuthGate, useAuthUser } from './components/AuthGate';
 
 /**
@@ -229,6 +230,16 @@ function AppRoutes() {
             <MyFiles />
           ) : (
             <Navigate to={dashboard ? '/' : '/my-files'} replace />
+          )
+        }
+      />
+      <Route
+        path="/oa-approval"
+        element={
+          manager ? (
+            <OAApproval />
+          ) : (
+            <Navigate to={dashboard ? '/' : '/oa-approval'} replace />
           )
         }
       />

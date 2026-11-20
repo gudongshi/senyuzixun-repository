@@ -11,6 +11,7 @@ import SiteHubManager from '../components/site/SiteHubManager';
 import PrintAllocation from '../components/print/PrintAllocation';
 import KnowledgeBase from './KnowledgeBase';
 import MyFiles from './MyFiles';
+import OAApproval from './OAApproval';
 import ErrorBoundary from '../components/ErrorBoundary';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
@@ -3379,6 +3380,13 @@ export default function ProjectManager() {
         {activePage === 'myFiles' && (
           <div className="flex-1 flex flex-col min-h-screen">
             <MyFiles />
+          </div>
+        )}
+
+        {/* ── OA 审批页面 v15.0 ── */}
+        {activePage === 'oaApproval' && (
+          <div className="flex-1 flex flex-col min-h-screen">
+            <OAApproval />
           </div>
         )}
 

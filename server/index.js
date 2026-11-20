@@ -412,6 +412,37 @@ if (supabaseAdmin) {
 }
 
 // ============================================================
+// v15.1 阿里云 OSS 客户端（OA 附件存储）— 加固初始化，防止占位符导致崩溃
+// ============================================================
+let ossClient = null;
+
+function isOssCredentialValid(value) {
+  if (!value || typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (trimmed === '') return false;
+  // 拒绝占位符：your_* 或包含中文提示字符
+  if (/^(your_|YOUR_|请|please)/i.test(trimmed)) return false;
+  return true;
+}
+
+try {
+  const OSS = require('ali-oss');
+  const region    = process.env.OSS_REGION;
+  const keyId     = process.env.OSS_ACCESS_KEY_ID;
+  const keySecret = process.env.OSS_ACCESS_KEY_SECRET;
+  const bucket    = process.env.OSS_BUCKET;
+
+  if (isOssCredentialValid(region) && isOssCredentialValid(keyId) && isOssCredentialValid(keySecret) && isOssCredentialValid(bucket)) {
+    ossClient = new OSS({ region, accessKeyId: keyId, accessKeySecret: keySecret, bucket });
+    console.log('✅ [OSS] 客户端已初始化, Bucket:', bucket, 'Region:', region);
+  } else {
+    console.warn('⚠️ [OSS] 未配置 OSS 凭证，附件上传功能不可用');
+  }
+} catch (err) {
+  console.warn('⚠️ [OSS] ali-oss 加载失败，附件上传功能不可用:', err.message);
+}
+
+// ============================================================
 // 钉钉配置
 // ============================================================
 const DINGTALK_APP_KEY = process.env.DINGTALK_APP_KEY;
@@ -7896,6 +7927,259 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('❌ [office-preview] 异常:', err.message);
     res.status(500).json({ success: false, error: '解析 Office 文档失败: ' + err.message });
+  }
+});
+
+// ============================================================
+// v15.1 OA 审批 API（审批流 + 阿里云 OSS 附件）— 加固 OSS 初始化 + 附件关联 + 权限校验
+// ============================================================
+
+const oaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
+
+// POST /api/oa/upload-attachment — 上传附件到阿里云 OSS
+app.post('/api/oa/upload-attachment', authMiddleware, oaUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '请选择要上传的文件' });
+    }
+    if (!ossClient) {
+      return res.status(500).json({ success: false, error: '未配置OSS' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    // 修复 multer latin1→utf8 编码
+    let fileName = req.file.originalname;
+    try {
+      const fixed = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      if (fixed && !fixed.includes('')) fileName = fixed;
+    } catch (_) {}
+
+    // OSS 路径：oa_attachments/YYYY/MM/timestamp_随机_原始文件名
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const ossKey = `oa_attachments/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName}`;
+
+    const result = await ossClient.put(ossKey, req.file.buffer);
+    console.log(`📤 [OA-OSS] 上传成功: ${ossKey}, status: ${result.res?.status}`);
+
+    // 暂存附件记录（不关联审批，先独立保存，创建审批时再关联）
+    const { data: attachment, error: insertErr } = await client
+      .from('oa_attachments')
+      .insert({
+        file_name: fileName,
+        oss_key: ossKey,
+        file_size: req.file.size,
+        uploader_id: req.user?.userId || 'unknown',
+      })
+      .select('id, file_name, oss_key, file_size, created_at')
+      .single();
+
+    if (insertErr) {
+      console.error('❌ [OA-OSS] 附件记录写入失败:', insertErr.message);
+      return res.status(500).json({ success: false, error: '附件记录保存失败: ' + insertErr.message });
+    }
+
+    res.json({ success: true, data: attachment });
+  } catch (err) {
+    console.error('❌ [OA-OSS] 上传异常:', err.message);
+    res.status(500).json({ success: false, error: '附件上传失败: ' + err.message });
+  }
+});
+
+// GET /api/oa/attachments/:id/download — 生成 OSS 签名下载链接（1小时有效）
+app.get('/api/oa/attachments/:id/download', authMiddleware, async (req, res) => {
+  try {
+    if (!ossClient) {
+      return res.status(500).json({ success: false, error: '未配置OSS' });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const { data: attachment, error: findErr } = await client
+      .from('oa_attachments')
+      .select('id, file_name, oss_key')
+      .eq('id', req.params.id)
+      .single();
+
+    if (findErr || !attachment) {
+      return res.status(404).json({ success: false, error: '附件不存在' });
+    }
+
+    const signedUrl = ossClient.signatureUrl(attachment.oss_key, { expires: 3600 });
+    res.json({ success: true, signedUrl, file_name: attachment.file_name });
+  } catch (err) {
+    console.error('❌ [OA-OSS] 签名异常:', err.message);
+    res.status(500).json({ success: false, error: '生成下载链接失败' });
+  }
+});
+
+// POST /api/oa/approvals — 发起审批（v15.1：附件关联加固）
+app.post('/api/oa/approvals', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) {
+      return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
+    }
+
+    const { title, type, content, attachmentIds } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ success: false, error: '审批标题不能为空' });
+    if (!type || !['报销', '合同', '用印', '请假', '其他'].includes(type)) {
+      return res.status(400).json({ success: false, error: '无效的审批类型' });
+    }
+
+    const applicantId = req.user?.userId || '';
+    const applicantName = req.user?.name || '';
+
+    // 先创建审批单
+    const { data: approval, error: insertErr } = await client
+      .from('oa_approvals')
+      .insert({
+        title: title.trim(),
+        type,
+        applicant_id: applicantId,
+        applicant_name: applicantName,
+        status: 'pending',
+        content: content || '',
+      })
+      .select('*')
+      .single();
+
+    if (insertErr) {
+      return res.status(500).json({ success: false, error: '创建审批失败: ' + insertErr.message });
+    }
+
+    // v15.1: 关联附件 — 审批创建成功后才绑定，且验证附件归属（只能关联自己上传的）
+    if (attachmentIds && Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+      const { error: linkErr } = await client
+        .from('oa_attachments')
+        .update({ approval_id: approval.id })
+        .in('id', attachmentIds)
+        .eq('uploader_id', applicantId)   // 只能绑定自己上传的附件
+        .is('approval_id', null);          // 只关联尚未绑定的附件
+
+      if (linkErr) {
+        console.warn('⚠️ [OA] 附件关联失败:', linkErr.message);
+      } else {
+        console.log(`📎 [OA] 附件关联: ${attachmentIds.length} 个附件绑定到审批 #${approval.id}`);
+      }
+    }
+
+    console.log(`📝 [OA] 审批创建: id=${approval.id}, title=${title}, applicant=${applicantName}`);
+    res.json({ success: true, data: approval });
+  } catch (err) {
+    console.error('❌ [OA] 创建审批异常:', err.message);
+    res.status(500).json({ success: false, error: '创建审批失败' });
+  }
+});
+
+// GET /api/oa/approvals — 获取审批列表
+// ?tab=mine    我发起的
+// ?tab=pending  待我审批
+// ?tab=all     全部（管理员视图）
+app.get('/api/oa/approvals', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    const { tab } = req.query;
+    const userId = req.user?.userId || '';
+
+    let query = client
+      .from('oa_approvals')
+      .select('*, oa_attachments(id, file_name, oss_key, file_size)')
+      .order('created_at', { ascending: false });
+
+    if (tab === 'mine') {
+      query = query.eq('applicant_id', userId);
+    } else if (tab === 'pending') {
+      // 待审批：status=pending 且审批人匹配（暂时不过滤审批人，显示所有 pending）
+      query = query.eq('status', 'pending');
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('❌ [OA] 查询审批列表异常:', err.message);
+    res.status(500).json({ success: false, error: '查询审批列表失败' });
+  }
+});
+
+// PUT /api/oa/approvals/:id/approve — 通过审批（v15.1：权限校验）
+app.put('/api/oa/approvals/:id/approve', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Service Role 未配置' });
+
+    const userId = req.user?.userId || '';
+
+    const { data: existing } = await client
+      .from('oa_approvals')
+      .select('id, status, current_approver_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (!existing) return res.status(404).json({ success: false, error: '审批不存在' });
+    if (existing.status !== 'pending') return res.status(400).json({ success: false, error: '该审批已处理' });
+
+    // v15.1: 权限校验 — 如果指定了审批人，必须是本人才能审批
+    if (existing.current_approver_id && existing.current_approver_id !== userId) {
+      return res.status(403).json({ success: false, error: '无权审批该单据' });
+    }
+
+    const { error: updateErr } = await client
+      .from('oa_approvals')
+      .update({ status: 'approved', current_approver_id: userId })
+      .eq('id', req.params.id);
+
+    if (updateErr) return res.status(500).json({ success: false, error: updateErr.message });
+
+    console.log(`✅ [OA] 审批通过: id=${req.params.id}, approver=${userId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ [OA] 通过审批异常:', err.message);
+    res.status(500).json({ success: false, error: '审批操作失败' });
+  }
+});
+
+// PUT /api/oa/approvals/:id/reject — 驳回审批（v15.1：权限校验）
+app.put('/api/oa/approvals/:id/reject', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Service Role 未配置' });
+
+    const userId = req.user?.userId || '';
+
+    const { data: existing } = await client
+      .from('oa_approvals')
+      .select('id, status, current_approver_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (!existing) return res.status(404).json({ success: false, error: '审批不存在' });
+    if (existing.status !== 'pending') return res.status(400).json({ success: false, error: '该审批已处理' });
+
+    // v15.1: 权限校验 — 如果指定了审批人，必须是本人才能审批
+    if (existing.current_approver_id && existing.current_approver_id !== userId) {
+      return res.status(403).json({ success: false, error: '无权审批该单据' });
+    }
+
+    const { error: updateErr } = await client
+      .from('oa_approvals')
+      .update({ status: 'rejected', current_approver_id: userId })
+      .eq('id', req.params.id);
+
+    if (updateErr) return res.status(500).json({ success: false, error: updateErr.message });
+
+    console.log(`❌ [OA] 审批驳回: id=${req.params.id}, approver=${userId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ [OA] 驳回审批异常:', err.message);
+    res.status(500).json({ success: false, error: '审批操作失败' });
   }
 });
 

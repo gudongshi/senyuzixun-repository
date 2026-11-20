@@ -7,7 +7,7 @@ import {
 // ============================================================
 // 类型
 // ============================================================
-export type PageKey = 'home' | 'qualifications' | 'siteHub' | 'print' | 'knowledgeBase' | 'myFiles' | 'settings';
+export type PageKey = 'home' | 'qualifications' | 'siteHub' | 'print' | 'knowledgeBase' | 'myFiles' | 'oaApproval' | 'settings';
 
 export interface NavItem {
   key: PageKey;
@@ -23,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'print',       label: '🖨️ 打印分摊', icon: Printer },
   { key: 'knowledgeBase', label: '📚 企业知识库', icon: BookOpen },
   { key: 'myFiles',     label: '🗂️ 个人知识库', icon: FolderOpen },
+  { key: 'oaApproval',  label: '📋 OA 审批',   icon: ClipboardList },
   { key: 'settings',    label: '系统设置',     icon: Settings },
 ];
 
@@ -119,7 +120,7 @@ export default function Sidebar({
         {/* 底部：折叠按钮 + 用户 + 登出 */}
         <div className="border-t border-slate-100 p-3 space-y-2 shrink-0">
           {/* 底部：版本号 */}
-          <div className="text-[10px] text-slate-400 text-center pb-1">System v14.1</div>
+          <div className="text-[10px] text-slate-400 text-center pb-1">System v15.1</div>
 
           {/* 折叠切换 */}
           <button
