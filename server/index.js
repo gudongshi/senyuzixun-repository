@@ -7923,12 +7923,12 @@ app.get('/api/office-preview/:source/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// v16.0 OA 审批 API — 前端直传 OSS 方案（@alicloud/pop-core）
+// v16.1 OA 审批 API — 前端直传 OSS 方案（@alicloud/pop-core）
 // ============================================================
 
-const RPCClient = require('@alicloud/pop-core').default;
+const RPCClient = require('@alicloud/pop-core');
 
-// GET /api/oa/oss-token — 下发 STS 临时凭证（v16.0：@alicloud/pop-core）
+// GET /api/oa/oss-token — 下发 STS 临时凭证（v16.1：@alicloud/pop-core）
 app.get('/api/oa/oss-token', authMiddleware, async (req, res) => {
   try {
     if (!process.env.OSS_ROLE_ARN) {
