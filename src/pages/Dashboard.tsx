@@ -3,6 +3,7 @@ import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as echarts from 'echarts';
 import { X, RefreshCw, ChevronLeft, ChevronRight, FileText, Bot, Loader2, Eye, Building2, Video, Phone, Users, Search, Edit3, Send } from 'lucide-react';
+import { rateLimitedAI } from '../utils/rateLimiter';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
@@ -242,7 +243,10 @@ function ProjectDetailDrawerSimple({
     if (!project) return;
     setAiLoading(true);
     try {
-      const resp = await fetch(`/api/ai/project-analysis/${project.id}`, { method: 'POST' });
+      // v16.4: 限流排队，避免并发 AI 调用触发 429
+      const resp = await rateLimitedAI(() =>
+        fetch(`/api/ai/project-analysis/${project.id}`, { method: 'POST' })
+      );
       const result = await resp.json();
       if (result.success && result.data) {
         console.log('[Dashboard] AI 分析结果:', result.data);
@@ -3501,7 +3505,7 @@ export default function Dashboard() {
           </div>
         </>
       )}
-    <div className="text-[10px] text-slate-600 text-center py-2">森宇集团 · 项目指挥大屏 · System v16.3</div>
+    <div className="text-[10px] text-slate-600 text-center py-2">森宇集团 · 项目指挥大屏 · System v16.4</div>
     </div>
   );
 }

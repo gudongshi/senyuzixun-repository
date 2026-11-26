@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, useMemo, type FormEvent } from 'react';
 import { toast } from 'sonner';
+import { rateLimitedAI } from '../utils/rateLimiter';
 import {
   Plus, Search, RefreshCw, Eye, Edit, Trash2, X, FileText,
   LogOut, LayoutDashboard, Building2, ChevronLeft, ChevronRight,
@@ -1044,7 +1045,10 @@ function ProjectDetailDrawer({
     if (!project) return;
     setTriggeringAI(true);
     try {
-      const resp = await fetch(`/api/ai/project-analysis/${project.id}`, { method: 'POST' });
+      // v16.4: 限流排队，避免并发 AI 调用触发 429
+      const resp = await rateLimitedAI(() =>
+        fetch(`/api/ai/project-analysis/${project.id}`, { method: 'POST' })
+      );
       const result = await resp.json();
       if (result.success && result.data) {
         setAiAnalysis(result.data);

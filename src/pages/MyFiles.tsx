@@ -38,6 +38,8 @@ export default function MyFiles() {
   const [files, setFiles] = useState<PersonalFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadFileName, setUploadFileName] = useState('');
   const [search, setSearch] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // v14.2: Office 文档预览弹窗
@@ -79,34 +81,93 @@ export default function MyFiles() {
   });
 
   // ════════════════════════════════════════════════════════
-  // 上传
+  // v16.4: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请选择文件'); return; }
 
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      // v12.6: 显式传递原始文件名，避免 Content-Disposition 编码导致中文乱码
-      formData.append('file_name', selectedFile.name);
+    console.log('🚀 [个人KB上传] 开始上传，文件大小:', selectedFile.size, '字节 (', formatSize(selectedFile.size), ')');
 
-      const resp = await fetch('/api/my-files', {
-        method: 'POST',
-        body: formData,
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadFileName(selectedFile.name);
+
+    try {
+      // 1. 获取 STS 临时凭证
+      console.log('🔄 [个人KB上传] 正在获取 STS 临时凭证...');
+      const tokenResp = await fetch('/api/oa/oss-token');
+      const tokenJson = await tokenResp.json();
+      if (!tokenJson.success) {
+        console.error('❌ [个人KB上传] 获取STS失败:', tokenJson);
+        toast.error('获取上传凭证失败: ' + (tokenJson.error || '未知错误'));
+        return;
+      }
+      const { credentials, region, bucket } = tokenJson;
+      console.log('🔑 [个人KB上传] STS 凭证已获取, region:', region, 'bucket:', bucket);
+
+      // 2. 创建 OSS 客户端
+      console.log('📦 [个人KB上传] 正在加载 ali-oss SDK...');
+      const OSS = (await import('ali-oss')).default;
+      const client = new OSS({
+        region,
+        accessKeyId: credentials.accessKeyId,
+        accessKeySecret: credentials.accessKeySecret,
+        stsToken: credentials.securityToken,
+        bucket,
+        secure: true,
       });
-      const json = await resp.json();
-      if (json.success) {
-        toast.success('文件上传成功');
+      console.log('📦 [个人KB上传] OSS 实例已创建');
+
+      // 3. 生成 OSS 存储路径
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const ossKey = `personal_kb/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${selectedFile.name}`;
+      console.log('🗂️ [个人KB上传] OSS 存储路径:', ossKey);
+
+      // 4. 分片上传 + 进度回调
+      console.log('📤 [个人KB上传] 开始 multipartUpload...');
+      const startTime = Date.now();
+      await client.multipartUpload(ossKey, selectedFile, {
+        progress: (p: number) => {
+          const pct = Math.floor(p * 100);
+          console.log('📈 [个人KB上传] 上传进度:', pct + '%');
+          setUploadProgress(pct);
+        },
+      });
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`✅ [个人KB上传] 上传完成, 耗时: ${elapsed}s`);
+
+      // 5. 保存元数据到后端
+      console.log('💾 [个人KB上传] 正在保存文件记录...');
+      const saveResp = await fetch('/api/my-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_name: selectedFile.name,
+          oss_key: ossKey,
+          file_size: selectedFile.size,
+        }),
+      });
+      const saveJson = await saveResp.json();
+      console.log('💾 [个人KB上传] 后端保存结果:', saveJson.success);
+      if (saveJson.success) {
+        toast.success('文件上传成功 (' + formatSize(selectedFile.size) + ', 耗时 ' + elapsed + 's)');
         setSelectedFile(null);
         loadFiles();
       } else {
-        toast.error('上传失败: ' + (json.error || '未知错误'));
+        console.error('❌ [个人KB上传] 文件已上传但记录失败:', saveJson);
+        toast.error('文件已上传但记录失败: ' + (saveJson.error || '未知错误'));
       }
     } catch (err: any) {
-      toast.error('上传异常: ' + (err.message || '无法连接服务器'));
+      console.error('❌ [个人KB上传] 上传失败:', err);
+      console.error('❌ [个人KB上传] 错误消息:', err.message);
+      toast.error('上传失败，请检查网络或打开控制台: ' + (err.message || '网络错误'));
     } finally {
+      console.log('🏁 [个人KB上传] finally 清理');
       setUploading(false);
+      setUploadProgress(0);
+      setUploadFileName('');
     }
   };
 
@@ -225,7 +286,7 @@ export default function MyFiles() {
             <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 随时演示调取</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v14.2</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v16.4</span>
           </div>
         </div>
       </div>
@@ -283,6 +344,22 @@ export default function MyFiles() {
               </div>
             )}
           </div>
+
+          {/* v16.4: OSS 上传进度条 */}
+          {uploading && uploadFileName && (
+            <div className="mt-4 w-full">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
+                <span className="truncate max-w-[70%]">{uploadFileName}</span>
+                <span className="font-mono text-violet-600 font-medium">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-violet-500 h-2 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end mt-4">
             <button

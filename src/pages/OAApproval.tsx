@@ -218,6 +218,11 @@ export default function OAApproval() {
   // 发起审批
   // ════════════════════════════════════════════════════════
   const handleCreate = async () => {
+    // v16.4: 防呆 — 禁止在上传未完成时提交
+    if (uploading) {
+      toast.error('请等待附件上传完成后再提交');
+      return;
+    }
     if (!createTitle.trim()) { toast.error('请填写审批标题'); return; }
     if (!createType) { toast.error('请选择审批类型'); return; }
 
@@ -331,7 +336,7 @@ export default function OAApproval() {
             <p className="text-xs text-slate-500 mt-0.5">审批流管理 · 附件存阿里云 OSS</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.3</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.4</span>
           </div>
         </div>
       </div>
@@ -618,13 +623,13 @@ export default function OAApproval() {
               </button>
               <button
                 onClick={handleCreate}
-                disabled={creating || !createTitle.trim() || !createType}
+                disabled={creating || uploading || !createTitle.trim() || !createType}
                 className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium
                            hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed
                            transition-all flex items-center gap-1.5 shadow-sm shadow-emerald-200"
               >
-                {creating ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                提交审批
+                {creating ? <Loader2 size={14} className="animate-spin" /> : uploading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                {creating ? '提交中…' : uploading ? '⏳ 附件上传中，请稍候…' : '提交审批'}
               </button>
             </div>
           </div>

@@ -56,6 +56,13 @@ interface KbDocument {
 const inputClass = 'bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/20 transition-colors';
 const textareaClass = 'bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-700 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/20 transition-colors resize-none';
 
+function formatSize(bytes: number): string {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // ============================================================
 // 状态映射
 // ============================================================
@@ -75,6 +82,8 @@ export default function KnowledgeBase() {
   const [docs, setDocs] = useState<KbDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadFileName, setUploadFileName] = useState('');
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<'all' | 'pending'>('all'); // v12.4: Tab 切换
 
@@ -147,28 +156,20 @@ export default function KnowledgeBase() {
   });
 
   // ════════════════════════════════════════════════════════
-  // 上传提交（v12.1：含经验表单 + 状态设为待审核）
+  // v16.4: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
-    // 校验必填项
     if (!selectedFile) { toast.error('请先选择文件'); return; }
     if (!category) { toast.error('请选择业务大类'); return; }
     if (!docType) { toast.error('请选择文档类型'); return; }
     if (!securityLevel) { toast.error('请选择密级'); return; }
     if (!department) { toast.error('请选择所属部门'); return; }
-
-    // 经验提炼表单必填
     if (!expRisk.trim()) { toast.error('请填写"隐蔽风险"'); return; }
     if (!expStrategy.trim()) { toast.error('请填写"化解策略"'); return; }
     if (!expMotto.trim()) { toast.error('请填写"避坑箴言"'); return; }
 
-    // v12.2: trim() 防御首尾不可见字符 + 调试日志
     const cleanedName = selectedFile.name.trim();
     console.log('🔍 [KB 校验] 原始文件名:', JSON.stringify(selectedFile.name));
-    console.log('🔍 [KB 校验] trim()后文件名:', JSON.stringify(cleanedName));
-    console.log('🔍 [KB 校验] 字符码位:', [...cleanedName].map(c => `${c}(U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`).join(' '));
-
-    // 正则校验文件名格式
     if (!FILE_NAME_REGEX.test(cleanedName)) {
       toast.error(
         '文件名格式不符合规范！\n\n'
@@ -180,26 +181,80 @@ export default function KnowledgeBase() {
       return;
     }
 
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('category', category);
-      formData.append('doc_type', docType);
-      formData.append('security_level', securityLevel);
-      formData.append('department', department);
-      formData.append('experience_risk', expRisk.trim());
-      formData.append('experience_strategy', expStrategy.trim());
-      formData.append('experience_motto', expMotto.trim());
+    console.log('🚀 [企业KB上传] 开始上传，文件大小:', selectedFile.size, '字节 (', formatSize(selectedFile.size), ')');
 
-      const resp = await fetch('/api/kb/documents', {
-        method: 'POST',
-        body: formData,
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadFileName(selectedFile.name);
+
+    try {
+      // 1. 获取 STS 临时凭证
+      console.log('🔄 [企业KB上传] 正在获取 STS 临时凭证...');
+      const tokenResp = await fetch('/api/oa/oss-token');
+      const tokenJson = await tokenResp.json();
+      if (!tokenJson.success) {
+        console.error('❌ [企业KB上传] 获取STS失败:', tokenJson);
+        toast.error('获取上传凭证失败: ' + (tokenJson.error || '未知错误'));
+        return;
+      }
+      const { credentials, region, bucket } = tokenJson;
+      console.log('🔑 [企业KB上传] STS 凭证已获取, region:', region, 'bucket:', bucket);
+
+      // 2. 创建 OSS 客户端
+      console.log('📦 [企业KB上传] 正在加载 ali-oss SDK...');
+      const OSS = (await import('ali-oss')).default;
+      const client = new OSS({
+        region,
+        accessKeyId: credentials.accessKeyId,
+        accessKeySecret: credentials.accessKeySecret,
+        stsToken: credentials.securityToken,
+        bucket,
+        secure: true,
       });
-      const json = await resp.json();
-      if (json.success) {
+      console.log('📦 [企业KB上传] OSS 实例已创建');
+
+      // 3. 生成 OSS 存储路径
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const ossKey = `kb_documents/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${selectedFile.name}`;
+      console.log('🗂️ [企业KB上传] OSS 存储路径:', ossKey);
+
+      // 4. 分片上传 + 进度回调
+      console.log('📤 [企业KB上传] 开始 multipartUpload...');
+      const startTime = Date.now();
+      await client.multipartUpload(ossKey, selectedFile, {
+        progress: (p: number) => {
+          const pct = Math.floor(p * 100);
+          console.log('📈 [企业KB上传] 上传进度:', pct + '%');
+          setUploadProgress(pct);
+        },
+      });
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`✅ [企业KB上传] 上传完成, 耗时: ${elapsed}s`);
+
+      // 5. 保存元数据到后端（仅传 oss_key，不传文件流）
+      console.log('💾 [企业KB上传] 正在保存文档记录...');
+      const saveResp = await fetch('/api/kb/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_name: selectedFile.name,
+          oss_key: ossKey,
+          file_size: selectedFile.size,
+          category,
+          doc_type: docType,
+          security_level: securityLevel,
+          department,
+          experience_risk: expRisk.trim(),
+          experience_strategy: expStrategy.trim(),
+          experience_motto: expMotto.trim(),
+        }),
+      });
+      const saveJson = await saveResp.json();
+      console.log('💾 [企业KB上传] 后端保存结果:', saveJson.success);
+      if (saveJson.success) {
         toast.success('文档已提交，等待审核入库');
-        // 重置表单
         setSelectedFile(null);
         setCategory('');
         setDocType('');
@@ -210,21 +265,26 @@ export default function KnowledgeBase() {
         setExpMotto('');
         loadDocuments();
       } else {
-        // 如果是敏感信息拦截，显示详情
-        if (json.findings) {
-          const detail = json.findings.map((f: any) => `• ${f.type}: ${f.value}`).join('\n');
+        if (saveJson.findings) {
+          const detail = saveJson.findings.map((f: any) => `• ${f.type}: ${f.value}`).join('\n');
           toast.error(
-            `${json.error}\n\n检测到的敏感信息：\n${detail}`,
+            `${saveJson.error}\n\n检测到的敏感信息：\n${detail}`,
             { duration: 10000 }
           );
         } else {
-          toast.error('上传失败: ' + (json.error || '未知错误'));
+          console.error('❌ [企业KB上传] 文件已上传但记录失败:', saveJson);
+          toast.error('文件已上传但记录失败: ' + (saveJson.error || '未知错误'));
         }
       }
     } catch (err: any) {
-      toast.error('上传异常: ' + (err.message || '无法连接服务器'));
+      console.error('❌ [企业KB上传] 上传失败:', err);
+      console.error('❌ [企业KB上传] 错误消息:', err.message);
+      toast.error('上传失败，请检查网络或打开控制台: ' + (err.message || '网络错误'));
     } finally {
+      console.log('🏁 [企业KB上传] finally 清理');
       setUploading(false);
+      setUploadProgress(0);
+      setUploadFileName('');
     }
   };
 
@@ -405,7 +465,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v14.2</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.4</span>
           </div>
         </div>
       </div>
@@ -607,6 +667,22 @@ export default function KnowledgeBase() {
               </div>
             </div>
           </div>
+
+          {/* v16.4: OSS 上传进度条 */}
+          {uploading && uploadFileName && (
+            <div className="mt-4 w-full">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
+                <span className="truncate max-w-[70%]">{uploadFileName}</span>
+                <span className="font-mono text-blue-600 font-medium">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* 格式说明 + 上传按钮 */}
           <div className="flex items-center justify-between mt-4 gap-3 flex-wrap">
