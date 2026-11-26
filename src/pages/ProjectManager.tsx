@@ -13,6 +13,7 @@ import PrintAllocation from '../components/print/PrintAllocation';
 import KnowledgeBase from './KnowledgeBase';
 import MyFiles from './MyFiles';
 import OAApproval from './OAApproval';
+import InvoiceExtractor from './InvoiceExtractor';
 import ErrorBoundary from '../components/ErrorBoundary';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
@@ -2112,6 +2113,12 @@ export default function ProjectManager() {
 
   // 导航时同步到 sessionStorage
   const navigateTo = useCallback((page: PageKey) => {
+    // v16.5: 上传中拦截 — 全局标记 + 确认弹窗
+    if ((window as any).__isUploading) {
+      const confirmed = window.confirm('⚠️ 文件正在上传中，切换页面会导致上传中断，是否确定离开？');
+      if (!confirmed) return;
+      (window as any).__isUploading = false;
+    }
     console.log('🔄 [Router] 导航到:', page);
     sessionStorage.setItem('activePage', page);
     setActivePage(page);
@@ -3391,6 +3398,13 @@ export default function ProjectManager() {
         {activePage === 'oaApproval' && (
           <div className="flex-1 flex flex-col min-h-screen">
             <OAApproval />
+          </div>
+        )}
+
+        {/* ── 发票提取器 v16.5 ── */}
+        {activePage === 'invoiceExtractor' && (
+          <div className="flex-1 flex flex-col min-h-screen">
+            <InvoiceExtractor />
           </div>
         )}
 

@@ -68,6 +68,21 @@ export default function MyFiles() {
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
   // ════════════════════════════════════════════════════════
+  // v16.6: 上传中页面离开拦截
+  // ════════════════════════════════════════════════════════
+  useEffect(() => {
+    (window as any).__isUploading = uploading;
+    const handler = (e: BeforeUnloadEvent) => {
+      if (uploading) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => { window.removeEventListener('beforeunload', handler); };
+  }, [uploading]);
+
+  // ════════════════════════════════════════════════════════
   // 拖拽
   // ════════════════════════════════════════════════════════
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -81,7 +96,7 @@ export default function MyFiles() {
   });
 
   // ════════════════════════════════════════════════════════
-  // v16.4: OSS 直传 — STS 凭证 + 分片上传 + 进度条
+  // v16.6: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请选择文件'); return; }
@@ -286,7 +301,7 @@ export default function MyFiles() {
             <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 随时演示调取</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v16.4</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v16.6</span>
           </div>
         </div>
       </div>
@@ -345,7 +360,7 @@ export default function MyFiles() {
             )}
           </div>
 
-          {/* v16.4: OSS 上传进度条 */}
+          {/* v16.6: OSS 上传进度条 */}
           {uploading && uploadFileName && (
             <div className="mt-4 w-full">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">

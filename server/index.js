@@ -7157,10 +7157,15 @@ app.get('/api/kb/documents', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/kb/documents — 上传文档（v12.1：含自动脱敏扫描）
+// POST /api/kb/documents — 上传文档（v16.5: 支持 FormData + JSON OSS 元数据）
 app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (req, res) => {
   try {
-    if (!req.file) {
+    // v16.5: 检测 OSS 直传模式 — JSON 元数据不含 file 字段
+    const isOssMode = !req.file && req.body && req.body.oss_key;
+
+    if (isOssMode) {
+      console.log('📦 [kb OSS] JSON 元数据模式:', req.body.file_name);
+    } else if (!req.file) {
       return res.status(400).json({ success: false, error: '请选择要上传的文件' });
     }
 
@@ -7169,7 +7174,6 @@ app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (re
       return res.status(400).json({ success: false, error: '请填写文档分类信息（业务大类/文档类型/密级）' });
     }
 
-    // v12.1: 经验提炼表单必填
     if (!experience_risk || !experience_strategy || !experience_motto) {
       return res.status(400).json({ success: false, error: '请完整填写经验提炼表单（隐蔽风险、化解策略、避坑箴言）' });
     }
@@ -7178,6 +7182,60 @@ app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (re
     if (!supabaseAdmin) {
       return res.status(500).json({ success: false, error: '服务端 Service Role 未配置，无法上传文件' });
     }
+
+    // 从 token 解析上传人 + userId
+    let uploader = '未知用户';
+    let uploaderId = '';
+    try {
+      const token = req.cookies?.token || (req.headers.authorization || '').replace('Bearer ', '');
+      if (token) {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        uploader = decoded.name || decoded.userId || '未知用户';
+        uploaderId = decoded.userId || '';
+      }
+    } catch (e) {
+      console.warn('⚠️ [kb] 无法解析上传用户:', e.message);
+    }
+
+    if (isOssMode) {
+      // ══ OSS 直传模式：文件已在 OSS，仅存元数据 ══
+      const { file_name, oss_key, file_size } = req.body;
+      if (!file_name || !oss_key) {
+        return res.status(400).json({ success: false, error: '缺少必要参数（file_name, oss_key）' });
+      }
+      console.log(`📦 [kb OSS] 存库: ${file_name}, oss_key=${oss_key}`);
+
+      const { data: doc, error: dbErr } = await client
+        .from('kb_documents')
+        .insert({
+          file_name: file_name,
+          file_url: oss_key,
+          storage_path: oss_key,
+          category,
+          doc_type,
+          security_level,
+          uploader,
+          uploader_id: uploaderId,
+          department: department || '',
+          experience_risk: experience_risk || '',
+          experience_strategy: experience_strategy || '',
+          experience_motto: experience_motto || '',
+          status: '待审核',
+          reject_reason: '',
+        })
+        .select()
+        .single();
+
+      if (dbErr) {
+        console.error('❌ [kb OSS] 数据库写入失败:', dbErr);
+        return res.status(500).json({ success: false, error: '保存文档信息失败: ' + dbErr.message });
+      }
+
+      console.log(`✅ [kb OSS] 文档入库(待审核): ID=${doc.id} | ${doc.file_name}`);
+      return res.json({ success: true, data: doc });
+    }
+
+    // ══ 原有 FormData 模式（multer 文件上传 + Supabase Storage + 敏感信息扫描）════
 
     // ── v12.1: 自动脱敏扫描 ──
     const fileExt = path.extname(req.file.originalname).toLowerCase();
@@ -7203,19 +7261,6 @@ app.post('/api/kb/documents', authMiddleware, kbUpload.single('file'), async (re
     }
 
     // 从 token 解析上传人 + userId
-    let uploader = '未知用户';
-    let uploaderId = '';
-    try {
-      const token = req.cookies?.token || (req.headers.authorization || '').replace('Bearer ', '');
-      if (token) {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        uploader = decoded.name || decoded.userId || '未知用户';
-        uploaderId = decoded.userId || '';
-      }
-    } catch (e) {
-      console.warn('⚠️ [kb] 无法解析上传用户:', e.message);
-    }
-
     // 生成存储路径: kb_docs/YYYY/MM/timestamp_UUID.ext（v12.6：修复中文文件名编码）
     let kbDisplayName = req.file.originalname;
     try {
@@ -7444,7 +7489,7 @@ app.delete('/api/kb/documents/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/kb/documents/:id/preview — v13.3：企业知识库预览/下载（仿 my-files 方案）
+// GET /api/kb/documents/:id/preview — v16.6：OSS + Supabase 双模式签名
 app.get('/api/kb/documents/:id/preview', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -7464,37 +7509,53 @@ app.get('/api/kb/documents/:id/preview', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, error: '文档不存在' });
     }
 
-    console.log('====== [kb] 开始诊断 PREVIEW 接口 ======');
+    console.log('====== [kb] PREVIEW 接口 v16.6 ======');
     console.log('1. 请求的文档 ID:', req.params.id);
-    console.log('2. 数据库中查到的记录:', JSON.stringify(doc, null, 2));
 
-    // v13.3: 优先使用 storage_path，回退到 URL 解析
-    let rawPath = doc.storage_path || '';
-    if (!rawPath) {
+    // v16.6: OSS 前缀检测
+    const rawPath = (doc.storage_path || doc.file_url || '').toString();
+    const OSS_PREFIXES = ['kb_documents/', 'personal_kb/', 'oa_attachments/'];
+    const isOssFile = OSS_PREFIXES.some(p => rawPath.startsWith(p));
+
+    if (isOssFile && ossClient) {
+      // ══ OSS 签名模式 ══
+      const ossKey = rawPath.replace(/^\/+/, '');
+      console.log('2. [OSS模式] 签名路径:', ossKey);
+
+      const signOpts = { expires: 3600 };
+      if (req.query.download && doc.file_name) {
+        signOpts.response = { 'content-disposition': `attachment; filename="${encodeURIComponent(doc.file_name)}"` };
+      }
+
+      const signedUrl = ossClient.signatureUrl(ossKey, signOpts);
+      console.log('3. [OSS模式] 签名成功:', signedUrl.slice(0, 80) + '...');
+      console.log('===================================');
+      return res.json({ success: true, signedUrl, file_name: doc.file_name || '' });
+    }
+
+    // ══ Supabase 签名模式（旧文件）════
+    console.log('2. [Supabase模式] 记录:', JSON.stringify({ file_name: doc.file_name, storage_path: doc.storage_path }));
+
+    let supabasePath = doc.storage_path || '';
+    if (!supabasePath) {
       try {
         const urlObj = new URL(doc.file_url);
         const m = urlObj.pathname.match(/\/kb_files\/(.+)$/);
-        if (m) rawPath = decodeURIComponent(m[1]);
+        if (m) supabasePath = decodeURIComponent(m[1]);
       } catch (_) {}
     }
 
-    // 清洗路径：去前导斜杠 + 去掉可能的 bucket 名前缀
-    const cleanPath = String(rawPath).replace(/^\/+/, '').replace(/^kb_files\//, '');
-    console.log('3. 最终传给 createSignedUrl 的桶名:', 'kb_files');
-    console.log('4. 最终传给 createSignedUrl 的路径:', cleanPath);
-    console.log('4b. download 文件名:', doc.file_name || '(空)');
+    const cleanPath = String(supabasePath).replace(/^\/+/, '').replace(/^kb_files\//, '');
+    console.log('3. [Supabase模式] 桶名: kb_files, 路径:', cleanPath);
 
     if (!cleanPath || cleanPath === 'undefined' || cleanPath === 'null') {
-      console.error('❌ [kb] 路径为空，无法签名！');
-      console.error('   doc.storage_path:', doc.storage_path);
-      console.error('   doc.file_url:', doc.file_url);
+      console.error('❌ [Supabase模式] 路径为空！');
       return res.status(500).json({
         success: false,
-        error: '文件路径为空，无法生成签名链接。storage_path=' + (doc.storage_path || '(空)') + ' file_url=' + (doc.file_url || '(空)'),
+        error: '文件路径为空。storage_path=' + (doc.storage_path || '(空)') + ' file_url=' + (doc.file_url || '(空)'),
       });
     }
 
-    // v13.3: 下载时强制指定原始中文文件名
     const signOpts = {};
     if (req.query.download && doc.file_name) {
       signOpts.download = doc.file_name;
@@ -7503,10 +7564,6 @@ app.get('/api/kb/documents/:id/preview', authMiddleware, async (req, res) => {
     const { data: signedData, error: signedErr } = await client.storage
       .from('kb_files')
       .createSignedUrl(cleanPath, 3600, signOpts);
-
-    console.log('5. Supabase 返回的 data:', signedData);
-    console.log('6. Supabase 返回的 error:', signedErr);
-    console.log('===================================');
 
     if (signedErr) {
       return res.status(500).json({
@@ -7520,6 +7577,7 @@ app.get('/api/kb/documents/:id/preview', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '签名链接为空' });
     }
 
+    console.log('===================================');
     res.json({ success: true, signedUrl: signedData.signedUrl, file_name: doc.file_name || '' });
   } catch (err) {
     console.error('❌ [kb] 预览异常:', err.message);
@@ -7567,30 +7625,58 @@ app.get('/api/my-files', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/my-files — 上传文件
+// POST /api/my-files — 上传文件（v16.5: 支持 FormData 和 JSON OSS 元数据两种模式）
 app.post('/api/my-files', authMiddleware, myFilesUpload.single('file'), async (req, res) => {
   try {
-    if (!req.file) {
+    // v16.5: 检测 OSS 直传模式 — JSON 元数据不含 file 字段
+    const isOssMode = !req.file && req.body && req.body.oss_key;
+    if (isOssMode) {
+      console.log('📦 [my-files OSS] JSON 元数据模式:', req.body.file_name);
+    } else if (!req.file) {
       return res.status(400).json({ success: false, error: '请选择要上传的文件' });
     }
-
-    // v12.7: 调试日志 — 查看实际收到的内容
-    console.log('🔍 [MyFiles POST] req.body:', JSON.stringify(req.body));
-    console.log('🔍 [MyFiles POST] req.file.originalname:', JSON.stringify(req.file.originalname));
-    console.log('🔍 [MyFiles POST] req.body keys:', Object.keys(req.body));
 
     const client = supabaseAdmin || supabase;
     if (!supabaseAdmin) {
       return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
     }
 
-    // v12.7: 使用 req.user 获取上传者
     let uploaderId = req.user?.userId || '';
     if (!uploaderId && process.env.NODE_ENV !== 'production') {
       uploaderId = 'dev';
-      console.log('🔧 [MyFiles DEV] 使用默认 mock 上传者: dev');
     }
     console.log('🔍 [MyFiles POST] 上传者 ID:', uploaderId);
+
+    if (isOssMode) {
+      // ══ OSS 直传模式：文件已在 OSS，仅存元数据 ══
+      const { file_name, oss_key, file_size } = req.body;
+      if (!file_name || !oss_key) {
+        return res.status(400).json({ success: false, error: '缺少必要参数（file_name, oss_key）' });
+      }
+      console.log(`📦 [my-files OSS] 存库: ${file_name}, oss_key=${oss_key}, size=${file_size}`);
+
+      const { data: file, error: dbErr } = await client
+        .from('personal_files')
+        .insert({
+          file_name: file_name,
+          file_url: oss_key,        // 存 oss_key 而非完整 URL
+          storage_path: oss_key,     // v16.5: 标记为 OSS 路径
+          file_size: file_size || 0,
+          uploader_id: uploaderId,
+        })
+        .select()
+        .single();
+
+      if (dbErr) {
+        console.error('❌ [my-files OSS] 数据库写入失败:', dbErr);
+        return res.status(500).json({ success: false, error: '保存文件信息失败: ' + dbErr.message });
+      }
+
+      console.log(`✅ [my-files OSS] 元数据入库: ID=${file.id} | ${file.file_name}`);
+      return res.json({ success: true, data: file });
+    }
+
+    // ══ 原有 FormData 模式（multer 文件上传 + Supabase Storage）════
 
     // v12.7: 文件名获取（三层回退）
     let displayName = '';
@@ -7736,7 +7822,7 @@ app.delete('/api/my-files/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/my-files/:id/preview — v13.0：终极诊断版
+// GET /api/my-files/:id/preview — v16.6：OSS + Supabase 双模式签名
 app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -7745,16 +7831,15 @@ app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '服务端 Service Role 未配置' });
     }
 
-    // v12.7: 使用 req.user
     let userId = req.user?.userId || '';
     if (!userId && process.env.NODE_ENV !== 'production') {
       userId = 'dev';
     }
 
-    // 查记录
+    // 查记录 — v16.6: 补选 file_name
     const { data: file, error: findErr } = await client
       .from('personal_files')
-      .select('id, file_url, storage_path, uploader_id')
+      .select('id, file_name, file_url, storage_path, uploader_id')
       .eq('id', id)
       .single();
 
@@ -7762,33 +7847,50 @@ app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, error: '文件不存在' });
     }
 
-    console.log('====== 开始诊断 PREVIEW 接口 ======');
+    console.log('====== [my-files] PREVIEW 接口 v16.6 ======');
     console.log('1. 请求的文件 ID:', req.params.id);
-    console.log('2. 数据库中查到的记录:', JSON.stringify(file, null, 2));
 
-    // v12.9: 先用 storage_path，回退 URL 解析
-    let rawPath = file.storage_path || '';
-    if (!rawPath) {
+    // v16.6: OSS 前缀检测 — 直传路径以 personal_kb/ / oa_attachments/ / kb_documents/ 开头
+    const rawPath = (file.storage_path || file.file_url || '').toString();
+    const OSS_PREFIXES = ['personal_kb/', 'oa_attachments/', 'kb_documents/'];
+    const isOssFile = OSS_PREFIXES.some(p => rawPath.startsWith(p));
+
+    if (isOssFile && ossClient) {
+      // ══ OSS 签名模式 ══
+      const ossKey = rawPath.replace(/^\/+/, '');
+      console.log('2. [OSS模式] 签名路径:', ossKey);
+
+      const signOpts = { expires: 3600 };
+      if (req.query.download && file.file_name) {
+        signOpts.response = { 'content-disposition': `attachment; filename="${encodeURIComponent(file.file_name)}"` };
+      }
+
+      const signedUrl = ossClient.signatureUrl(ossKey, signOpts);
+      console.log('3. [OSS模式] 签名成功:', signedUrl.slice(0, 80) + '...');
+      console.log('===================================');
+      return res.json({ success: true, signedUrl, file_name: file.file_name || '' });
+    }
+
+    // ══ Supabase 签名模式（旧文件）════
+    console.log('2. [Supabase模式] 记录:', JSON.stringify({ file_name: file.file_name, storage_path: file.storage_path }));
+
+    let supabasePath = file.storage_path || '';
+    if (!supabasePath) {
       try {
         const urlObj = new URL(file.file_url);
         const m = urlObj.pathname.match(/\/my_files\/(.+)$/);
-        if (m) rawPath = decodeURIComponent(m[1]);
+        if (m) supabasePath = decodeURIComponent(m[1]);
       } catch (_) {}
     }
 
-    const cleanPath = String(rawPath).replace(/^\/+/, '').replace(/^my_files\//, '');
-    console.log('3. 最终传给 createSignedUrl 的桶名:', 'my_files');
-    console.log('4. 最终传给 createSignedUrl 的路径:', cleanPath);
-    console.log('4b. download 文件名:', file.file_name || '(空)');
+    const cleanPath = String(supabasePath).replace(/^\/+/, '').replace(/^my_files\//, '');
+    console.log('3. [Supabase模式] 桶名: my_files, 路径:', cleanPath);
 
     if (!cleanPath || cleanPath === 'undefined' || cleanPath === 'null') {
-      console.error('❌ 路径为空，无法签名！');
-      console.error('   file.storage_path:', file.storage_path);
-      console.error('   file.file_url:', file.file_url);
-      return res.status(500).json({ success: false, error: '文件路径为空，无法生成签名链接。storage_path=' + (file.storage_path || '(空)') + ' file_url=' + (file.file_url || '(空)') });
+      console.error('❌ [Supabase模式] 路径为空！');
+      return res.status(500).json({ success: false, error: '文件路径为空，无法生成签名链接。storage_path=' + (file.storage_path || '(空)') });
     }
 
-    // v13.2: 下载时强制指定原始中文文件名
     const signOpts = {};
     if (req.query.download && file.file_name) {
       signOpts.download = file.file_name;
@@ -7798,12 +7900,7 @@ app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
       .from('my_files')
       .createSignedUrl(cleanPath, 3600, signOpts);
 
-    console.log('5. Supabase 返回的 data:', signedData);
-    console.log('6. Supabase 返回的 error:', signedErr);
-    console.log('===================================');
-
     if (signedErr) {
-      // 绝对不能返回任何会被浏览器当作有效 URL 的内容
       return res.status(500).json({
         success: false,
         error: 'Supabase 签名失败: ' + (signedErr.message || JSON.stringify(signedErr)),
@@ -7815,6 +7912,7 @@ app.get('/api/my-files/:id/preview', authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, error: '签名链接为空' });
     }
 
+    console.log('===================================');
     res.json({ success: true, signedUrl: signedData.signedUrl, file_name: file.file_name || '' });
   } catch (err) {
     console.error('❌ [my-files] 预览异常:', err.message);
@@ -8835,6 +8933,90 @@ app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'),
       console.error('   HTTP 状态:', err.response.status);
       console.error('   响应体:', JSON.stringify(err.response.data || {}).slice(0, 1000));
     }
+    res.status(500).json({ success: false, error: '发票识别失败: ' + (err.response?.data?.message || err.message) });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// v16.5: 发票全字段智能识别 — Base64 上传 + AI 视觉提取
+// ══════════════════════════════════════════════════════════════
+app.post('/api/finance/invoice-ocr', authMiddleware, async (req, res) => {
+  try {
+    const { base64, mimeType, fileName } = req.body;
+    if (!base64) {
+      return res.status(400).json({ success: false, error: '请上传发票图片或 PDF 文件' });
+    }
+
+    if (!DASHSCOPE_API_KEY) {
+      return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员设置 API Key' });
+    }
+
+    const dataUri = `data:${mimeType || 'image/jpeg'};base64,${base64}`;
+    console.log(`🧾 [Invoice全字段] 接收: ${fileName || '未知文件'}, MIME: ${mimeType || 'image/jpeg'}`);
+
+    const prompt = `你是一个专业的财务发票识别助手。请提取图片/PDF中发票的所有关键信息，按以下格式输出纯文本：
+发票代码：...
+发票号码：...
+开票日期：...
+校验码：...
+购买方名称：...
+购买方纳税人识别号：...
+销售方名称：...
+销售方纳税人识别号：...
+金额（不含税）：...
+税率：...
+税额：...
+价税合计（大写）：...
+价税合计（小写）：...
+备注：...
+
+规则：
+1. 只输出能识别到的字段，识别不到的字段输出"未识别"
+2. 不要输出任何解释、前缀或后缀文字
+3. 金额保留两位小数
+4. 如果图片中无发票信息，输出"未检测到有效发票"`;
+
+    console.log('⏳ [Invoice全字段] 正在调用 qwen4-max 视觉模型...');
+    const response = await retryRequest(() => axios.post(
+      DASHSCOPE_VISION_URL,
+      {
+        model: 'qwen4-max',
+        input: {
+          messages: [{
+            role: 'user',
+            content: [
+              { image: dataUri },
+              { text: prompt },
+            ],
+          }],
+        },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+      }
+    ));
+
+    console.log('✅ [Invoice全字段] 视觉模型响应成功');
+    const outputContent = response.data?.output?.choices?.[0]?.message?.content;
+    if (!outputContent) {
+      return res.status(500).json({ success: false, error: 'AI 模型返回数据异常，请重试' });
+    }
+
+    let resultText = '';
+    if (typeof outputContent === 'string') {
+      resultText = outputContent;
+    } else if (Array.isArray(outputContent)) {
+      resultText = outputContent.map((c) => c.text || '').join('');
+    }
+
+    console.log('📝 [Invoice全字段] AI 响应:', resultText.slice(0, 400));
+    res.json({ success: true, data: { text: resultText } });
+  } catch (err) {
+    console.error('❌ [Invoice全字段] 调用失败:', err.message);
     res.status(500).json({ success: false, error: '发票识别失败: ' + (err.response?.data?.message || err.message) });
   }
 });

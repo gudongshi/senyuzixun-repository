@@ -132,6 +132,21 @@ export default function KnowledgeBase() {
   }, [loadDocuments]);
 
   // ════════════════════════════════════════════════════════
+  // v16.6: 上传中页面离开拦截
+  // ════════════════════════════════════════════════════════
+  useEffect(() => {
+    (window as any).__isUploading = uploading;
+    const handler = (e: BeforeUnloadEvent) => {
+      if (uploading) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => { window.removeEventListener('beforeunload', handler); };
+  }, [uploading]);
+
+  // ════════════════════════════════════════════════════════
   // 拖拽上传
   // ════════════════════════════════════════════════════════
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -156,7 +171,7 @@ export default function KnowledgeBase() {
   });
 
   // ════════════════════════════════════════════════════════
-  // v16.4: OSS 直传 — STS 凭证 + 分片上传 + 进度条
+  // v16.6: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请先选择文件'); return; }
@@ -465,7 +480,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.4</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.6</span>
           </div>
         </div>
       </div>
@@ -668,7 +683,7 @@ export default function KnowledgeBase() {
             </div>
           </div>
 
-          {/* v16.4: OSS 上传进度条 */}
+          {/* v16.6: OSS 上传进度条 */}
           {uploading && uploadFileName && (
             <div className="mt-4 w-full">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
