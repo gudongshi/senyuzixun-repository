@@ -92,11 +92,14 @@ export default function OAApproval() {
   useEffect(() => { loadApprovals(); }, [loadApprovals]);
 
   // ════════════════════════════════════════════════════════
-  // v16.0: 前端直传 OSS — STS 凭证 + 分片上传 + 实时进度条
+  // v16.3: 前端直传 OSS — STS 凭证 + 分片上传 + 详细日志 + 真实进度条
   // ════════════════════════════════════════════════════════
   const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    console.log('🚀 [OA上传] 开始上传，文件大小:', file.size, '字节 (', formatSize(file.size), ')');
+    console.log('🚀 [OA上传] 文件名:', file.name, '类型:', file.type);
 
     setUploading(true);
     setUploadProgress(0);
@@ -105,16 +108,25 @@ export default function OAApproval() {
 
     try {
       // 1. 获取 STS 临时凭证
+      console.log('🔄 [OA上传] 正在获取 STS 临时凭证...');
       const tokenResp = await fetch('/api/oa/oss-token');
+      console.log('🌐 [OA上传] STS 接口 HTTP 状态:', tokenResp.status);
       const tokenJson = await tokenResp.json();
+      console.log('🔑 [OA上传] STS 凭证已获取, success:', tokenJson.success);
       if (!tokenJson.success) {
+        console.error('❌ [OA上传] 获取上传凭证失败:', tokenJson);
         toast.error('获取上传凭证失败: ' + (tokenJson.error || '未知错误'));
         return;
       }
       const { credentials, region, bucket } = tokenJson;
+      console.log('🔑 [OA上传] region:', region, 'bucket:', bucket);
+      console.log('🔑 [OA上传] STS accessKeyId 前缀:', credentials.accessKeyId?.slice(0, 8) + '...');
+      console.log('🔑 [OA上传] STS securityToken 长度:', credentials.securityToken?.length || 0);
 
       // 2. 创建 OSS 客户端（使用 STS 临时凭证）
+      console.log('📦 [OA上传] 正在加载 ali-oss SDK...');
       const OSS = (await import('ali-oss')).default;
+      console.log('📦 [OA上传] ali-oss SDK 加载完成，正在实例化 OSS 客户端...');
       const client = new OSS({
         region,
         accessKeyId: credentials.accessKeyId,
@@ -123,23 +135,30 @@ export default function OAApproval() {
         bucket,
         secure: true,
       });
+      console.log('📦 [OA上传] OSS 实例已创建，region:', region, 'bucket:', bucket);
 
       // 3. 生成 OSS 存储路径
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const ossKey = `oa_attachments/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${file.name}`;
+      console.log('🗂️ [OA上传] OSS 存储路径:', ossKey);
 
       // 4. 分片上传 + 进度回调
+      console.log('📤 [OA上传] 开始 multipartUpload，文件大小:', formatSize(file.size));
+      const startTime = Date.now();
       await client.multipartUpload(ossKey, file, {
         progress: (p: number) => {
-          setUploadProgress(Math.floor(p * 100));
+          const pct = Math.floor(p * 100);
+          console.log('📈 [OA上传] 上传进度:', pct + '%');
+          setUploadProgress(pct);
         },
       });
-
-      console.log(`📤 [OA 直传] 完成: ${ossKey}, size: ${file.size}`);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`✅ [OA上传] 上传完成: ${ossKey}, size: ${file.size}, 耗时: ${elapsed}s`);
 
       // 5. 上传成功后，调用后端存库（仅传元数据）
+      console.log('💾 [OA上传] 正在保存附件记录到后端...');
       const saveResp = await fetch('/api/oa/attachments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,16 +169,21 @@ export default function OAApproval() {
         }),
       });
       const saveJson = await saveResp.json();
+      console.log('💾 [OA上传] 后端保存结果:', saveJson.success);
       if (saveJson.success) {
         setAttachments(prev => [...prev, saveJson.data]);
-        toast.success('附件上传成功');
+        toast.success('附件上传成功 (' + formatSize(file.size) + ', 耗时 ' + elapsed + 's)');
       } else {
+        console.error('❌ [OA上传] 文件已上传但记录失败:', saveJson);
         toast.error('文件已上传但记录失败: ' + (saveJson.error || '未知错误'));
       }
     } catch (err: any) {
-      console.error('❌ [OA 直传] 异常:', err);
-      toast.error('上传失败: ' + (err.message || '网络错误'));
+      console.error('❌ [OA上传] 上传失败 —— 完整错误:', err);
+      console.error('❌ [OA上传] 错误消息:', err.message);
+      console.error('❌ [OA上传] 错误堆栈:', err.stack);
+      toast.error('上传失败，请检查网络或打开控制台查看详情: ' + (err.message || '网络错误'));
     } finally {
+      console.log('🏁 [OA上传] finally 清理，重置上传状态');
       setUploading(false);
       setUploadProgress(0);
       setUploadFileName('');
@@ -307,7 +331,7 @@ export default function OAApproval() {
             <p className="text-xs text-slate-500 mt-0.5">审批流管理 · 附件存阿里云 OSS</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.0</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.3</span>
           </div>
         </div>
       </div>
