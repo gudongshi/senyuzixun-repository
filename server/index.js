@@ -1960,7 +1960,7 @@ app.post('/api/ai-table-webhook', (req, res, next) => {
 // ============================================================
 // 其他路由（使用 express.json()）
 // ============================================================
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // v16.7: 放宽至 50MB 支持 Base64 发票
 
 // 手动触发风险分析
 app.post('/api/risk-analysis', async (req, res) => {

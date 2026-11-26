@@ -218,7 +218,7 @@ export default function OAApproval() {
   // 发起审批
   // ════════════════════════════════════════════════════════
   const handleCreate = async () => {
-    // v16.6: 防呆 — 禁止在上传未完成时提交
+    // v16.7: 防呆 — 禁止在上传未完成时提交
     if (uploading) {
       toast.error('请等待附件上传完成后再提交');
       return;
@@ -336,7 +336,7 @@ export default function OAApproval() {
             <p className="text-xs text-slate-500 mt-0.5">审批流管理 · 附件存阿里云 OSS</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.6</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.7</span>
           </div>
         </div>
       </div>

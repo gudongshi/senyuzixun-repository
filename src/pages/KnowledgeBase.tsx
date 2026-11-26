@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useAuthUser } from '../components/AuthGate';
@@ -99,6 +99,11 @@ export default function KnowledgeBase() {
   const [expStrategy, setExpStrategy] = useState('');
   const [expMotto, setExpMotto] = useState('');
 
+  // v16.7: 上传中止机制
+  const abortRef = useRef(false);
+  const ossClientRef = useRef<any>(null);
+  const checkpointRef = useRef<{ name: string; uploadId: string } | null>(null);
+
   // 打回弹窗
   const [rejectTarget, setRejectTarget] = useState<KbDocument | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -132,7 +137,7 @@ export default function KnowledgeBase() {
   }, [loadDocuments]);
 
   // ════════════════════════════════════════════════════════
-  // v16.6: 上传中页面离开拦截
+  // v16.7: 上传中页面离开拦截
   // ════════════════════════════════════════════════════════
   useEffect(() => {
     (window as any).__isUploading = uploading;
@@ -144,6 +149,23 @@ export default function KnowledgeBase() {
     };
     window.addEventListener('beforeunload', handler);
     return () => { window.removeEventListener('beforeunload', handler); };
+  }, [uploading]);
+
+  // v16.7: 组件卸载时强制中止 OSS 上传
+  useEffect(() => {
+    return () => {
+      if (abortRef.current || uploading) {
+        console.log('🛑 [企业KB] 组件卸载，中止 OSS 上传...');
+        abortRef.current = true;
+        const cp = checkpointRef.current;
+        const oss = ossClientRef.current;
+        if (cp && oss) {
+          oss.abortMultipartUpload(cp.name, cp.uploadId).catch((e: any) =>
+            console.warn('⚠️ [企业KB] abortMultipartUpload 失败:', e.message)
+          );
+        }
+      }
+    };
   }, [uploading]);
 
   // ════════════════════════════════════════════════════════
@@ -171,7 +193,7 @@ export default function KnowledgeBase() {
   });
 
   // ════════════════════════════════════════════════════════
-  // v16.6: OSS 直传 — STS 凭证 + 分片上传 + 进度条
+  // v16.7: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请先选择文件'); return; }
@@ -198,11 +220,17 @@ export default function KnowledgeBase() {
 
     console.log('🚀 [企业KB上传] 开始上传，文件大小:', selectedFile.size, '字节 (', formatSize(selectedFile.size), ')');
 
+    // v16.7: 重置中止标记
+    abortRef.current = false;
+    ossClientRef.current = null;
+    checkpointRef.current = null;
+
     setUploading(true);
     setUploadProgress(0);
     setUploadFileName(selectedFile.name);
 
     try {
+      if (abortRef.current) { console.log('🛑 [企业KB上传] 已被中止，跳过'); return; }
       // 1. 获取 STS 临时凭证
       console.log('🔄 [企业KB上传] 正在获取 STS 临时凭证...');
       const tokenResp = await fetch('/api/oa/oss-token');
@@ -227,6 +255,7 @@ export default function KnowledgeBase() {
         secure: true,
       });
       console.log('📦 [企业KB上传] OSS 实例已创建');
+      ossClientRef.current = client; // v16.7: 保存引用用于中止
 
       // 3. 生成 OSS 存储路径
       const now = new Date();
@@ -239,7 +268,9 @@ export default function KnowledgeBase() {
       console.log('📤 [企业KB上传] 开始 multipartUpload...');
       const startTime = Date.now();
       await client.multipartUpload(ossKey, selectedFile, {
-        progress: (p: number) => {
+        progress: (p: number, cp: any) => {
+          if (cp && cp.uploadId) checkpointRef.current = { name: ossKey, uploadId: cp.uploadId };
+          if (abortRef.current) throw new Error('__ABORTED__');
           const pct = Math.floor(p * 100);
           console.log('📈 [企业KB上传] 上传进度:', pct + '%');
           setUploadProgress(pct);
@@ -292,11 +323,17 @@ export default function KnowledgeBase() {
         }
       }
     } catch (err: any) {
-      console.error('❌ [企业KB上传] 上传失败:', err);
-      console.error('❌ [企业KB上传] 错误消息:', err.message);
-      toast.error('上传失败，请检查网络或打开控制台: ' + (err.message || '网络错误'));
+      if (err.message === '__ABORTED__' || abortRef.current) {
+        console.log('🛑 [企业KB上传] 用户中止上传');
+      } else {
+        console.error('❌ [企业KB上传] 上传失败:', err);
+        console.error('❌ [企业KB上传] 错误消息:', err.message);
+        toast.error('上传失败，请检查网络或打开控制台: ' + (err.message || '网络错误'));
+      }
     } finally {
       console.log('🏁 [企业KB上传] finally 清理');
+      ossClientRef.current = null;
+      checkpointRef.current = null;
       setUploading(false);
       setUploadProgress(0);
       setUploadFileName('');
@@ -480,7 +517,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.6</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.7</span>
           </div>
         </div>
       </div>
@@ -683,7 +720,7 @@ export default function KnowledgeBase() {
             </div>
           </div>
 
-          {/* v16.6: OSS 上传进度条 */}
+          {/* v16.7: OSS 上传进度条 */}
           {uploading && uploadFileName && (
             <div className="mt-4 w-full">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
