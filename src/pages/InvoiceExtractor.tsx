@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Loader2, Copy, Check, X } from 'lucide-react';
+import { Upload, FileText, Loader2, Copy, Check } from 'lucide-react';
 
 // ============================================================
-// v16.5: 财务发票全字段智能识别
+// v16.8.2: 财务发票全字段智能识别 — FormData 直传后端解析
+// 打印分摊的同款方案：PDF 由后端 pdfjs-dist 提取文本 + AI 识别
 // ============================================================
 
 function formatSize(bytes: number): string {
@@ -38,38 +39,24 @@ export default function InvoiceExtractor() {
     },
   });
 
-  // ── 识别 ──
+  // ── 识别（v16.8: PDF 前端提取文本 / 图片 Base64 发后端）──
   const handleRecognize = async () => {
     if (!selectedFile) { toast.error('请先上传发票文件'); return; }
 
+    const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf');
+    console.log(`🧾 [发票提取] 开始识别: ${selectedFile.name}, 类型: ${isPdf ? 'PDF' : '图片'}`);
+
     setRecognizing(true);
     setResult('');
-    try {
-      // 读取文件为 base64
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          // dataUrl 格式: "data:image/jpeg;base64,xxxx"
-          const b64 = dataUrl.split(',')[1];
-          if (!b64) reject(new Error('Base64 解析失败'));
-          else resolve(b64);
-        };
-        reader.onerror = () => reject(new Error('文件读取失败'));
-      });
-      reader.readAsDataURL(selectedFile);
-      const base64 = await base64Promise;
 
-      console.log(`🧾 [发票提取] 发送: ${selectedFile.name} (${formatSize(selectedFile.size)}), MIME: ${selectedFile.type}`);
+    try {
+      // ══ FormData 直传后端（与打印分摊完全一致）══
+      const fd = new FormData();
+      fd.append('file', selectedFile);
 
       const resp = await fetch('/api/finance/invoice-ocr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          base64,
-          mimeType: selectedFile.type || 'image/jpeg',
-          fileName: selectedFile.name,
-        }),
+        body: fd,
       });
 
       const json = await resp.json();
@@ -79,7 +66,7 @@ export default function InvoiceExtractor() {
         toast.success('发票信息识别成功');
       } else {
         console.error('❌ [发票提取] 识别失败:', json);
-        toast.error('识别失败: ' + (json.error || '未知错误'));
+        toast.error('识别失败: ' + (json.error || json.message || '未知错误'));
       }
     } catch (err: any) {
       console.error('❌ [发票提取] 异常:', err);
@@ -98,7 +85,6 @@ export default function InvoiceExtractor() {
       toast.success('已复制到剪贴板');
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // 降级：选中文本
       const ta = document.getElementById('invoice-result') as HTMLTextAreaElement;
       if (ta) { ta.select(); document.execCommand('copy'); toast.success('已复制到剪贴板'); }
     }
@@ -164,7 +150,9 @@ export default function InvoiceExtractor() {
                 <p className="text-sm text-slate-600">
                   <span className="font-medium text-amber-600">点击选择</span> 或拖拽发票文件
                 </p>
-                <p className="text-xs text-slate-400">支持 JPG / PNG / PDF 格式</p>
+                <p className="text-xs text-slate-400">
+                  支持 JPG / PNG / PDF · PDF 在前端提取文本后发送 AI 识别
+                </p>
               </div>
             )}
           </div>

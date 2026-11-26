@@ -8842,12 +8842,14 @@ async function extractPdfText(buffer) {
 
 const invoiceUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // v16.8.3: 放宽至 50MB 支持大 PDF
   fileFilter: (req, file, cb) => {
-    const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
+    const allowedExts = ['.jpg', '.jpeg', '.png', '.pdf'];
+    const allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
     const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) return cb(null, true);
-    cb(new Error('仅支持 JPG / PNG / PDF 格式'));
+    // v16.8.3: 同时检查扩展名和 MIME，兼容 PDF
+    if (allowedExts.includes(ext) || allowedMimes.includes(file.mimetype)) return cb(null, true);
+    cb(new Error(`不支持的文件格式: ${ext} / ${file.mimetype}，仅支持 JPG/PNG/PDF`));
   },
 });
 
@@ -8938,23 +8940,61 @@ app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'),
 });
 
 // ══════════════════════════════════════════════════════════════
-// v16.5: 发票全字段智能识别 — Base64 上传 + AI 视觉提取
+// v16.8.2: 发票全字段智能识别 — 后端 pdfjs-dist 解析 PDF + AI 双模式
+// 完全复刻打印分摊 /api/print/ocr-invoice 的成功方案
 // ══════════════════════════════════════════════════════════════
-app.post('/api/finance/invoice-ocr', authMiddleware, async (req, res) => {
+app.post('/api/finance/invoice-ocr', authMiddleware, (req, res, next) => {
+  console.log('📥 [DEBUG v16.8.4] 请求已到达发票路由');
+  console.log('📥 [DEBUG] Content-Type:', req.headers['content-type']);
+  console.log('📥 [DEBUG] invoiceUpload 是否可用:', typeof invoiceUpload, !!invoiceUpload);
+  if (!invoiceUpload) {
+    console.error('❌ [DEBUG] invoiceUpload 为 undefined！');
+    return res.status(500).json({ success: false, error: '服务端 multer 未初始化' });
+  }
   try {
-    const { base64, mimeType, fileName } = req.body;
-    if (!base64) {
-      return res.status(400).json({ success: false, error: '请上传发票图片或 PDF 文件' });
+    invoiceUpload.single('file')(req, res, (err) => {
+      if (err) {
+        console.error('❌ [Invoice全字段] multer 错误:', err.message, '| code:', err.code, '| field:', err.field);
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ success: false, error: '文件过大，最大支持 50MB' });
+        }
+        return res.status(400).json({ success: false, error: err.message || '文件上传失败' });
+      }
+      console.log('📥 [DEBUG] multer 解析完成, req.file:', req.file ? '存在' : 'undefined');
+      next();
+    });
+  } catch (syncErr) {
+    console.error('❌ [Invoice全字段] multer 同步异常:', syncErr);
+    return res.status(500).json({ success: false, error: '服务端解析异常: ' + syncErr.message });
+  }
+}, async (req, res) => {
+  try {
+    console.log('📥 [Invoice全字段] 收到文件:', req.file ? req.file.originalname : '无文件',
+      '| MIME:', req.file ? req.file.mimetype : 'N/A',
+      '| size:', req.file ? (req.file.size / 1024).toFixed(1) + 'KB' : 'N/A');
+    console.log('📥 [Invoice全字段] Content-Type:', req.headers['content-type']);
+    console.log('📥 [Invoice全字段] req.body keys:', Object.keys(req.body || {}));
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: '未收到文件。请确认表单字段名为"file"，Content-Type 为 multipart/form-data',
+        detail: { contentType: req.headers['content-type'], bodyKeys: Object.keys(req.body || {}) },
+      });
     }
 
+    console.log('🔍 [Invoice全字段] API Key 是否存在:', !!DASHSCOPE_API_KEY, '| 前缀:', DASHSCOPE_API_KEY ? DASHSCOPE_API_KEY.slice(0, 6) + '...' : '(空)');
+    console.log('🔍 [Invoice全字段] process.env.DASHSCOPE_API_KEY:', !!process.env.DASHSCOPE_API_KEY);
     if (!DASHSCOPE_API_KEY) {
+      console.error('❌ [Invoice全字段] DASHSCOPE_API_KEY 未配置，无法调用 AI');
       return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员设置 API Key' });
     }
 
-    const dataUri = `data:${mimeType || 'image/jpeg'};base64,${base64}`;
-    console.log(`🧾 [Invoice全字段] 接收: ${fileName || '未知文件'}, MIME: ${mimeType || 'image/jpeg'}`);
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const isPdf = ext === '.pdf';
+    console.log(`🧾 [Invoice全字段] 接收: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)${isPdf ? ' [PDF]' : ' [图片]'}`);
 
-    const prompt = `你是一个专业的财务发票识别助手。请提取图片/PDF中发票的所有关键信息，按以下格式输出纯文本：
+    const prompt = `你是一个专业的财务发票识别助手。请提取以下发票的所有关键信息，按格式输出纯文本：
 发票代码：...
 发票号码：...
 开票日期：...
@@ -8974,49 +9014,84 @@ app.post('/api/finance/invoice-ocr', authMiddleware, async (req, res) => {
 1. 只输出能识别到的字段，识别不到的字段输出"未识别"
 2. 不要输出任何解释、前缀或后缀文字
 3. 金额保留两位小数
-4. 如果图片中无发票信息，输出"未检测到有效发票"`;
-
-    console.log('⏳ [Invoice全字段] 正在调用 qwen4-max 视觉模型...');
-    const response = await retryRequest(() => axios.post(
-      DASHSCOPE_VISION_URL,
-      {
-        model: 'qwen4-max',
-        input: {
-          messages: [{
-            role: 'user',
-            content: [
-              { image: dataUri },
-              { text: prompt },
-            ],
-          }],
-        },
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 60000,
-      }
-    ));
-
-    console.log('✅ [Invoice全字段] 视觉模型响应成功');
-    const outputContent = response.data?.output?.choices?.[0]?.message?.content;
-    if (!outputContent) {
-      return res.status(500).json({ success: false, error: 'AI 模型返回数据异常，请重试' });
-    }
+4. 如无发票信息，输出"未检测到有效发票"`;
 
     let resultText = '';
-    if (typeof outputContent === 'string') {
-      resultText = outputContent;
-    } else if (Array.isArray(outputContent)) {
-      resultText = outputContent.map((c) => c.text || '').join('');
+
+    if (isPdf) {
+      // ════ PDF：复用打印分摊的 extractPdfText() → 文本 LLM ════
+      console.log('📄 [Invoice全字段] 后端提取 PDF 文本...');
+      let pdfText;
+      try {
+        pdfText = await extractPdfText(req.file.buffer);
+      } catch (pdfErr) {
+        console.error('❌ [Invoice全字段] PDF 文本提取失败:', pdfErr.message);
+        return res.status(400).json({ success: false, error: 'PDF 解析失败，请确认文件为有效电子发票' });
+      }
+
+      console.log('✅ [Invoice全字段] PDF 文本提取成功，前100字:', pdfText.slice(0, 100));
+      console.log('📝 [Invoice全字段] 全文长度:', pdfText.length, '字符');
+
+      if (pdfText.length < 20) {
+        console.warn('⚠️ [Invoice全字段] 文本过短（<20字符），疑似纯图片扫描件');
+        return res.json({ success: false, message: '⚠️ 检测到纯图片 PDF，请截图后上传' });
+      }
+
+      console.log('⏳ [Invoice全字段] 正在调用文本 LLM 提取全字段...');
+      const fullPrompt = prompt + '\n\n以下是要识别的发票文本内容：\n' + pdfText.slice(0, 8000);
+      resultText = await callAIText(fullPrompt);
+      console.log('✅ [Invoice全字段] 文本 LLM 响应成功');
+    } else {
+      // ════ 图片：qwen4-max 视觉模型 ════
+      const mime = req.file.mimetype || 'image/jpeg';
+      const b64 = req.file.buffer.toString('base64');
+      const dataUri = `data:${mime};base64,${b64}`;
+
+      console.log('⏳ [Invoice全字段] 正在调用 qwen4-max 视觉模型...');
+      const response = await retryRequest(() => axios.post(
+        DASHSCOPE_VISION_URL,
+        {
+          model: 'qwen4-max',
+          input: {
+            messages: [{
+              role: 'user',
+              content: [
+                { image: dataUri },
+                { text: prompt },
+              ],
+            }],
+          },
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 60000,
+        }
+      ));
+
+      console.log('✅ [Invoice全字段] 视觉模型响应成功');
+      const outputContent = response.data?.output?.choices?.[0]?.message?.content;
+      if (!outputContent) {
+        return res.status(500).json({ success: false, error: 'AI 模型返回数据异常，请重试' });
+      }
+
+      if (typeof outputContent === 'string') {
+        resultText = outputContent;
+      } else if (Array.isArray(outputContent)) {
+        resultText = outputContent.map((c) => c.text || '').join('');
+      }
     }
 
     console.log('📝 [Invoice全字段] AI 响应:', resultText.slice(0, 400));
     res.json({ success: true, data: { text: resultText } });
   } catch (err) {
     console.error('❌ [Invoice全字段] 调用失败:', err.message);
+    if (err.response) {
+      console.error('   HTTP 状态:', err.response.status);
+      console.error('   响应体:', JSON.stringify(err.response.data || {}).slice(0, 1000));
+    }
     res.status(500).json({ success: false, error: '发票识别失败: ' + (err.response?.data?.message || err.message) });
   }
 });
@@ -9196,4 +9271,22 @@ ${projectList}
 cron.schedule('0 2 * * *', async () => {
   console.log('⏰ 定时任务启动：全量同步项目数据到钉钉 AI 表格');
   await syncAllProjectsToAITable();
+});
+
+// ══════════════════════════════════════════════════════════════
+// v16.8.4: 全局错误处理器（必须放在所有路由之后）
+// 任何未捕获异常至少打印日志，绝不静默吞掉
+// ══════════════════════════════════════════════════════════════
+app.use((err, req, res, next) => {
+  console.error('❌ [全局错误] 路由:', req.method, req.url);
+  console.error('❌ [全局错误] 消息:', err.message);
+  console.error('❌ [全局错误] 类型:', err.name, '| code:', err.code);
+  console.error('❌ [全局错误] Content-Type:', req.headers['content-type']);
+  console.error('❌ [全局错误] 堆栈:', err.stack);
+  if (res.headersSent) return next(err);
+  res.status(err.status || err.statusCode || 500).json({
+    success: false,
+    error: err.message || '服务器内部错误',
+    detail: { code: err.code, type: err.name },
+  });
 });

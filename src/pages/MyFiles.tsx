@@ -45,7 +45,7 @@ export default function MyFiles() {
   // v14.2: Office 文档预览弹窗
   const [officePreview, setOfficePreview] = useState<{ docId: number; fileName: string } | null>(null);
 
-  // v16.7: 上传中止机制
+  // v16.8.5: 上传中止机制
   const abortRef = useRef(false);
   const ossClientRef = useRef<any>(null);
   const checkpointRef = useRef<{ name: string; uploadId: string } | null>(null);
@@ -73,7 +73,7 @@ export default function MyFiles() {
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
   // ════════════════════════════════════════════════════════
-  // v16.7: 上传中页面离开拦截
+  // v16.8.5: 上传中页面离开拦截
   // ════════════════════════════════════════════════════════
   useEffect(() => {
     (window as any).__isUploading = uploading;
@@ -87,7 +87,7 @@ export default function MyFiles() {
     return () => { window.removeEventListener('beforeunload', handler); };
   }, [uploading]);
 
-  // v16.7: 组件卸载时强制中止 OSS 上传
+  // v16.8.5: 组件卸载时强制中止 OSS 上传
   useEffect(() => {
     return () => {
       if (abortRef.current || uploading) {
@@ -118,14 +118,14 @@ export default function MyFiles() {
   });
 
   // ════════════════════════════════════════════════════════
-  // v16.7: OSS 直传 — STS 凭证 + 分片上传 + 进度条
+  // v16.8.5: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请选择文件'); return; }
 
     console.log('🚀 [个人KB上传] 开始上传，文件大小:', selectedFile.size, '字节 (', formatSize(selectedFile.size), ')');
 
-    // v16.7: 重置中止标记
+    // v16.8.5: 重置中止标记
     abortRef.current = false;
     ossClientRef.current = null;
     checkpointRef.current = null;
@@ -135,7 +135,7 @@ export default function MyFiles() {
     setUploadFileName(selectedFile.name);
 
     try {
-      // v16.7: 检查是否已被中止
+      // v16.8.5: 检查是否已被中止
       if (abortRef.current) { console.log('🛑 [个人KB上传] 已被中止，跳过'); return; }
       // 1. 获取 STS 临时凭证
       console.log('🔄 [个人KB上传] 正在获取 STS 临时凭证...');
@@ -161,7 +161,7 @@ export default function MyFiles() {
         secure: true,
       });
       console.log('📦 [个人KB上传] OSS 实例已创建');
-      ossClientRef.current = client; // v16.7: 保存引用用于中止
+      ossClientRef.current = client; // v16.8.5: 保存引用用于中止
 
       // 3. 生成 OSS 存储路径
       const now = new Date();
@@ -175,9 +175,9 @@ export default function MyFiles() {
       const startTime = Date.now();
       await client.multipartUpload(ossKey, selectedFile, {
         progress: (p: number, cp: any) => {
-          // v16.7: 保存 checkpoint 用于中止
+          // v16.8.5: 保存 checkpoint 用于中止
           if (cp && cp.uploadId) checkpointRef.current = { name: ossKey, uploadId: cp.uploadId };
-          // v16.7: 检查中止信号
+          // v16.8.5: 检查中止信号
           if (abortRef.current) throw new Error('__ABORTED__');
           const pct = Math.floor(p * 100);
           console.log('📈 [个人KB上传] 上传进度:', pct + '%');
@@ -342,7 +342,7 @@ export default function MyFiles() {
             <p className="text-xs text-slate-500 mt-0.5">个人文档存储 · 随时演示调取</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v16.7</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono font-medium border border-violet-100">v16.8.5</span>
           </div>
         </div>
       </div>
@@ -401,7 +401,7 @@ export default function MyFiles() {
             )}
           </div>
 
-          {/* v16.7: OSS 上传进度条 */}
+          {/* v16.8.5: OSS 上传进度条 */}
           {uploading && uploadFileName && (
             <div className="mt-4 w-full">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
