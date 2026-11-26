@@ -83,11 +83,6 @@ export default function MyFiles() {
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请选择文件'); return; }
-    // v13.4: 前端拦截超过 50MB 的文件
-    if (selectedFile.size > 50 * 1024 * 1024) {
-      toast.error('文件大小超过 50MB，请压缩后再试');
-      return;
-    }
 
     setUploading(true);
     try {
@@ -284,7 +279,7 @@ export default function MyFiles() {
                 <p className="text-sm text-slate-600">
                   <span className="font-medium text-violet-600">点击选择</span> 或拖拽文件到此处
                 </p>
-                <p className="text-xs text-slate-400">不限格式，单文件最大 50MB</p>
+                <p className="text-xs text-slate-400">不限格式，大文件自动分片上传</p>
               </div>
             )}
           </div>

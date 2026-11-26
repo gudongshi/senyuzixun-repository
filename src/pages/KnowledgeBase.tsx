@@ -152,11 +152,6 @@ export default function KnowledgeBase() {
   const handleUpload = async () => {
     // 校验必填项
     if (!selectedFile) { toast.error('请先选择文件'); return; }
-    // v13.4: 前端拦截超过 50MB 的文件
-    if (selectedFile.size > 50 * 1024 * 1024) {
-      toast.error('文件大小超过 50MB，请压缩后再试。（提示：如为 PPT 等大文件，请检查是否有高清图片）');
-      return;
-    }
     if (!category) { toast.error('请选择业务大类'); return; }
     if (!docType) { toast.error('请选择文档类型'); return; }
     if (!securityLevel) { toast.error('请选择密级'); return; }
@@ -511,7 +506,7 @@ export default function KnowledgeBase() {
                   {' '}或拖拽文件到此处
                 </p>
                 <p className="text-xs text-slate-400">
-                  支持 PDF / Word / Excel / PPT / TXT，单文件最大 50MB
+                  支持 PDF / Word / Excel / PPT / TXT，大文件自动分片上传
                 </p>
               </div>
             )}
