@@ -7525,7 +7525,7 @@ async function getEmbedding(text) {
     {
       model: 'text-embedding-v4',
       input: { texts: [text] },
-      parameters: { text_type: 'document' },
+      parameters: { text_type: 'document', dimensions: 1536 },
     },
     {
       headers: {
@@ -7539,6 +7539,9 @@ async function getEmbedding(text) {
   const embedding = response.data?.output?.embeddings?.[0]?.embedding;
   if (!embedding || !Array.isArray(embedding)) {
     throw new Error('Embedding 返回格式异常: ' + JSON.stringify(response.data));
+  }
+  if (embedding.length !== 1536) {
+    throw new Error(`Embedding 维度不匹配: 期望 1536, 实际 ${embedding.length}`);
   }
   console.log(`✅ [Embedding] 向量化完成: ${embedding.length} 维`);
   return embedding;
