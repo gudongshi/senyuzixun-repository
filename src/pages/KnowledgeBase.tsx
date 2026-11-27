@@ -49,7 +49,6 @@ interface KbDocument {
   status: '待审核' | '已打回' | '已入库';
   vectorize_status?: 'pending' | 'done' | 'failed';
   created_at: string;
-  vectorized_at?: string;
 }
 
 // ============================================================
@@ -579,7 +578,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v17.1.2</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v17.1.4</span>
           </div>
         </div>
       </div>

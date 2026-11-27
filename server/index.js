@@ -7701,7 +7701,7 @@ async function vectorizeDocument(docId) {
   }
 
   // 5. 更新文档状态为已完成
-  await client.from('kb_documents').update({ vectorize_status: 'done', vectorized_at: new Date().toISOString() }).eq('id', docId);
+  await client.from('kb_documents').update({ vectorize_status: 'done' }).eq('id', docId);
 
   console.log(`✅ [向量化] 文档 ${doc.file_name}: ${inserted}/${chunks.length} 切片入库`);
   return { totalChunks: chunks.length, inserted, documentId: parseInt(docId) };

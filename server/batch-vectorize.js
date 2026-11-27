@@ -75,12 +75,12 @@ function callVectorize(docId) {
 }
 
 async function main() {
-  console.log('🚀 v17.1 批量向量化脚本启动\n');
+  console.log('🚀 v17.1.4 批量向量化脚本启动\n');
 
-  // 1. 查询所有"已入库"文档（不限状态码，包括可能已有 vectorized_at 的）
+  // 1. 查询所有"已入库"文档（按 vectorize_status 判断是否已向量化）
   const { data: docs, error } = await supabase
     .from('kb_documents')
-    .select('id, file_name, status, vectorized_at')
+    .select('id, file_name, status, vectorize_status')
     .eq('status', '已入库')
     .order('id', { ascending: true });
 
@@ -94,9 +94,9 @@ async function main() {
     process.exit(0);
   }
 
-  // 筛选出尚未向量化的（没有 vectorized_at 的）
-  const pending = docs.filter(d => !d.vectorized_at);
-  const alreadyVec = docs.filter(d => !!d.vectorized_at);
+  // 筛选出尚未向量化的（vectorize_status 不是 'done'）
+  const pending = docs.filter(d => d.vectorize_status !== 'done');
+  const alreadyVec = docs.filter(d => d.vectorize_status === 'done');
 
   console.log(`📊 已入库文档: ${docs.length} 篇`);
   console.log(`   ✅ 已向量化: ${alreadyVec.length} 篇`);
