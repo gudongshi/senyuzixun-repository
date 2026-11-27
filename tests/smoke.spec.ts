@@ -10,8 +10,7 @@ const COOKIE_VALUE = 'dev-mock-token';
 
 test.describe('森宇集团项目指挥大屏 — 冒烟测试', () => {
   test('侧边栏导航 → 合同提取页面渲染正常', async ({ page }) => {
-    // ── Step 1: 注入 mock cookie 绕过钉钉登录 ──
-    await page.goto('http://localhost:5173');
+    // ── Step 1: 先注入 mock cookie，再导航（顺序关键） ──
     await page.context().addCookies([
       {
         name: COOKIE_NAME,
@@ -22,6 +21,7 @@ test.describe('森宇集团项目指挥大屏 — 冒烟测试', () => {
     ]);
 
     // ── Step 2: 导航到项目管理后台 ──
+    // DEV 环境下 AuthGate 的 useDevMock() 会在 /api/dingtalk/me 失败时自动注入 mock 用户
     await page.goto('http://localhost:5173/project-manager', {
       waitUntil: 'networkidle',
     });
