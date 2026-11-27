@@ -7543,7 +7543,12 @@ async function getEmbedding(text) {
   if (embedding.length !== 1536) {
     throw new Error(`Embedding 维度不匹配: 期望 1536, 实际 ${embedding.length}`);
   }
-  console.log(`✅ [Embedding] 向量化完成: ${embedding.length} 维`);
+  const nonZero = embedding.filter(v => v !== 0).length;
+  const sumAbs = embedding.reduce((s, v) => s + Math.abs(v), 0);
+  console.log(`✅ [Embedding] 向量化完成: ${embedding.length} 维, 非零值: ${nonZero}, 绝对值之和: ${sumAbs.toFixed(2)}`);
+  if (nonZero < 10 || sumAbs < 1) {
+    console.warn(`⚠️ [Embedding] 警告: 向量疑似退化（非零值=${nonZero}, sumAbs=${sumAbs.toFixed(2)}）`);
+  }
   return embedding;
 }
 
@@ -7752,6 +7757,7 @@ async function vectorizeDocument(docId) {
 
   // 3. 切片
   const chunks = chunkText(fullText, 500);
+  console.log(`🔍 [诊断-切片] 共 ${chunks.length} 片, 第1片前100字: "${chunks[0]?.content?.slice(0, 100)}"`);
 
   // 4. 逐片 embedding + 入库（先清旧数据）
   await client.from('kb_chunks').delete().eq('document_id', docId);
@@ -7814,20 +7820,26 @@ app.post('/api/kb/ask', authMiddleware, async (req, res) => {
     // 1. 向量化用户提问
     const questionEmbedding = await getEmbedding(question.trim());
 
-    // 2. RPC 检索 Top 5 相关切片（v17.1: 非高管自动排除机密文档）
+    // 2. RPC 检索 Top 5 相关切片（v17.1.9: 阈值降至 0.2 提升召回）
     const { data: chunks, error: rpcErr } = await client.rpc('match_kb_chunks', {
       query_embedding: questionEmbedding,
-      match_threshold: 0.3,
+      match_threshold: 0.2,
       match_count: 5,
       exclude_confidential: !isExecutive,
     });
+    console.log(`🔍 [诊断-RAG] RPC 检索结果: ${chunks?.length || 0} 条`);
+    if (chunks && chunks.length > 0) {
+      chunks.forEach((c, i) => console.log(`🔍 [诊断-RAG]   [${i}] docId=${c.document_id} sim=${(c.similarity*100).toFixed(1)}% 前80字="${c.content?.slice(0,80)}"`));
+    } else {
+      console.warn('⚠️ [诊断-RAG] 检索结果为空！可能原因: 阈值过高 / 无相关文档 / embedding 维度不对');
+    }
 
     if (rpcErr) {
       // v17.1: 如果 RPC 函数尚未更新，降级到旧版本（不带密级过滤）
       console.warn('⚠️ [RAG] 新版 RPC 调用失败，尝试旧版:', rpcErr.message);
       const { data: fallbackChunks, error: fallbackErr } = await client.rpc('match_kb_chunks', {
         query_embedding: questionEmbedding,
-        match_threshold: 0.3,
+        match_threshold: 0.2,
         match_count: 5,
       });
       if (fallbackErr) {
