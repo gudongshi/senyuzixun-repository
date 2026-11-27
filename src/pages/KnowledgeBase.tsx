@@ -7,7 +7,7 @@ import {
   Eye, Trash2, Upload, FileText, Loader2, X,
   BookOpen, Search, RefreshCw, Download, File,
   CheckCircle, Ban, Send, AlertTriangle, ShieldAlert,
-  ListFilter, Clock,
+  ListFilter, Clock, Sparkles, MessageSquare, Zap,
 } from 'lucide-react';
 
 // ============================================================
@@ -16,7 +16,7 @@ import {
 const CATEGORIES = ['监理', '造价', '招标代理', '综合'] as const;
 const DOC_TYPES = ['规范', '制度', '模板', '报告', '其他'] as const;
 const SECURITY_LEVELS = ['公开', '内部', '机密'] as const;
-const DEPARTMENTS = ['数智部', '监理部', '造价部', '招标代理部', '市场部', '行政部', '财务部'] as const;
+const DEPARTMENTS = ['数智部', '工程部', '造价部', '招标代理部', '市场部', '行政部', '财务部'] as const;
 
 /**
  * v12.2 文件名规范（修复全角/半角误杀）：
@@ -47,7 +47,9 @@ interface KbDocument {
   experience_strategy?: string;
   experience_motto?: string;
   status: '待审核' | '已打回' | '已入库';
+  vectorize_status?: 'pending' | 'done' | 'failed';
   created_at: string;
+  vectorized_at?: string;
 }
 
 // ============================================================
@@ -111,6 +113,12 @@ export default function KnowledgeBase() {
 
   // v14.2: Office 文档预览弹窗
   const [officePreview, setOfficePreview] = useState<{ docId: number; fileName: string } | null>(null);
+
+  // v17.0: 知识库智能问答
+  const [ragQuestion, setRagQuestion] = useState('');
+  const [ragAnswer, setRagAnswer] = useState('');
+  const [ragLoading, setRagLoading] = useState(false);
+  const [ragSources, setRagSources] = useState<{ documentId: number; content: string; similarity: number }[]>([]);
 
   // ════════════════════════════════════════════════════════
   // 数据加载
@@ -389,6 +397,26 @@ export default function KnowledgeBase() {
   };
 
   // ════════════════════════════════════════════════════════
+  // v17.1.1: 重试向量化
+  // ════════════════════════════════════════════════════════
+  const handleRetryVectorize = async (id: number, fileName: string) => {
+    if (!window.confirm(`确定要对「${fileName}」重新执行向量化吗？`)) return;
+    toast.info('向量化任务已提交，请稍候刷新查看状态');
+    try {
+      const resp = await fetch(`/api/kb/${id}/vectorize`, { method: 'POST' });
+      const json = await resp.json();
+      if (json.success) {
+        toast.success(`向量化完成: ${json.data.inserted} 个切片入库`);
+        loadDocuments();
+      } else {
+        toast.error('向量化失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      toast.error('向量化异常: ' + (err.message || '无法连接服务器'));
+    }
+  };
+
+  // ════════════════════════════════════════════════════════
   // 删除
   // ════════════════════════════════════════════════════════
   const handleDelete = async (id: number) => {
@@ -405,6 +433,40 @@ export default function KnowledgeBase() {
       }
     } catch (err: any) {
       toast.error('删除异常: ' + (err.message || '无法连接服务器'));
+    }
+  };
+
+  // ════════════════════════════════════════════════════════
+  // v17.1.1: 知识库智能问答（RAG）
+  // ════════════════════════════════════════════════════════
+  const handleAsk = async () => {
+    if (!ragQuestion.trim()) { toast.error('请输入问题'); return; }
+    if (ragLoading) return;
+
+    setRagLoading(true);
+    setRagAnswer('');
+    setRagSources([]);
+    const q = ragQuestion.trim();
+
+    try {
+      const resp = await fetch('/api/kb/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q }),
+      });
+      const json = await resp.json();
+      if (json.success && json.data) {
+        setRagAnswer(json.data.answer || '');
+        setRagSources(json.data.sources || []);
+      } else {
+        toast.error('问答失败: ' + (json.error || '未知错误'));
+        setRagAnswer('抱歉，智能问答服务暂时不可用，请稍后再试。');
+      }
+    } catch (err: any) {
+      toast.error('问答异常: ' + (err.message || '无法连接服务器'));
+      setRagAnswer('抱歉，智能问答服务暂时不可用，请稍后再试。');
+    } finally {
+      setRagLoading(false);
     }
   };
 
@@ -517,8 +579,90 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.14</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v17.1.1</span>
           </div>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* v17.0: 💬 知识库智能问答 */}
+      {/* ════════════════════════════════════════════════════════ */}
+      <div className="px-4 md:px-6 py-4 bg-gradient-to-r from-indigo-50 via-white to-purple-50 border-b border-indigo-100">
+        <div className="max-w-[1400px]">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="size-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+              <Sparkles size={14} className="text-indigo-600" />
+            </div>
+            <span className="text-sm font-semibold text-indigo-800">💬 知识库智能问答</span>
+            <span className="text-[10px] text-indigo-400 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">RAG · AI</span>
+          </div>
+
+          {/* 输入区 */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <MessageSquare size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-300" />
+              <input
+                type="text"
+                className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-indigo-200 text-sm text-slate-700
+                           placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/10
+                           transition-all"
+                placeholder="向知识库提问，如：建设工程监理规范中关于隐蔽工程验收的要求是什么？"
+                value={ragQuestion}
+                onChange={e => setRagQuestion(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAsk(); } }}
+                disabled={ragLoading}
+              />
+            </div>
+            <button
+              onClick={handleAsk}
+              disabled={ragLoading || !ragQuestion.trim()}
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium
+                         hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed
+                         transition-all flex items-center gap-1.5 shadow-sm shadow-indigo-200 shrink-0"
+            >
+              {ragLoading ? (
+                <><Loader2 size={15} className="animate-spin" /> 思考中…</>
+              ) : (
+                <><Zap size={15} /> 提问</>
+              )}
+            </button>
+          </div>
+
+          {/* 回答区 */}
+          {ragAnswer && (
+            <div className="mt-4 bg-white rounded-xl border border-slate-200 p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="flex items-start gap-3">
+                <div className="size-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles size={14} className="text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{ragAnswer}</p>
+
+                  {/* 参考来源 */}
+                  {ragSources.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-[11px] font-medium text-slate-400 mb-2">📎 参考来源（知识库切片）</p>
+                      <div className="space-y-1.5">
+                        {ragSources.map((src, i) => (
+                          <div key={i} className="flex items-start gap-2 text-[11px]">
+                            <span className="shrink-0 mt-0.5 w-4 h-4 rounded bg-indigo-50 text-indigo-500 flex items-center justify-center text-[10px] font-mono font-bold border border-indigo-100">
+                              {i + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-slate-500 line-clamp-2 leading-relaxed">{src.content}</p>
+                              <span className="text-indigo-400 mt-0.5 inline-block">
+                                相似度 {(src.similarity * 100).toFixed(0)}% · 文档 #{src.documentId}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -874,6 +1018,21 @@ export default function KnowledgeBase() {
                                 title={doc.reject_reason}
                               >
                                 💬 {doc.reject_reason}
+                              </span>
+                            )}
+                            {/* v17.1.1: 向量化状态提示 */}
+                            {isApproved && doc.vectorize_status === 'failed' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRetryVectorize(doc.id, doc.file_name); }}
+                                className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-100 transition-colors"
+                                title="向量化失败，点击重试"
+                              >
+                                ⚠️ 向量化失败（重试）
+                              </button>
+                            )}
+                            {isApproved && doc.vectorize_status === 'pending' && (
+                              <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                ⏳ 向量化中…
                               </span>
                             )}
                           </div>

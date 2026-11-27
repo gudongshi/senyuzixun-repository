@@ -7370,6 +7370,26 @@ app.put('/api/kb/documents/:id/approve', authMiddleware, async (req, res) => {
     }
 
     console.log(`✅ [kb] 文档已入库: ID=${id} | ${updated.file_name}`);
+
+    // v17.1.1: 入库后异步触发向量化（不阻塞 HTTP 响应 + 异常捕获 + 状态标记）
+    const client2 = supabaseAdmin || supabase;
+    vectorizeDocument(parseInt(id)).then(
+      r => {
+        console.log(`🤖 [kb] 自动向量化完成: ${updated.file_name}, ${r.inserted}/${r.totalChunks} 切片`);
+        client2.from('kb_documents').update({ vectorize_status: 'done' }).eq('id', id)
+          .then(() => {}, () => {});
+      },
+      e => {
+        console.error(`❌ [kb] 自动向量化失败: ${updated.file_name} →`, e.message);
+        client2.from('kb_documents').update({ vectorize_status: 'failed' }).eq('id', id)
+          .then(() => {}, () => {});
+      }
+    ).catch(err => {
+      console.error(`❌ [kb] 异步向量化未捕获异常 id=${id}:`, err);
+      client2.from('kb_documents').update({ vectorize_status: 'failed' }).eq('id', id)
+        .then(() => {}, () => {});
+    });
+
     res.json({ success: true, data: updated });
   } catch (err) {
     console.error('❌ [kb] 审批入库异常:', err.message);
@@ -7486,6 +7506,330 @@ app.delete('/api/kb/documents/:id', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('❌ [kb] 删除文档异常:', err.message);
     res.status(500).json({ success: false, error: '删除文档失败' });
+  }
+});
+
+// ============================================================
+// v17.0: 知识库 RAG — Embedding + 切片 + 向量检索 + 智能问答
+// ============================================================
+
+const DASHSCOPE_EMBEDDING_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
+
+/**
+ * getEmbedding — 调用阿里云 DashScope text-embedding-v4，返回 1536 维向量
+ */
+async function getEmbedding(text) {
+  console.log(`🔢 [Embedding] 开始向量化: ${text.length} 字符 → "${text.slice(0, 60)}..."`);
+  const response = await retryRequest(() => axios.post(
+    DASHSCOPE_EMBEDDING_URL,
+    {
+      model: 'text-embedding-v4',
+      input: { texts: [text] },
+      parameters: { text_type: 'document' },
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+    }
+  ));
+
+  const embedding = response.data?.output?.embeddings?.[0]?.embedding;
+  if (!embedding || !Array.isArray(embedding)) {
+    throw new Error('Embedding 返回格式异常: ' + JSON.stringify(response.data));
+  }
+  console.log(`✅ [Embedding] 向量化完成: ${embedding.length} 维`);
+  return embedding;
+}
+
+/**
+ * chunkText — 按 maxChars 切割文本，尽量在句号/换行处断句
+ */
+function chunkText(text, maxChars = 500) {
+  const chunks = [];
+  let remaining = text.trim();
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChars) {
+      chunks.push(remaining.trim());
+      break;
+    }
+    // 在 maxChars 范围内找最后一个断句点
+    let cutAt = maxChars;
+    const slice = remaining.slice(0, maxChars);
+    const lastPeriod = Math.max(slice.lastIndexOf('。'), slice.lastIndexOf('？'), slice.lastIndexOf('！'), slice.lastIndexOf('\n'));
+    if (lastPeriod > maxChars * 0.3) {
+      cutAt = lastPeriod + 1;
+    }
+    chunks.push(remaining.slice(0, cutAt).trim());
+    remaining = remaining.slice(cutAt).trim();
+  }
+  console.log(`📄 [切片] ${text.length} 字符 → ${chunks.length} 个切片`);
+  return chunks;
+}
+
+/**
+ * extractDocumentText — 下载文档并提取纯文本
+ * 支持 PDF（pdfjs-dist）、DOCX（mammoth）、TXT
+ */
+async function extractDocumentText(doc) {
+  const client = supabaseAdmin || supabase;
+  if (!supabaseAdmin) throw new Error('Service Role 未配置');
+
+  const fileUrl = doc.file_url || doc.storage_path || '';
+  if (!fileUrl) throw new Error('文档无 file_url，无法提取文本');
+
+  let fileBuffer;
+  let contentType = '';
+
+  // 判断是否 OSS 直传
+  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+    // OSS 或 Supabase Storage 公开 URL
+    console.log(`📥 [文本提取] 下载: ${fileUrl}`);
+    const resp = await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 60000 });
+    fileBuffer = Buffer.from(resp.data);
+    contentType = resp.headers['content-type'] || '';
+  } else if (fileUrl.startsWith('personal_kb/') || fileUrl.startsWith('kb_documents/') || fileUrl.startsWith('oa_attachments/')) {
+    // OSS key — 尝试生成签名 URL
+    console.log(`📥 [文本提取] OSS key: ${fileUrl}`);
+    try {
+      const signResp = await axios.get(`http://localhost:${PORT}/api/kb/documents/${doc.id}/preview`, {
+        headers: { Cookie: `token=${process.env.TEST_TOKEN || ''}` },
+        timeout: 10000,
+      });
+      if (signResp.data?.success && signResp.data?.signedUrl) {
+        const dlResp = await axios.get(signResp.data.signedUrl, { responseType: 'arraybuffer', timeout: 60000 });
+        fileBuffer = Buffer.from(dlResp.data);
+      }
+    } catch (e) {
+      console.warn('⚠️ [文本提取] 签名 URL 获取失败，尝试直接读取:', e.message);
+    }
+    if (!fileBuffer) throw new Error('无法获取文档内容');
+  } else {
+    // Supabase Storage path
+    console.log(`📥 [文本提取] Supabase Storage: ${fileUrl}`);
+    const { data: blob, error: dlErr } = await client.storage
+      .from('kb_files')
+      .download(fileUrl);
+    if (dlErr || !blob) throw new Error('下载文件失败: ' + (dlErr?.message || 'blob 为空'));
+    fileBuffer = Buffer.from(await blob.arrayBuffer());
+  }
+
+  const fileName = (doc.file_name || '').toLowerCase();
+  console.log(`📄 [文本提取] 文件大小: ${(fileBuffer.length / 1024).toFixed(1)}KB, 类型: ${fileName}`);
+
+  // PDF
+  if (fileName.endsWith('.pdf')) {
+    const pdfData = new Uint8Array(fileBuffer);
+    const pdf = await getDocument({ data: pdfData }).promise;
+    const textParts = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(' ');
+      textParts.push(pageText);
+    }
+    const fullText = textParts.join('\n');
+    console.log(`📄 [文本提取] PDF: ${pdf.numPages} 页, ${fullText.length} 字符`);
+    return fullText;
+  }
+
+  // DOCX
+  if (fileName.endsWith('.docx')) {
+    try {
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      const text = result.value || '';
+      console.log(`📄 [文本提取] DOCX: ${text.length} 字符`);
+      return text;
+    } catch (e) {
+      console.warn('⚠️ [文本提取] mammoth 失败，回退到原始字符串:', e.message);
+      return fileBuffer.toString('utf-8').slice(0, 50000);
+    }
+  }
+
+  // TXT / 其他 → 直接读 UTF-8
+  const text = fileBuffer.toString('utf-8');
+  console.log(`📄 [文本提取] 纯文本: ${text.length} 字符`);
+  return text;
+}
+
+// v17.1.1: 可复用的文档向量化函数（状态标记 + 异常保护）
+async function vectorizeDocument(docId) {
+  const client = supabaseAdmin || supabase;
+  if (!supabaseAdmin) throw new Error('Service Role 未配置');
+
+  // 标记为处理中
+  await client.from('kb_documents').update({ vectorize_status: 'pending' }).eq('id', docId);
+
+  // 1. 查文档记录
+  const { data: doc, error: findErr } = await client
+    .from('kb_documents')
+    .select('*')
+    .eq('id', docId)
+    .single();
+  if (findErr || !doc) throw new Error('文档不存在: ' + (findErr?.message || 'ID ' + docId));
+
+  // 2. 提取全文
+  const fullText = await extractDocumentText(doc);
+  if (!fullText || fullText.trim().length < 10) throw new Error('文档内容过短，无法向量化');
+
+  // 3. 切片
+  const chunks = chunkText(fullText, 500);
+
+  // 4. 逐片 embedding + 入库（先清旧数据）
+  await client.from('kb_chunks').delete().eq('document_id', docId);
+
+  let inserted = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    if (chunk.trim().length < 5) continue;
+    try {
+      const embedding = await getEmbedding(chunk);
+      const { error: insErr } = await client
+        .from('kb_chunks')
+        .insert({ document_id: parseInt(docId), content: chunk, embedding, chunk_index: i });
+      if (insErr) {
+        console.warn(`⚠️ [向量化] 切片 ${i} 入库失败:`, insErr.message);
+      } else {
+        inserted++;
+      }
+    } catch (e) {
+      console.warn(`⚠️ [向量化] 切片 ${i} embedding 失败:`, e.message);
+    }
+  }
+
+  // 5. 更新文档状态为已完成
+  await client.from('kb_documents').update({ vectorize_status: 'done', vectorized_at: new Date().toISOString() }).eq('id', docId);
+
+  console.log(`✅ [向量化] 文档 ${doc.file_name}: ${inserted}/${chunks.length} 切片入库`);
+  return { totalChunks: chunks.length, inserted, documentId: parseInt(docId) };
+}
+
+// POST /api/kb/:id/vectorize — v17.1: 文档向量化入库（复用 vectorizeDocument）
+app.post('/api/kb/:id/vectorize', authMiddleware, async (req, res) => {
+  try {
+    const result = await vectorizeDocument(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('❌ [向量化] 异常:', err.message);
+    res.status(500).json({ success: false, error: '向量化失败: ' + err.message });
+  }
+});
+
+// POST /api/kb/ask — v17.1: 知识库智能问答（RAG + 密级权限过滤）
+app.post('/api/kb/ask', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Service Role 未配置' });
+
+    const { question } = req.body;
+    if (!question || !question.trim()) {
+      return res.status(400).json({ success: false, error: '请输入问题' });
+    }
+
+    // v17.1: 判断当前用户是否为高管（可查看机密文档）
+    const userId = req.user?.userId || '';
+    const isExecutive = req.user?.roles?.dashboard === true
+      || ALLOWED_USERS_DASHBOARD.includes(userId);
+
+    console.log(`💬 [RAG] 用户提问: "${question.trim()}" | 高管: ${isExecutive} | userId: ${userId}`);
+
+    // 1. 向量化用户提问
+    const questionEmbedding = await getEmbedding(question.trim());
+
+    // 2. RPC 检索 Top 5 相关切片（v17.1: 非高管自动排除机密文档）
+    const { data: chunks, error: rpcErr } = await client.rpc('match_kb_chunks', {
+      query_embedding: questionEmbedding,
+      match_threshold: 0.3,
+      match_count: 5,
+      exclude_confidential: !isExecutive,
+    });
+
+    if (rpcErr) {
+      // v17.1: 如果 RPC 函数尚未更新，降级到旧版本（不带密级过滤）
+      console.warn('⚠️ [RAG] 新版 RPC 调用失败，尝试旧版:', rpcErr.message);
+      const { data: fallbackChunks, error: fallbackErr } = await client.rpc('match_kb_chunks', {
+        query_embedding: questionEmbedding,
+        match_threshold: 0.3,
+        match_count: 5,
+      });
+      if (fallbackErr) {
+        return res.status(500).json({ success: false, error: '向量检索失败: ' + fallbackErr.message });
+      }
+      // 后端安全网：非高管手动过滤机密文档
+      const filtered = isExecutive ? (fallbackChunks || []) : [];
+      if (!isExecutive && fallbackChunks) {
+        const docIds = [...new Set(fallbackChunks.map(c => c.document_id))];
+        const { data: secDocs } = await client
+          .from('kb_documents')
+          .select('id, security_level')
+          .in('id', docIds);
+        const confidentialIds = new Set(
+          (secDocs || []).filter(d => d.security_level === '机密').map(d => d.id)
+        );
+        for (const c of fallbackChunks) {
+          if (!confidentialIds.has(c.document_id)) filtered.push(c);
+        }
+      }
+      console.log(`📊 [RAG] 检索到 ${filtered.length} 个切片（安全网过滤）`);
+
+      const contextText = filtered.map((c, i) =>
+        `【参考资料 ${i + 1}】（相似度: ${(c.similarity * 100).toFixed(1)}%）\n${c.content}`).join('\n\n');
+
+      const prompt = contextText
+        ? `你是一个专业的企业知识库助手。请基于以下参考资料回答用户的问题。如果参考资料不足以回答问题，请明确说明"该问题在现有知识库中未找到充分依据"，不要凭空编造。\n\n参考资料：\n${contextText}\n\n用户问题：${question.trim()}\n\n请用简洁专业的中文回答：`
+        : `你是一个专业的企业知识库助手。用户的提问是："${question.trim()}"。当前知识库中未检索到相关资料，请如实告知用户。`;
+
+      const answer = await callAIText(prompt);
+      return res.json({
+        success: true,
+        data: {
+          question: question.trim(),
+          answer,
+          sources: filtered.map(c => ({
+            documentId: c.document_id,
+            content: c.content,
+            similarity: c.similarity,
+          })),
+        },
+      });
+    }
+
+    console.log(`📊 [RAG] 检索到 ${chunks?.length || 0} 个相关切片`);
+
+    // 3. 拼接 Prompt
+    let contextText = '';
+    if (chunks && chunks.length > 0) {
+      contextText = chunks
+        .map((c, i) => `【参考资料 ${i + 1}】（相似度: ${(c.similarity * 100).toFixed(1)}%）\n${c.content}`)
+        .join('\n\n');
+    }
+
+    const prompt = contextText
+      ? `你是一个专业的企业知识库助手。请基于以下参考资料回答用户的问题。如果参考资料不足以回答问题，请明确说明"该问题在现有知识库中未找到充分依据"，不要凭空编造。\n\n参考资料：\n${contextText}\n\n用户问题：${question.trim()}\n\n请用简洁专业的中文回答：`
+      : `你是一个专业的企业知识库助手。用户的提问是："${question.trim()}"。当前知识库中未检索到相关资料，请如实告知用户。`;
+
+    // 4. 调用大模型生成回答
+    const answer = await callAIText(prompt);
+
+    console.log(`✅ [RAG] 回答生成完成: ${answer.length} 字符`);
+    res.json({
+      success: true,
+      data: {
+        question: question.trim(),
+        answer,
+        sources: (chunks || []).map(c => ({
+          documentId: c.document_id,
+          content: c.content,
+          similarity: c.similarity,
+        })),
+      },
+    });
+  } catch (err) {
+    console.error('❌ [RAG] 问答异常:', err.message);
+    res.status(500).json({ success: false, error: '智能问答失败: ' + err.message });
   }
 });
 
