@@ -99,7 +99,7 @@ export default function KnowledgeBase() {
   const [expStrategy, setExpStrategy] = useState('');
   const [expMotto, setExpMotto] = useState('');
 
-  // v16.8.5: 上传中止机制
+  // v16.11.2: 上传中止机制
   const abortRef = useRef(false);
   const ossClientRef = useRef<any>(null);
   const checkpointRef = useRef<{ name: string; uploadId: string } | null>(null);
@@ -137,7 +137,7 @@ export default function KnowledgeBase() {
   }, [loadDocuments]);
 
   // ════════════════════════════════════════════════════════
-  // v16.8.5: 上传中页面离开拦截
+  // v16.11.2: 上传中页面离开拦截
   // ════════════════════════════════════════════════════════
   useEffect(() => {
     (window as any).__isUploading = uploading;
@@ -151,7 +151,7 @@ export default function KnowledgeBase() {
     return () => { window.removeEventListener('beforeunload', handler); };
   }, [uploading]);
 
-  // v16.8.5: 组件卸载时强制中止 OSS 上传
+  // v16.11.2: 组件卸载时强制中止 OSS 上传
   useEffect(() => {
     return () => {
       if (abortRef.current || uploading) {
@@ -193,7 +193,7 @@ export default function KnowledgeBase() {
   });
 
   // ════════════════════════════════════════════════════════
-  // v16.8.5: OSS 直传 — STS 凭证 + 分片上传 + 进度条
+  // v16.11.2: OSS 直传 — STS 凭证 + 分片上传 + 进度条
   // ════════════════════════════════════════════════════════
   const handleUpload = async () => {
     if (!selectedFile) { toast.error('请先选择文件'); return; }
@@ -220,7 +220,7 @@ export default function KnowledgeBase() {
 
     console.log('🚀 [企业KB上传] 开始上传，文件大小:', selectedFile.size, '字节 (', formatSize(selectedFile.size), ')');
 
-    // v16.8.5: 重置中止标记
+    // v16.11.2: 重置中止标记
     abortRef.current = false;
     ossClientRef.current = null;
     checkpointRef.current = null;
@@ -255,7 +255,7 @@ export default function KnowledgeBase() {
         secure: true,
       });
       console.log('📦 [企业KB上传] OSS 实例已创建');
-      ossClientRef.current = client; // v16.8.5: 保存引用用于中止
+      ossClientRef.current = client; // v16.11.2: 保存引用用于中止
 
       // 3. 生成 OSS 存储路径
       const now = new Date();
@@ -517,7 +517,7 @@ export default function KnowledgeBase() {
             <p className="text-xs text-slate-500 mt-0.5">规范上传 · 审批流转 · 智能检索 · 内部沉淀</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.8.5</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-mono font-medium border border-blue-100">v16.12</span>
           </div>
         </div>
       </div>
@@ -720,7 +720,7 @@ export default function KnowledgeBase() {
             </div>
           </div>
 
-          {/* v16.8.5: OSS 上传进度条 */}
+          {/* v16.11.2: OSS 上传进度条 */}
           {uploading && uploadFileName && (
             <div className="mt-4 w-full">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">

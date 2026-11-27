@@ -14,6 +14,7 @@ import KnowledgeBase from './KnowledgeBase';
 import MyFiles from './MyFiles';
 import OAApproval from './OAApproval';
 import InvoiceExtractor from './InvoiceExtractor';
+import ContractExtractor from './ContractExtractor';
 import ErrorBoundary from '../components/ErrorBoundary';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import StaffQualificationManager from '../components/StaffQualificationManager';
@@ -3405,6 +3406,13 @@ export default function ProjectManager() {
         {activePage === 'invoiceExtractor' && (
           <div className="flex-1 flex flex-col min-h-screen">
             <InvoiceExtractor />
+          </div>
+        )}
+
+        {/* ── 合同提取 v16.10 ── */}
+        {activePage === 'contractExtractor' && (
+          <div className="flex-1 flex flex-col min-h-screen">
+            <ContractExtractor />
           </div>
         )}
 

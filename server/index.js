@@ -8687,12 +8687,13 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
 仅返回 JSON 数组：[{"dept_name": "行政", "bw_pages": 72, "color_pages": 0}]
 不要任何解释文字。`;
 
-    // 调用通义千问视觉模型
-    console.log('⏳ [OCR] 正在调用 qwen4-max 视觉模型...');
+    // 调用通义千问视觉模型（v16.11.2: 低温度防幻觉）
+    console.log('⏳ [OCR] 正在调用 qwen4-max 视觉模型（低温度）...');
     const response = await retryRequest(() => axios.post(
       DASHSCOPE_VISION_URL,
       {
         model: 'qwen4-max',
+        parameters: { temperature: 0.1 },
         input: {
           messages: [{
             role: 'user',
@@ -8786,9 +8787,9 @@ app.post('/api/print/ocr', authMiddleware, ocrUpload.single('file'), async (req,
  */
 async function extractInvoiceAmountFromImage(base64Data, mimeType) {
   const dataUri = `data:${mimeType};base64,${base64Data}`;
-  const prompt = '提取这张发票的价税合计金额，仅返回纯数字。';
+  const prompt = '提取这张发票的价税合计金额，仅返回纯数字。如果图片模糊无法识别，返回【无法识别】，绝对禁止猜测或编造金额。';
 
-  console.log('⏳ [Invoice-OCR] 调用 qwen4-max 视觉模型...');
+  console.log('⏳ [Invoice-OCR] 调用 qwen4-max 视觉模型（低温度）...');
 
   const response = await retryRequest(() => axios.post(
     DASHSCOPE_VISION_URL,
@@ -8803,6 +8804,7 @@ async function extractInvoiceAmountFromImage(base64Data, mimeType) {
           ],
         }],
       },
+      parameters: { temperature: 0.1 },
     },
     {
       headers: {
@@ -8838,6 +8840,54 @@ async function extractPdfText(buffer) {
   const page = await pdf.getPage(1);
   const textContent = await page.getTextContent();
   return textContent.items.map(item => item.str).join('');
+}
+
+// v16.11.1: 扫描件 PDF → 渲染为 JPG（@napi-rs/canvas + pdfjs-dist）
+let canvasModule = null;
+try {
+  canvasModule = require('@napi-rs/canvas');
+  // 注册中文字体 — pdfjs-dist 渲染 PDF 文本需要
+  const { GlobalFonts } = canvasModule;
+  const fontPaths = [
+    { path: 'C:\\Windows\\Fonts\\msyh.ttc',  family: 'Microsoft YaHei' },
+    { path: 'C:\\Windows\\Fonts\\simsun.ttc', family: 'SimSun' },
+    { path: 'C:\\Windows\\Fonts\\simhei.ttf', family: 'SimHei' },
+  ];
+  let registered = 0;
+  for (const fp of fontPaths) {
+    try {
+      const fs = require('fs');
+      if (fs.existsSync(fp.path)) {
+        GlobalFonts.registerFromPath(fp.path, { family: fp.family });
+        GlobalFonts.registerFromPath(fp.path, { family: 'sans-serif' });
+        registered++;
+      }
+    } catch (e) { console.warn('⚠️ [PDF转图] 字体注册失败:', fp.family, e.message); }
+  }
+  console.log(`✅ [PDF转图] @napi-rs/canvas 已加载，注册 ${registered}/${fontPaths.length} 个中文字体`);
+} catch (e) {
+  console.warn('⚠️ [PDF转图] @napi-rs/canvas 不可用:', e.message);
+}
+
+async function renderPdfPageToJpg(buffer, pageNum = 1) {
+  if (!canvasModule) throw new Error('@napi-rs/canvas 未安装');
+  const { createCanvas } = canvasModule;
+  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+  const page = await pdf.getPage(pageNum);
+  // v16.11.2: scale 提升至 3.5，确保文字清晰可辨
+  const viewport = page.getViewport({ scale: 3.5 });
+  const canvas = createCanvas(viewport.width, viewport.height);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  // v16.11.2: 无损 PNG 防止文字细节丢失
+  const pngBuffer = canvas.toBuffer('image/png');
+  console.log(`🖼️ [PDF转图] 第${pageNum}页渲染完成: ${viewport.width}x${viewport.height} → ${(pngBuffer.length / 1024).toFixed(1)}KB PNG`);
+
+  
+  return pngBuffer;
 }
 
 const invoiceUpload = multer({
@@ -8881,8 +8931,18 @@ app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'),
       console.log('📝 [Invoice-OCR] 全文长度:', pdfText.length, '字符');
 
       if (pdfText.length < 20) {
-        console.warn('⚠️ [Invoice-OCR] 文本过短（<20字符），疑似纯图片扫描件');
-        return res.json({ success: false, message: '⚠️ 检测到纯图片 PDF，请截图后上传' });
+        // v16.11: 扫描件 PDF → 自动渲染为 JPG → 视觉模型兜底
+        console.warn('⚠️ [Invoice-OCR] 文本过短（<20字符），触发扫描件转图兜底...');
+        try {
+          const jpgBuffer = await renderPdfPageToJpg(req.file.buffer, 1);
+          const b64 = jpgBuffer.toString('base64');
+          const mime = 'image/jpeg';
+          totalAmount = await extractInvoiceAmountFromImage(b64, mime);
+          console.log('✅ [Invoice-OCR] 扫描件转图成功，金额:', totalAmount);
+        } catch (renderErr) {
+          console.error('❌ [Invoice-OCR] 扫描件转图失败:', renderErr.message);
+          return res.json({ success: false, message: '⚠️ PDF 为纯扫描件且自动转图失败，请截图后上传' });
+        }
       }
 
       // 正则匹配"价税合计"金额
@@ -8940,61 +9000,153 @@ app.post('/api/print/ocr-invoice', authMiddleware, invoiceUpload.single('file'),
 });
 
 // ══════════════════════════════════════════════════════════════
-// v16.8.2: 发票全字段智能识别 — 后端 pdfjs-dist 解析 PDF + AI 双模式
-// 完全复刻打印分摊 /api/print/ocr-invoice 的成功方案
+// v16.9: 通用 OCR 核心 — 文本/图片双模式 + 可自定义 Prompt
 // ══════════════════════════════════════════════════════════════
-app.post('/api/finance/invoice-ocr', authMiddleware, (req, res, next) => {
-  console.log('📥 [DEBUG v16.8.4] 请求已到达发票路由');
-  console.log('📥 [DEBUG] Content-Type:', req.headers['content-type']);
-  console.log('📥 [DEBUG] invoiceUpload 是否可用:', typeof invoiceUpload, !!invoiceUpload);
-  if (!invoiceUpload) {
-    console.error('❌ [DEBUG] invoiceUpload 为 undefined！');
-    return res.status(500).json({ success: false, error: '服务端 multer 未初始化' });
+// ══════════════════════════════════════════════════════════════
+// v16.11.2: Anti-Hallucination 工具
+// ══════════════════════════════════════════════════════════════
+const HALLUCINATION_GUARD = `你是一个严谨的 OCR 识别工具。请提取图片中的内容。
+【极其重要】如果图片模糊、字迹不清，或者图片中不存在用户要求的字段，你必须严格返回【未识别】。
+绝对禁止凭空捏造、猜测或使用常识补全任何公司名称、金额、手机号、日期！`;
+
+async function callVisionStrict(dataUri, prompt) {
+  const fullPrompt = HALLUCINATION_GUARD + '\n\n用户要求提取的字段：' + prompt;
+  console.log('🔒 [Anti-Hallu] 低温度 + 严格 Prompt');
+  const response = await retryRequest(() => axios.post(
+    DASHSCOPE_VISION_URL,
+    {
+      model: 'qwen4-max',
+      input: { messages: [{ role: 'user', content: [{ image: dataUri }, { text: fullPrompt }] }] },
+      parameters: { temperature: 0.1 },
+    },
+    { headers: { 'Authorization': `Bearer ${DASHSCOPE_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 60000 }
+  ));
+  const oc = response.data?.output?.choices?.[0]?.message?.content;
+  if (!oc) throw new Error('AI 模型返回数据异常');
+  return typeof oc === 'string' ? oc : Array.isArray(oc) ? oc.map(c => c.text || '').join('') : '';
+}
+
+function halluGuard(text) {
+  // v16.11.2: 检测幻觉 — 如果模型返回的全是编造数据（非"未识别"且明显不合理），降级为提示
+  if (!text || text.trim().length < 5) return '图片识别失败：模型返回为空。请确认图片清晰度。';
+  // 如果所有字段都是"未识别"或全部相同，说明图片确实模糊
+  const lines = text.split('\n').filter(l => l.trim());
+  const unrecognizedCount = lines.filter(l => l.includes('未识别') || l.includes('无法识别')).length;
+  if (unrecognizedCount >= lines.length * 0.7) {
+    return text + '\n\n⚠️ 提示：大量字段无法识别，图片可能过于模糊。建议使用更高清的原件重新上传。';
   }
-  try {
-    invoiceUpload.single('file')(req, res, (err) => {
-      if (err) {
-        console.error('❌ [Invoice全字段] multer 错误:', err.message, '| code:', err.code, '| field:', err.field);
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({ success: false, error: '文件过大，最大支持 50MB' });
-        }
-        return res.status(400).json({ success: false, error: err.message || '文件上传失败' });
+  return text;
+}
+
+async function ocrExtract(reqFile, prompt) {
+  if (!prompt) throw new Error('缺少提取指令 (prompt)');
+  if (!DASHSCOPE_API_KEY) throw new Error('AI 识别服务未配置');
+
+  const ext = path.extname(reqFile.originalname).toLowerCase();
+  const isPdf = ext === '.pdf';
+  console.log(`🔍 [OCR核心] 文件: ${reqFile.originalname} (${(reqFile.size / 1024).toFixed(1)}KB)${isPdf ? ' [PDF]' : ' [图片]'}`);
+
+  if (isPdf) {
+    console.log('📄 [OCR核心] 后端提取 PDF 文本...');
+    let pdfText;
+    try {
+      pdfText = await extractPdfText(reqFile.buffer);
+    } catch (pdfErr) {
+      throw new Error('PDF 解析失败: ' + pdfErr.message);
+    }
+    console.log('✅ [OCR核心] PDF 文本提取成功，长度:', pdfText.length, '字符');
+
+    if (pdfText.length < 20) {
+      // v16.11: 扫描件 PDF → 自动渲染为 JPG → 视觉模型兜底
+      console.warn('⚠️ [OCR核心] 文本过短（<20字符），触发扫描件转图兜底...');
+      try {
+        const pngBuffer = await renderPdfPageToJpg(reqFile.buffer, 1);
+        const b64 = pngBuffer.toString('base64');
+        const dataUri = `data:image/png;base64,${b64}`;
+        console.log('⏳ [OCR核心] 扫描件 PDF → 调用视觉模型（低温度+严格约束）...');
+        const response = await callVisionStrict(dataUri, prompt);
+        return halluGuard(response);
+      } catch (renderErr) {
+        console.error('❌ [OCR核心] 扫描件转图失败:', renderErr.message);
+        throw new Error('PDF 为纯扫描件，且自动转图失败（' + renderErr.message + '）。请尝试截图后上传图片格式。');
       }
-      console.log('📥 [DEBUG] multer 解析完成, req.file:', req.file ? '存在' : 'undefined');
-      next();
-    });
-  } catch (syncErr) {
-    console.error('❌ [Invoice全字段] multer 同步异常:', syncErr);
-    return res.status(500).json({ success: false, error: '服务端解析异常: ' + syncErr.message });
+    }
+
+    const fullPrompt = prompt + '\n\n以下是要识别的内容：\n' + pdfText.slice(0, 8000);
+    console.log('⏳ [OCR核心] 调用文本 LLM...');
+    return await callAIText(fullPrompt);
+  } else {
+    const mime = reqFile.mimetype || 'image/jpeg';
+    const b64 = reqFile.buffer.toString('base64');
+    const dataUri = `data:${mime};base64,${b64}`;
+    console.log('⏳ [OCR核心] 调用视觉模型（低温度+严格约束）...');
+    const result = await callVisionStrict(dataUri, prompt);
+    return halluGuard(result);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// POST /api/ocr/extract — 通用 OCR 端点（v16.9）
+// FormData: file + prompt  或  JSON: { text, prompt }
+// ══════════════════════════════════════════════════════════════
+app.post('/api/ocr/extract', authMiddleware, (req, res, next) => {
+  if (req.is('multipart/form-data')) {
+    console.log('📥 [OCR通用] FormData 模式');
+    if (!invoiceUpload) return res.status(500).json({ success: false, error: 'multer 未初始化' });
+    try {
+      invoiceUpload.single('file')(req, res, (err) => {
+        if (err) {
+          if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ success: false, error: '文件过大，最大支持 50MB' });
+          return res.status(400).json({ success: false, error: err.message });
+        }
+        next();
+      });
+    } catch (syncErr) {
+      return res.status(500).json({ success: false, error: 'multer 异常: ' + syncErr.message });
+    }
+  } else {
+    next();
   }
 }, async (req, res) => {
   try {
-    console.log('📥 [Invoice全字段] 收到文件:', req.file ? req.file.originalname : '无文件',
-      '| MIME:', req.file ? req.file.mimetype : 'N/A',
-      '| size:', req.file ? (req.file.size / 1024).toFixed(1) + 'KB' : 'N/A');
-    console.log('📥 [Invoice全字段] Content-Type:', req.headers['content-type']);
-    console.log('📥 [Invoice全字段] req.body keys:', Object.keys(req.body || {}));
+    const prompt = req.body?.prompt || req.body?.prompt_;
+    if (!prompt) return res.status(400).json({ success: false, error: '请提供识别指令 (prompt)' });
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: '未收到文件。请确认表单字段名为"file"，Content-Type 为 multipart/form-data',
-        detail: { contentType: req.headers['content-type'], bodyKeys: Object.keys(req.body || {}) },
-      });
+    let resultText;
+
+    if (req.file) {
+      // ══ 文件上传模式：PDF 后端提取 / 图片 Base64 ══
+      resultText = await ocrExtract(req.file, prompt);
+    } else if (req.body?.text) {
+      // ══ 纯文本模式：前端已提取文本 ══
+      console.log('📝 [OCR通用] 文本模式，长度:', req.body.text.length);
+      const fullPrompt = prompt + '\n\n以下是要识别的内容：\n' + req.body.text.slice(0, 8000);
+      resultText = await callAIText(fullPrompt);
+    } else if (req.body?.image) {
+      // ══ Base64 图片模式 ══
+      const dataUri = `data:${req.body.mimeType || 'image/jpeg'};base64,${req.body.image}`;
+      console.log('📷 [OCR通用] Base64 图片模式，长度:', req.body.image.length);
+      resultText = await callVisionStrict(dataUri, prompt);
+      resultText = halluGuard(resultText);
+    } else {
+      return res.status(400).json({ success: false, error: '请上传文件或提供文本/图片数据' });
     }
 
-    console.log('🔍 [Invoice全字段] API Key 是否存在:', !!DASHSCOPE_API_KEY, '| 前缀:', DASHSCOPE_API_KEY ? DASHSCOPE_API_KEY.slice(0, 6) + '...' : '(空)');
-    console.log('🔍 [Invoice全字段] process.env.DASHSCOPE_API_KEY:', !!process.env.DASHSCOPE_API_KEY);
-    if (!DASHSCOPE_API_KEY) {
-      console.error('❌ [Invoice全字段] DASHSCOPE_API_KEY 未配置，无法调用 AI');
-      return res.status(500).json({ success: false, error: 'AI 识别服务未配置，请联系管理员设置 API Key' });
-    }
+    console.log('✅ [OCR通用] 识别完成，结果长度:', resultText?.length || 0);
+    res.json({ success: true, data: { text: resultText } });
+  } catch (err) {
+    console.error('❌ [OCR通用] 失败:', err.message);
+    res.status(500).json({ success: false, error: err.message || '识别失败' });
+  }
+});
 
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    const isPdf = ext === '.pdf';
-    console.log(`🧾 [Invoice全字段] 接收: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)${isPdf ? ' [PDF]' : ' [图片]'}`);
-
-    const prompt = `你是一个专业的财务发票识别助手。请提取以下发票的所有关键信息，按格式输出纯文本：
+// ══════════════════════════════════════════════════════════════
+// POST /api/finance/invoice-ocr — v16.9: 委托至 ocrExtract 核心
+// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// POST /api/finance/invoice-ocr — v16.9: 委托至 ocrExtract 核心
+// ══════════════════════════════════════════════════════════════
+const INVOICE_PROMPT = `你是一个专业的财务发票识别助手。请提取以下发票的所有关键信息，按格式输出纯文本：
 发票代码：...
 发票号码：...
 开票日期：...
@@ -9016,83 +9168,15 @@ app.post('/api/finance/invoice-ocr', authMiddleware, (req, res, next) => {
 3. 金额保留两位小数
 4. 如无发票信息，输出"未检测到有效发票"`;
 
-    let resultText = '';
-
-    if (isPdf) {
-      // ════ PDF：复用打印分摊的 extractPdfText() → 文本 LLM ════
-      console.log('📄 [Invoice全字段] 后端提取 PDF 文本...');
-      let pdfText;
-      try {
-        pdfText = await extractPdfText(req.file.buffer);
-      } catch (pdfErr) {
-        console.error('❌ [Invoice全字段] PDF 文本提取失败:', pdfErr.message);
-        return res.status(400).json({ success: false, error: 'PDF 解析失败，请确认文件为有效电子发票' });
-      }
-
-      console.log('✅ [Invoice全字段] PDF 文本提取成功，前100字:', pdfText.slice(0, 100));
-      console.log('📝 [Invoice全字段] 全文长度:', pdfText.length, '字符');
-
-      if (pdfText.length < 20) {
-        console.warn('⚠️ [Invoice全字段] 文本过短（<20字符），疑似纯图片扫描件');
-        return res.json({ success: false, message: '⚠️ 检测到纯图片 PDF，请截图后上传' });
-      }
-
-      console.log('⏳ [Invoice全字段] 正在调用文本 LLM 提取全字段...');
-      const fullPrompt = prompt + '\n\n以下是要识别的发票文本内容：\n' + pdfText.slice(0, 8000);
-      resultText = await callAIText(fullPrompt);
-      console.log('✅ [Invoice全字段] 文本 LLM 响应成功');
-    } else {
-      // ════ 图片：qwen4-max 视觉模型 ════
-      const mime = req.file.mimetype || 'image/jpeg';
-      const b64 = req.file.buffer.toString('base64');
-      const dataUri = `data:${mime};base64,${b64}`;
-
-      console.log('⏳ [Invoice全字段] 正在调用 qwen4-max 视觉模型...');
-      const response = await retryRequest(() => axios.post(
-        DASHSCOPE_VISION_URL,
-        {
-          model: 'qwen4-max',
-          input: {
-            messages: [{
-              role: 'user',
-              content: [
-                { image: dataUri },
-                { text: prompt },
-              ],
-            }],
-          },
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 60000,
-        }
-      ));
-
-      console.log('✅ [Invoice全字段] 视觉模型响应成功');
-      const outputContent = response.data?.output?.choices?.[0]?.message?.content;
-      if (!outputContent) {
-        return res.status(500).json({ success: false, error: 'AI 模型返回数据异常，请重试' });
-      }
-
-      if (typeof outputContent === 'string') {
-        resultText = outputContent;
-      } else if (Array.isArray(outputContent)) {
-        resultText = outputContent.map((c) => c.text || '').join('');
-      }
-    }
-
-    console.log('📝 [Invoice全字段] AI 响应:', resultText.slice(0, 400));
+app.post('/api/finance/invoice-ocr', authMiddleware, invoiceUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: '请上传发票文件' });
+    console.log(`🧾 [Invoice-OCR] 委托通用核心: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB)`);
+    const resultText = await ocrExtract(req.file, INVOICE_PROMPT);
     res.json({ success: true, data: { text: resultText } });
   } catch (err) {
-    console.error('❌ [Invoice全字段] 调用失败:', err.message);
-    if (err.response) {
-      console.error('   HTTP 状态:', err.response.status);
-      console.error('   响应体:', JSON.stringify(err.response.data || {}).slice(0, 1000));
-    }
-    res.status(500).json({ success: false, error: '发票识别失败: ' + (err.response?.data?.message || err.message) });
+    console.error('❌ [Invoice-OCR] 失败:', err.message);
+    res.status(500).json({ success: false, error: err.message || '发票识别失败' });
   }
 });
 
