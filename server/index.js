@@ -7581,43 +7581,60 @@ async function extractDocumentText(doc) {
   if (!supabaseAdmin) throw new Error('Service Role 未配置');
 
   const fileUrl = doc.file_url || doc.storage_path || '';
-  if (!fileUrl) throw new Error('文档无 file_url，无法提取文本');
+  if (!fileUrl) throw new Error('文档无 file_url / storage_path，无法提取文本');
 
+  const OSS_PREFIXES = ['kb_documents/', 'personal_kb/', 'oa_attachments/'];
+  const isOssKey = OSS_PREFIXES.some(p => fileUrl.startsWith(p));
   let fileBuffer;
-  let contentType = '';
 
-  // 判断是否 OSS 直传
-  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-    // OSS 或 Supabase Storage 公开 URL
-    console.log(`📥 [文本提取] 下载: ${fileUrl}`);
-    const resp = await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 60000 });
-    fileBuffer = Buffer.from(resp.data);
-    contentType = resp.headers['content-type'] || '';
-  } else if (fileUrl.startsWith('personal_kb/') || fileUrl.startsWith('kb_documents/') || fileUrl.startsWith('oa_attachments/')) {
-    // OSS key — 尝试生成签名 URL
-    console.log(`📥 [文本提取] OSS key: ${fileUrl}`);
+  console.log(`📥 [文本提取] 文档ID=${doc.id}, 文件名=${doc.file_name}, 路径=${fileUrl}`);
+
+  // ── OSS 私有桶：用 ali-oss SDK 直接 get ──
+  if (isOssKey && ossClient) {
+    const ossKey = fileUrl.replace(/^\/+/, '');
+    console.log(`📥 [文本提取] OSS SDK get → key: ${ossKey}, bucket: ${ossClient.options.bucket}`);
     try {
-      const signResp = await axios.get(`http://localhost:${PORT}/api/kb/documents/${doc.id}/preview`, {
-        headers: { Cookie: `token=${process.env.TEST_TOKEN || ''}` },
-        timeout: 10000,
-      });
-      if (signResp.data?.success && signResp.data?.signedUrl) {
-        const dlResp = await axios.get(signResp.data.signedUrl, { responseType: 'arraybuffer', timeout: 60000 });
-        fileBuffer = Buffer.from(dlResp.data);
-      }
-    } catch (e) {
-      console.warn('⚠️ [文本提取] 签名 URL 获取失败，尝试直接读取:', e.message);
+      const result = await ossClient.get(ossKey);
+      fileBuffer = result.content;
+      console.log(`📥 [文本提取] OSS SDK 下载成功: ${(fileBuffer.length / 1024).toFixed(1)}KB`);
+    } catch (ossErr) {
+      console.error(`❌ [文本提取] OSS SDK 下载失败:`);
+      console.error(`   错误码: ${ossErr.code || '无'}`);
+      console.error(`   错误消息: ${ossErr.message}`);
+      console.error(`   RequestId: ${ossErr.requestId || '无'}`);
+      console.error(`   OSS Key: ${ossKey}`);
+      throw new Error(`OSS下载失败 [${ossErr.code || 'UNKNOWN'}]: ${ossErr.message}`);
     }
-    if (!fileBuffer) throw new Error('无法获取文档内容');
-  } else {
-    // Supabase Storage path
+  }
+
+  // ── 公开 HTTP/HTTPS URL ──
+  if (!fileBuffer && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'))) {
+    console.log(`📥 [文本提取] HTTP 下载: ${fileUrl}`);
+    try {
+      const resp = await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 60000 });
+      fileBuffer = Buffer.from(resp.data);
+      console.log(`📥 [文本提取] HTTP 下载成功: ${(fileBuffer.length / 1024).toFixed(1)}KB, status=${resp.status}`);
+    } catch (httpErr) {
+      console.error(`❌ [文本提取] HTTP 下载失败: status=${httpErr.response?.status}, message=${httpErr.message}`);
+      throw new Error(`HTTP下载失败 [${httpErr.response?.status || 'NET'}]: ${httpErr.message}`);
+    }
+  }
+
+  // ── Supabase Storage ──
+  if (!fileBuffer) {
     console.log(`📥 [文本提取] Supabase Storage: ${fileUrl}`);
     const { data: blob, error: dlErr } = await client.storage
       .from('kb_files')
       .download(fileUrl);
-    if (dlErr || !blob) throw new Error('下载文件失败: ' + (dlErr?.message || 'blob 为空'));
+    if (dlErr || !blob) {
+      console.error(`❌ [文本提取] Supabase 下载失败: code=${dlErr?.code}, message=${dlErr?.message}`);
+      throw new Error('Supabase下载失败: ' + (dlErr?.message || 'blob 为空'));
+    }
     fileBuffer = Buffer.from(await blob.arrayBuffer());
+    console.log(`📥 [文本提取] Supabase 下载成功: ${(fileBuffer.length / 1024).toFixed(1)}KB`);
   }
+
+  if (!fileBuffer) throw new Error('无法获取文档内容：所有下载方式均失败');
 
   const fileName = (doc.file_name || '').toLowerCase();
   console.log(`📄 [文本提取] 文件大小: ${(fileBuffer.length / 1024).toFixed(1)}KB, 类型: ${fileName}`);

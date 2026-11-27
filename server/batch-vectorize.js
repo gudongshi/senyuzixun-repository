@@ -61,10 +61,12 @@ function callVectorize(docId) {
           if (json.success) {
             resolve(json.data);
           } else {
-            reject(new Error(json.error || '未知错误'));
+            const errDetail = json.error || '未知错误';
+            const errDetails = json.details || '';
+            reject(new Error(errDetail + (errDetails ? ' | ' + errDetails : '')));
           }
         } catch (e) {
-          reject(new Error('JSON 解析失败: ' + body.slice(0, 200)));
+          reject(new Error('JSON 解析失败: ' + body.slice(0, 300)));
         }
       });
     });
