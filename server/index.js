@@ -8321,6 +8321,55 @@ app.put('/api/oa/approvals/:id/reject', authMiddleware, async (req, res) => {
   }
 });
 
+// DELETE /api/oa/approvals/:id — v16.14: 删除审批（仅申请人可删）
+app.delete('/api/oa/approvals/:id', authMiddleware, async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Service Role 未配置' });
+
+    const userId = req.user?.userId || '';
+    const approvalId = req.params.id;
+
+    // 1. 查询审批记录，验证存在性 + 申请人身份
+    const { data: existing, error: findErr } = await client
+      .from('oa_approvals')
+      .select('id, applicant_id, applicant_name')
+      .eq('id', approvalId)
+      .single();
+
+    if (findErr || !existing) {
+      return res.status(404).json({ success: false, error: '审批记录不存在' });
+    }
+    if (existing.applicant_id !== userId) {
+      return res.status(403).json({ success: false, error: '仅申请人可删除自己的审批记录' });
+    }
+
+    // 2. 删除关联附件记录（Supabase 元数据）
+    const { error: attDelErr } = await client
+      .from('oa_attachments')
+      .delete()
+      .eq('approval_id', approvalId);
+    if (attDelErr) {
+      console.warn('⚠️ [OA] 删除附件记录失败:', attDelErr.message);
+    }
+
+    // 3. 删除审批记录
+    const { error: delErr } = await client
+      .from('oa_approvals')
+      .delete()
+      .eq('id', approvalId);
+    if (delErr) {
+      return res.status(500).json({ success: false, error: '删除审批失败: ' + delErr.message });
+    }
+
+    console.log(`🗑️ [OA] 审批已删除: id=${approvalId}, applicant=${existing.applicant_name}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ [OA] 删除审批异常:', err.message);
+    res.status(500).json({ success: false, error: '删除审批失败' });
+  }
+});
+
 // ============================================================
 // 打印费分摊 API
 // ============================================================

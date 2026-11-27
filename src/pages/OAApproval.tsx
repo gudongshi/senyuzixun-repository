@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import {
   FileText, Send, CheckCircle, Ban, Loader2, Plus,
   Clock, UserCheck, ListFilter, ClipboardList,
-  Upload, File, Download, X, Eye,
+  Upload, File, Download, X, Trash2,
 } from 'lucide-react';
 
 // ============================================================
@@ -304,6 +304,29 @@ export default function OAApproval() {
   };
 
   // ════════════════════════════════════════════════════════
+  // v16.14: 删除审批（仅申请人可删）
+  // ════════════════════════════════════════════════════════
+  const handleDelete = async (id: number) => {
+    if (processing) return;
+    if (!window.confirm('⚠️ 确定要删除该审批记录吗？该操作不可逆。')) return;
+    setProcessing(true);
+    try {
+      const resp = await fetch(`/api/oa/approvals/${id}`, { method: 'DELETE' });
+      const json = await resp.json();
+      if (json.success) {
+        toast.success('审批记录已删除');
+        loadApprovals();
+      } else {
+        toast.error('删除失败: ' + (json.error || '未知错误'));
+      }
+    } catch (err: any) {
+      toast.error('删除异常: ' + (err.message || '无法连接服务器'));
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // ════════════════════════════════════════════════════════
   // 状态徽章
   // ════════════════════════════════════════════════════════
   const statusBadge = (status: string) => {
@@ -336,7 +359,7 @@ export default function OAApproval() {
             <p className="text-xs text-slate-500 mt-0.5">审批流管理 · 附件存阿里云 OSS</p>
           </div>
           <div className="ml-auto">
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.13</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-mono font-medium border border-emerald-100">v16.14</span>
           </div>
         </div>
       </div>
@@ -447,7 +470,8 @@ export default function OAApproval() {
                       )}
                     </div>
 
-                    {/* 右侧操作按钮（仅待审批状态显示） */}
+                    {/* 右侧操作按钮 */}
+                    {/* 待审批：通过/驳回 */}
                     {tab === 'pending' && item.status === 'pending' && (
                       <div className="flex items-center gap-2 shrink-0">
                         <button
@@ -469,6 +493,21 @@ export default function OAApproval() {
                         >
                           <Ban size={13} />
                           驳回
+                        </button>
+                      </div>
+                    )}
+                    {/* v16.14: 我发起的 → 删除按钮 */}
+                    {tab === 'mine' && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          disabled={processing}
+                          className="px-3 py-1.5 rounded-lg bg-red-50 text-red-500 text-xs font-medium
+                                     hover:bg-red-100 border border-red-200 transition-colors
+                                     flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <Trash2 size={13} />
+                          删除
                         </button>
                       </div>
                     )}

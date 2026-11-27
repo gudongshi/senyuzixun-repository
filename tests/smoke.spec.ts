@@ -1,6 +1,6 @@
 // ============================================================
-// v16.13: Playwright 轻量级 E2E 冒烟测试
-// 验证核心页面渲染：侧边栏导航 → 合同提取
+// v16.14: Playwright 轻量级 E2E 冒烟测试
+// 验证核心页面渲染：侧边栏导航 → OA 审批 + 合同提取
 // ============================================================
 
 import { test, expect } from '@playwright/test';
@@ -27,22 +27,18 @@ test.describe('森宇集团项目指挥大屏 — 冒烟测试', () => {
     });
 
     // ── Step 3: DEV mock 用户生效后，等待侧边栏渲染 ──
-    // 侧边栏包含导航项，等待"工作台首页"出现作为加载完成的信号
     await page.waitForSelector('text=工作台首页', { timeout: 15000 });
 
-    // ── Step 4: 点击左侧导航栏的"企业知识库" ──
+    // ── Step 4: 点击"企业知识库"──
     await page.click('text=📚 企业知识库');
-    // 等待知识库页面渲染（上传区域出现）
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(800);
 
-    // ── Step 5: 点击左侧导航栏的"合同提取" ──
+    // ── Step 5: 点击"合同提取"──
     await page.click('text=📄 合同提取');
-    // 等待合同提取页面渲染
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(800);
 
-    // ── Step 6: 断言页面标题是否包含"合同关键信息提取" ──
-    const heading = page.locator('text=合同关键信息提取');
-    await expect(heading).toBeVisible({ timeout: 10000 });
+    // ── Step 6: 断言"合同关键信息提取"标题可见 ──
+    await expect(page.locator('text=合同关键信息提取')).toBeVisible({ timeout: 10000 });
 
     // ── Step 7: 截图保存 ──
     await page.screenshot({
@@ -51,5 +47,31 @@ test.describe('森宇集团项目指挥大屏 — 冒烟测试', () => {
     });
 
     console.log('✅ 冒烟测试通过：合同提取页面渲染正常');
+  });
+
+  test('侧边栏导航 → OA 审批页面渲染正常', async ({ page }) => {
+    // ── 注入 cookie 并导航 ──
+    await page.context().addCookies([
+      { name: COOKIE_NAME, value: COOKIE_VALUE, domain: 'localhost', path: '/' },
+    ]);
+    await page.goto('http://localhost:5173/project-manager', { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=工作台首页', { timeout: 15000 });
+
+    // ── 点击"OA 审批"──
+    await page.click('text=📋 OA 审批');
+    await page.waitForTimeout(1000);
+
+    // ── 断言 OA 审批页面核心元素可见 ──
+    await expect(page.getByRole('heading', { name: '📋 OA 审批' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: '我发起的' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: '发起审批' })).toBeVisible({ timeout: 5000 });
+
+    // ── 截图保存 ──
+    await page.screenshot({
+      path: 'test-results/smoke-oa-approval.png',
+      fullPage: true,
+    });
+
+    console.log('✅ 冒烟测试通过：OA 审批页面渲染正常');
   });
 });
