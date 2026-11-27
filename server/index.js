@@ -7650,8 +7650,63 @@ async function extractDocumentText(doc) {
       const pageText = content.items.map(item => item.str).join(' ');
       textParts.push(pageText);
     }
-    const fullText = textParts.join('\n');
+    let fullText = textParts.join('\n');
     console.log(`📄 [文本提取] PDF: ${pdf.numPages} 页, ${fullText.length} 字符`);
+
+    // v17.1.7: 扫描件兜底 — 文本过短说明是图片型 PDF，改用视觉模型 OCR
+    if (fullText.trim().length < 20) {
+      console.log(`🖼️ [PDF-OCR兜底] 文本仅 ${fullText.trim().length} 字符，判定为扫描件，启用视觉模型 OCR`);
+      if (!DASHSCOPE_API_KEY) {
+        console.warn('⚠️ [PDF-OCR兜底] DASHSCOPE_API_KEY 未配置，返回原始短文本');
+        return fullText;
+      }
+
+      const maxPages = Math.min(pdf.numPages, 10);
+      const ocrParts = [];
+      for (let i = 1; i <= maxPages; i++) {
+        try {
+          console.log(`🖼️ [PDF-OCR兜底] 渲染第${i}/${maxPages}页...`);
+          const pngBuffer = await renderPdfPageToJpg(fileBuffer, i);
+          const b64 = pngBuffer.toString('base64');
+          const dataUri = `data:image/png;base64,${b64}`;
+
+          console.log(`⏳ [PDF-OCR兜底] 调用 qwen4-max 识别第${i}页...`);
+          const response = await retryRequest(() => axios.post(
+            DASHSCOPE_VISION_URL,
+            {
+              model: 'qwen4-max',
+              parameters: { temperature: 0.1 },
+              input: {
+                messages: [{
+                  role: 'user',
+                  content: [
+                    { image: dataUri },
+                    { text: '请完整提取这张图片中的所有文字内容，保持段落结构，不要遗漏。如果图片中没有文字，请返回空字符串。' },
+                  ],
+                }],
+              },
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 60000,
+            }
+          ));
+
+          const pageOcrText = response.data?.output?.choices?.[0]?.message?.content || '';
+          console.log(`📄 [PDF-OCR兜底] 第${i}页 OCR: ${pageOcrText.length} 字符`);
+          ocrParts.push(pageOcrText);
+        } catch (pageErr) {
+          console.warn(`⚠️ [PDF-OCR兜底] 第${i}页 OCR 失败:`, pageErr.message);
+        }
+      }
+
+      fullText = ocrParts.join('\n');
+      console.log(`✅ [PDF-OCR兜底] 视觉 OCR 完成: ${maxPages} 页, ${fullText.length} 字符`);
+    }
+
     return fullText;
   }
 
